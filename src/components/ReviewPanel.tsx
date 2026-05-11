@@ -5,7 +5,9 @@ import {
   Folder,
   GitBranch,
   LoaderCircle,
-  MoreHorizontal
+  MoreHorizontal,
+  PanelRight,
+  Plus
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -21,6 +23,7 @@ type ReviewPanelProps = {
   filePreview?: FilePreview | null;
   filePreviewError?: string | null;
   filePreviewLoading?: boolean;
+  onClose?: () => void;
 };
 
 export function ReviewPanel({
@@ -31,7 +34,8 @@ export function ReviewPanel({
   diffRows,
   filePreview,
   filePreviewError,
-  filePreviewLoading
+  filePreviewLoading,
+  onClose
 }: ReviewPanelProps) {
   const activePath = filePreview?.path ?? filePath;
 
@@ -48,12 +52,27 @@ export function ReviewPanel({
     >
       <div className="thin-scrollbar h-full w-[var(--review-content-width)] min-w-[var(--review-content-width)] overflow-auto">
         <div className="sticky top-0 z-10 bg-app-shell/95">
-          <div
-            aria-hidden="true"
-            data-review-content-top-separator
-            className="h-px w-full bg-white/[0.09]"
-          />
-          <div className="flex h-10 items-center justify-between px-4 text-[13px]">
+          <div className="flex h-11 items-center justify-between border-b border-white/[0.09] px-4">
+            <div className="flex items-center gap-2">
+              <button className="inline-flex h-8 items-center gap-2 rounded-lg bg-white/[0.06] px-3 text-[14px] font-semibold text-zinc-200">
+                <FileCode2 size={14} />
+                <span>Review</span>
+              </button>
+              <button className="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70">
+                <Plus size={16} />
+              </button>
+            </div>
+            <div className="flex items-center text-zinc-500">
+              <button
+                className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+                aria-label="Hide inspector"
+                onClick={onClose}
+              >
+                <PanelRight size={15} />
+              </button>
+            </div>
+          </div>
+          <div className="flex h-11 items-center justify-between border-b border-white/[0.09] px-4 text-[13px]">
             <div className="flex items-center gap-2">
               <button className="text-zinc-500">
                 {filePreview || filePreviewLoading || filePreviewError
@@ -75,14 +94,9 @@ export function ReviewPanel({
               <Folder size={14} />
             </div>
           </div>
-          <div
-            aria-hidden="true"
-            data-review-header-separator
-            className="h-px w-full bg-white/[0.09]"
-          />
         </div>
 
-        <div className="grid min-h-[calc(100%-42px)] grid-rows-[auto_minmax(0,1fr)] px-4 py-3">
+        <div className="grid min-h-[calc(100%-88px)] grid-rows-[auto_minmax(0,1fr)] px-4 py-3">
           <div className="mb-2.5 flex items-center justify-between text-[13px] text-zinc-300">
             <span className="truncate">
               {activePath}

@@ -2,6 +2,10 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
+import {
+  updateLocalSessionVisibility,
+  type LocalSessionAction
+} from "../electron/session-loader.js";
 import { ClaudeProvider } from "./providers/claude.js";
 import { CodexProvider } from "./providers/codex.js";
 import { MetaProvider } from "./providers/meta.js";
@@ -228,6 +232,26 @@ export class AgentRuntime {
     }
 
     await this.interrupt(sessionId);
+  }
+
+  updateSessionVisibility(sessionId: string, action: LocalSessionAction) {
+    const session = this.sessions[sessionId];
+
+    if (!session) {
+      throw new Error(`Unknown session ${sessionId}`);
+    }
+
+    updateLocalSessionVisibility(session, action);
+    delete this.sessions[sessionId];
+
+    const snapshot = this.snapshot();
+    this.broadcast({
+      id: randomUUID(),
+      type: "sessions.snapshot",
+      snapshot
+    });
+
+    return snapshot;
   }
 
   resolveApproval(id: string, decision: ApprovalDecision) {
@@ -914,18 +938,27 @@ function truncateText(value: string, limit: number) {
 }
 
 function buildProjects(sessions: Record<string, SessionContent>): Project[] {
-  const providers: SessionProvider[] = ["meta", "claude", "codex"];
+  const byWorkspace = new Map<string, SessionContent[]>();
 
-  return providers
-    .map((provider) => {
-      const providerSessions = Object.values(sessions)
-        .filter((session) => session.provider === provider)
-        .sort((a, b) => Date.parse(b.updatedAt ?? "") - Date.parse(a.updatedAt ?? ""));
+  for (const session of Object.values(sessions)) {
+    const cwd = normalizeCwd(session.cwd);
+    const key = cwd ?? "unknown-workspace";
+
+    byWorkspace.set(key, [...(byWorkspace.get(key) ?? []), session]);
+  }
+
+  return [...byWorkspace.entries()]
+    .map(([key, workspaceSessions]) => {
+      const cwd = key === "unknown-workspace" ? undefined : key;
+      const sortedSessions = workspaceSessions.sort(
+        (a, b) => sessionTimestamp(b) - sessionTimestamp(a)
+      );
 
       return {
-        name: projectName(provider),
-        provider,
-        threads: providerSessions.map((session) => ({
+        id: key,
+        name: cwd ? path.basename(cwd) : "Unknown workspace",
+        cwd,
+        threads: sortedSessions.map((session) => ({
           id: session.id,
           name: session.title,
           age: relativeAge(session.updatedAt),
@@ -935,7 +968,7 @@ function buildProjects(sessions: Record<string, SessionContent>): Project[] {
         }))
       };
     })
-    .filter((project) => project.threads.length > 0);
+    .sort((a, b) => latestProjectTimestamp(b, sessions) - latestProjectTimestamp(a, sessions));
 }
 
 function isRuntimeProvider(
@@ -966,14 +999,6 @@ function providerModel(provider: SessionProvider, model?: string) {
   }
 
   return provider === "codex" ? "Codex" : "Claude Code";
-}
-
-function projectName(provider: SessionProvider) {
-  if (provider === "meta") {
-    return "Meta agent sessions";
-  }
-
-  return provider === "claude" ? "Claude sessions" : "Codex sessions";
 }
 
 function titleFromPrompt(prompt: string) {
@@ -1034,6 +1059,25 @@ function relativeAge(timestamp?: string) {
 
   const hours = Math.floor(minutes / 60);
   return hours < 24 ? `${hours}h` : `${Math.floor(hours / 24)}d`;
+}
+
+function normalizeCwd(value?: string) {
+  return value ? path.resolve(value) : undefined;
+}
+
+function sessionTimestamp(session?: Pick<SessionContent, "updatedAt">) {
+  const timestamp = Date.parse(session?.updatedAt ?? "");
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function latestProjectTimestamp(
+  project: Project,
+  sessions: Record<string, SessionContent>
+) {
+  return Math.max(
+    0,
+    ...project.threads.map((thread) => sessionTimestamp(sessions[thread.id]))
+  );
 }
 
 export function providerSessionId(session: SessionContent) {

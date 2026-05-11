@@ -1,16 +1,14 @@
 import type { ReactNode } from "react";
 import {
   ChevronDown,
-  Edit3,
-  FileCode2,
   MoreHorizontal,
+  PanelTop,
   PanelRight,
-  Play,
-  TerminalSquare,
-  Workflow
+  Plus
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
+import type { ThreadViewMode } from "../types";
 import { iconButton } from "./style-tokens";
 
 type AppChromeProps = {
@@ -22,6 +20,8 @@ type AppChromeProps = {
   setInspectorOpen: (value: boolean) => void;
   selectedThread: string;
   onNewSession: () => void;
+  threadViewMode?: ThreadViewMode;
+  onThreadViewModeChange?: (mode: ThreadViewMode) => void;
   centerSlot?: ReactNode;
   rightSlot?: ReactNode;
 };
@@ -35,6 +35,8 @@ export function AppChrome({
   setInspectorOpen,
   selectedThread,
   onNewSession,
+  threadViewMode = "sidebar",
+  onThreadViewModeChange,
   centerSlot,
   rightSlot
 }: AppChromeProps) {
@@ -72,17 +74,10 @@ export function AppChrome({
           >
             <ChevronDown className="-rotate-90" size={14} />
           </button>
-          <button
-            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
-            aria-label="New session"
-            onClick={onNewSession}
-          >
-            <Edit3 size={13} />
-          </button>
         </div>
       )}
 
-      <div className="flex min-w-0 items-center justify-center gap-2 px-3 text-[13px] font-semibold text-zinc-200/90 max-[900px]:hidden">
+      <div className="flex min-w-0 items-center justify-start gap-2 px-3 text-[13px] font-semibold text-zinc-200/90 max-[900px]:hidden">
         {centerSlot ?? (selectedThread && (
           <>
             <span className="truncate">{selectedThread}</span>
@@ -95,19 +90,32 @@ export function AppChrome({
         {rightSlot ?? (
           <>
             {mode === "session" && (
-              <button className={iconButton} aria-label="Run">
-                <Play size={14} />
+              <button
+                className={iconButton}
+                aria-label="New session"
+                onClick={onNewSession}
+              >
+                <Plus size={15} />
               </button>
             )}
-            <button className={iconButton} aria-label="Model">
-              <Workflow size={14} />
-            </button>
-            <button className={iconButton} aria-label="Terminal">
-              <TerminalSquare size={14} />
-            </button>
-            {mode === "session" && !inspectorOpen && (
-              <button className={iconButton} aria-label="Changes">
-                <FileCode2 size={14} />
+            {mode === "session" && (
+              <button
+                className={cn(
+                  iconButton,
+                  threadViewMode === "tabs" &&
+                    "border-app-blue/30 bg-app-blue/12 text-app-blue"
+                )}
+                aria-label={
+                  threadViewMode === "tabs" ? "Use sidebar view" : "Use tab view"
+                }
+                aria-pressed={threadViewMode === "tabs"}
+                onClick={() =>
+                  onThreadViewModeChange?.(
+                    threadViewMode === "tabs" ? "sidebar" : "tabs"
+                  )
+                }
+              >
+                <PanelTop size={14} />
               </button>
             )}
             {!inspectorOpen && (

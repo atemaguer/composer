@@ -5,7 +5,10 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { loadLocalSessions } from "./session-loader.js";
+import {
+  loadLocalSessions,
+  updateLocalSessionVisibility
+} from "./session-loader.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FILE_PREVIEW_BYTES = 1_000_000;
@@ -14,6 +17,27 @@ let agentServerPort: number | null = null;
 let agentServerReady: Promise<number> | null = null;
 
 ipcMain.handle("composer:list-local-sessions", () => loadLocalSessions());
+ipcMain.handle("composer:update-session-visibility", (_event, request: unknown) => {
+  const value = isRecord(request) ? request : {};
+  const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
+  const action = value.action === "archive" || value.action === "delete"
+    ? value.action
+    : null;
+
+  if (!sessionId || !action) {
+    throw new Error("Expected sessionId and action");
+  }
+
+  const snapshot = loadLocalSessions();
+  const session = snapshot.sessions[sessionId];
+
+  if (!session) {
+    throw new Error(`Unknown session ${sessionId}`);
+  }
+
+  updateLocalSessionVisibility(session, action);
+  return loadLocalSessions();
+});
 ipcMain.handle("composer:get-agent-server", async () => {
   const port = await ensureAgentServer();
   const cwd = workspaceCwd();

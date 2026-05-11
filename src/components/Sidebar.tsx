@@ -1,6 +1,7 @@
-import type { ElementType } from "react";
+import type { ElementType, ReactNode } from "react";
 import { useEffect, useState } from "react";
 import {
+  Archive,
   Blocks,
   ChevronDown,
   Edit3,
@@ -9,7 +10,8 @@ import {
   MessageSquarePlus,
   PanelRight,
   Search,
-  Settings
+  Settings,
+  Trash2
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -26,7 +28,9 @@ type SidebarProps = {
   selectedThread: string;
   setSelectedThread: (value: string) => void;
   onThreadSelect?: (value: string) => void;
-  onNewSession?: () => void;
+  onThreadArchive?: (value: string) => void;
+  onThreadDelete?: (value: string) => void;
+  onNewSession?: (project?: Project) => void;
   onSearch?: () => void;
   onPlugins?: () => void;
   onSettings?: () => void;
@@ -42,6 +46,8 @@ export function Sidebar({
   selectedThread,
   setSelectedThread,
   onThreadSelect,
+  onThreadArchive,
+  onThreadDelete,
   onNewSession,
   onSearch,
   onPlugins,
@@ -49,7 +55,7 @@ export function Sidebar({
 }: SidebarProps) {
   const [workspacesOpen, setWorkspacesOpen] = useState(true);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState(
-    () => new Set(projects.map((project) => project.name))
+    () => new Set(projects.map(projectKey))
   );
 
   useEffect(() => {
@@ -57,7 +63,7 @@ export function Sidebar({
       const next = new Set(current);
 
       for (const project of projects) {
-        next.add(project.name);
+        next.add(projectKey(project));
       }
 
       return next;
@@ -155,18 +161,19 @@ export function Sidebar({
             className={cn("grid gap-1", !workspacesOpen && "hidden")}
           >
             {projects.map((project) => {
-              const expanded = expandedWorkspaces.has(project.name);
-              const workspaceId = `workspace-${project.name.replace(/\s+/g, "-")}`;
+              const key = projectKey(project);
+              const expanded = expandedWorkspaces.has(key);
+              const workspaceId = `workspace-${key.replace(/[^A-Za-z0-9_-]/g, "-")}`;
               const WorkspaceFolder = expanded ? FolderOpen : Folder;
 
               return (
-                <div key={project.name} className="grid gap-0.5">
+                <div key={key} className="grid gap-0.5">
                   <div className="grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md text-app-muted transition-colors hover:bg-white/[0.05]">
                     <button
                       className="grid min-h-7 min-w-0 grid-cols-[17px_minmax(0,1fr)] items-center gap-2 rounded-md py-1 pl-2 pr-1 text-left text-[13px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
                       aria-expanded={expanded}
                       aria-controls={workspaceId}
-                      onClick={() => toggleWorkspace(project.name)}
+                      onClick={() => toggleWorkspace(key)}
                     >
                       <WorkspaceFolder className={mutedIcon} size={14} />
                       <span className="truncate">{project.name}</span>
@@ -174,7 +181,7 @@ export function Sidebar({
                     <button
                       aria-label={`New session in ${project.name}`}
                       className="mr-1 inline-flex h-6 w-6 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
-                      onClick={onNewSession}
+                      onClick={() => onNewSession?.(project)}
                     >
                       <MessageSquarePlus size={13} />
                     </button>
@@ -184,23 +191,41 @@ export function Sidebar({
                     className={cn("grid gap-1", !expanded && "hidden")}
                   >
                     {project.threads.map((thread) => (
-                      <button
+                      <div
                         key={thread.id}
                         className={cn(
-                          "grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-md py-1 pl-[36px] pr-2 text-left text-[13px] text-zinc-300/70 transition-colors hover:bg-white/[0.05]",
+                          "group/thread grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md py-1 pl-[36px] pr-1 text-[13px] text-zinc-300/70 transition-colors hover:bg-white/[0.05]",
                           selectedThread === thread.id &&
                             "bg-white/[0.08] text-app-text"
                         )}
-                        onClick={() => {
-                          setSelectedThread(thread.id);
-                          onThreadSelect?.(thread.id);
-                        }}
                       >
-                        <span className="truncate">{thread.name}</span>
-                        <em className="text-[12px] not-italic text-zinc-500">
-                          {thread.age}
-                        </em>
-                      </button>
+                        <button
+                          className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 text-left"
+                          onClick={() => {
+                            setSelectedThread(thread.id);
+                            onThreadSelect?.(thread.id);
+                          }}
+                        >
+                          <span className="truncate">{thread.name}</span>
+                          <ProviderBadge provider={thread.provider} />
+                          <em className="text-[12px] not-italic text-zinc-500">
+                            {thread.age}
+                          </em>
+                        </button>
+                        <ThreadActionButton
+                          label={`Archive ${thread.name}`}
+                          onClick={() => onThreadArchive?.(thread.id)}
+                        >
+                          <Archive size={12} />
+                        </ThreadActionButton>
+                        <ThreadActionButton
+                          label={`Delete ${thread.name}`}
+                          destructive
+                          onClick={() => onThreadDelete?.(thread.id)}
+                        >
+                          <Trash2 size={12} />
+                        </ThreadActionButton>
+                      </div>
                     ))}
                   </div>
                 </div>
@@ -218,6 +243,60 @@ export function Sidebar({
         </button>
       </div>
     </aside>
+  );
+}
+
+function ThreadActionButton({
+  children,
+  destructive,
+  label,
+  onClick
+}: {
+  children: ReactNode;
+  destructive?: boolean;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-label={label}
+      className={cn(
+        "inline-flex h-5 w-5 items-center justify-center rounded-[5px] opacity-0 transition-opacity hover:bg-white/[0.08] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 group-hover/thread:opacity-100",
+        destructive ? "text-red-300/80 hover:text-red-200" : "text-zinc-400"
+      )}
+      onClick={(event) => {
+        event.stopPropagation();
+        onClick();
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+function projectKey(project: Project) {
+  return project.id ?? project.cwd ?? project.name;
+}
+
+function ProviderBadge({ provider }: { provider?: Project["provider"] }) {
+  if (!provider) {
+    return null;
+  }
+
+  return (
+    <span
+      className={cn(
+        "rounded-[5px] border px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none",
+        provider === "codex" &&
+          "border-app-blue/20 bg-app-blue/10 text-app-blue/85",
+        provider === "claude" &&
+          "border-app-orange/20 bg-app-orange/10 text-app-orange/85",
+        provider === "meta" &&
+          "border-app-green/20 bg-app-green/10 text-app-green/85"
+      )}
+    >
+      {provider}
+    </span>
   );
 }
 

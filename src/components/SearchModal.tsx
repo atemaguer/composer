@@ -108,7 +108,7 @@ export function SearchModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/45 px-4 pb-[16vh] backdrop-blur-[1px]"
+      className="fixed inset-0 z-50 grid place-items-center bg-app-bg/55 px-4 pb-[16vh] backdrop-blur-[2px]"
       role="presentation"
       onMouseDown={(event) => {
         if (event.target === event.currentTarget) {
@@ -119,15 +119,15 @@ export function SearchModal({
       <section
         aria-label="Search chats"
         aria-modal="true"
-        className="w-full max-w-[760px] overflow-hidden rounded-[22px] border border-white/[0.11] bg-[#252527]/96 text-zinc-200 shadow-[0_28px_90px_rgba(0,0,0,0.42)]"
+        className="w-full max-w-[760px] overflow-hidden rounded-[22px] border border-app-line-strong bg-app-shell/95 text-app-text shadow-[0_28px_90px_rgba(0,0,0,0.48),0_0_0_1px_rgba(210,229,252,0.04)_inset]"
         role="dialog"
       >
         <label className="flex h-[58px] items-center gap-3 px-5">
-          <Search size={18} className="text-zinc-500" />
+          <Search size={18} className="text-app-muted/75" />
           <span className="sr-only">Search chats</span>
           <input
             ref={inputRef}
-            className="min-w-0 flex-1 bg-transparent text-[19px] text-zinc-200 outline-none placeholder:text-zinc-500"
+            className="min-w-0 flex-1 bg-transparent text-[19px] text-app-text outline-none placeholder:text-app-dim"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={onKeyDown}
@@ -135,7 +135,7 @@ export function SearchModal({
           />
         </label>
 
-        <div className="px-5 pb-2 text-[14px] font-medium text-zinc-500">
+        <div className="px-5 pb-2 text-[14px] font-medium text-app-muted/70">
           {normalizedQuery ? "Matching chats" : "Recent chats"}
         </div>
 
@@ -145,26 +145,26 @@ export function SearchModal({
               <button
                 key={result.thread.id}
                 className={cn(
-                  "grid min-h-11 w-full grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-xl px-3 text-left text-[17px] text-zinc-300 transition-colors",
+                  "grid min-h-11 w-full grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-xl px-3 text-left text-[17px] text-app-text/84 transition-colors",
                   index === activeIndex
-                    ? "bg-white/[0.10] text-zinc-100"
-                    : "hover:bg-white/[0.06]"
+                    ? "bg-app-panel-2/88 text-app-text shadow-[0_0_0_1px_rgba(210,229,252,0.06)_inset]"
+                    : "hover:bg-app-panel/55"
                 )}
                 onClick={() => selectResult(result)}
                 onMouseEnter={() => setActiveIndex(index)}
               >
-                <Monitor size={17} className="text-zinc-400" />
+                <Monitor size={17} className="text-app-muted/80" />
                 <span className="truncate">{result.thread.name}</span>
-                <span className="hidden max-w-[190px] truncate text-[14px] text-zinc-500 sm:inline">
+                <span className="hidden max-w-[190px] truncate text-[14px] text-app-muted/70 sm:inline">
                   {result.project.name}
                 </span>
-                <kbd className="rounded-full bg-white/[0.08] px-2 py-0.5 text-[13px] font-medium text-zinc-400">
+                <kbd className="rounded-full border border-app-line bg-app-panel/80 px-2 py-0.5 text-[13px] font-medium text-app-muted">
                   ⌘{index + 1}
                 </kbd>
               </button>
             ))
           ) : (
-            <div className="px-3 py-8 text-center text-[15px] text-zinc-500">
+            <div className="px-3 py-8 text-center text-[15px] text-app-muted/70">
               No chats found
             </div>
           )}

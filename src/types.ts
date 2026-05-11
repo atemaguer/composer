@@ -104,10 +104,14 @@ export type ProjectThread = {
 };
 
 export type Project = {
+  id?: string;
   name: string;
+  cwd?: string;
   provider?: SessionProvider;
   threads: ProjectThread[];
 };
+
+export type ThreadViewMode = "sidebar" | "tabs";
 
 export type ToolStatus = "running" | "completed" | "failed" | "cancelled";
 

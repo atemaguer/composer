@@ -33,7 +33,7 @@ export function NewSessionPage({
   return (
     <section
       className={cn(
-        "relative grid min-h-0 min-w-0 place-items-center overflow-hidden",
+        "relative grid h-full min-h-0 min-w-0 place-items-center overflow-hidden",
         className
       )}
       aria-label="New agent session"

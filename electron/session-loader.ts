@@ -93,7 +93,9 @@ type ProjectThread = {
 };
 
 type Project = {
+  id?: string;
   name: string;
+  cwd?: string;
   provider?: SessionProvider;
   threads: ProjectThread[];
 };
@@ -117,6 +119,7 @@ export type SessionSnapshot = {
 };
 
 type JsonRecord = Record<string, unknown>;
+export type LocalSessionAction = "archive" | "delete";
 
 const MAX_SESSIONS_PER_PROVIDER = 5;
 const MAX_ITEMS_PER_SESSION = 140;
@@ -126,26 +129,16 @@ const MAX_DETAIL_LENGTH = 520;
 export function loadLocalSessions(): SessionSnapshot {
   const claudeSessions = loadClaudeSessions();
   const codexSessions = loadCodexSessions();
+  const localSessions = [...claudeSessions, ...codexSessions];
   const sessions = Object.fromEntries(
-    [...claudeSessions, ...codexSessions].map((session) => [
+    localSessions.map((session) => [
       session.id,
       session
     ])
   );
 
   return {
-    projects: [
-      {
-        name: "Claude sessions",
-        provider: "claude" as const,
-        threads: claudeSessions.map(sessionToThread)
-      },
-      {
-        name: "Codex sessions",
-        provider: "codex" as const,
-        threads: codexSessions.map(sessionToThread)
-      }
-    ].filter((project) => project.threads.length > 0),
+    projects: groupSessionsByWorkspace(localSessions),
     sessions
   };
 }
@@ -153,10 +146,7 @@ export function loadLocalSessions(): SessionSnapshot {
 function loadCodexSessions(): SessionContent[] {
   const codexRoot = path.join(os.homedir(), ".codex");
   const index = readCodexIndex(codexRoot);
-  const files = [
-    ...findJsonl(path.join(codexRoot, "sessions")),
-    ...findJsonl(path.join(codexRoot, "archived_sessions"))
-  ]
+  const files = findJsonl(path.join(codexRoot, "sessions"))
     .filter((file) => !file.fullPath.endsWith("session_index.jsonl"))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
   const sessions: SessionContent[] = [];
@@ -174,6 +164,28 @@ function loadCodexSessions(): SessionContent[] {
   }
 
   return sessions;
+}
+
+export function updateLocalSessionVisibility(
+  session: Pick<SessionContent, "id" | "provider" | "providerSessionId">,
+  action: LocalSessionAction
+) {
+  const filePath = findSessionFile(session);
+
+  if (!filePath) {
+    return { ok: true, changed: false, reason: "No local session file found" };
+  }
+
+  if (action === "delete") {
+    fs.rmSync(filePath, { force: true });
+    return { ok: true, changed: true, filePath };
+  }
+
+  const archivePath = archivePathForSessionFile(filePath, session.provider);
+  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
+  fs.renameSync(filePath, uniqueFilePath(archivePath));
+
+  return { ok: true, changed: true, filePath };
 }
 
 function parseCodexSession(
@@ -369,7 +381,7 @@ function parseClaudeSession(filePath: string): SessionContent | null {
   const rows = readJsonl(filePath);
   const fileSessionId = path.basename(filePath, ".jsonl");
   let sessionId = fileSessionId;
-  let cwd: string | undefined;
+  let cwd: string | undefined = cwdFromClaudeProjectPath(filePath);
   let model: string | undefined;
   let updatedAt = latestTimestamp(rows) ?? isoFromMtime(filePath);
   let firstUserText = "";
@@ -634,6 +646,76 @@ function findClaudeProjectJsonl(projectsRoot: string) {
   return files;
 }
 
+function findSessionFile(
+  session: Pick<SessionContent, "id" | "provider" | "providerSessionId">
+) {
+  const providerId = providerIdForSession(session);
+
+  if (!providerId) {
+    return undefined;
+  }
+
+  if (session.provider === "codex") {
+    return findJsonl(path.join(os.homedir(), ".codex", "sessions"))
+      .map((file) => file.fullPath)
+      .find((filePath) => codexIdFromPath(filePath) === providerId);
+  }
+
+  if (session.provider === "claude") {
+    return findClaudeProjectJsonl(path.join(os.homedir(), ".claude", "projects"))
+      .map((file) => file.fullPath)
+      .find((filePath) => path.basename(filePath, ".jsonl") === providerId);
+  }
+
+  return undefined;
+}
+
+function providerIdForSession(
+  session: Pick<SessionContent, "id" | "provider" | "providerSessionId">
+) {
+  return (
+    session.providerSessionId ??
+    session.id
+      .replace(/^codex-live-/, "")
+      .replace(/^claude-live-/, "")
+      .replace(/^meta-live-/, "")
+      .replace(/^codex-/, "")
+      .replace(/^claude-/, "")
+      .replace(/^meta-/, "")
+  );
+}
+
+function archivePathForSessionFile(filePath: string, provider: SessionProvider) {
+  if (provider === "codex") {
+    const sessionsRoot = path.join(os.homedir(), ".codex", "sessions");
+    const archiveRoot = path.join(os.homedir(), ".codex", "archived_sessions");
+    const relativePath = path.relative(sessionsRoot, filePath);
+
+    return path.join(archiveRoot, relativePath.startsWith("..") ? path.basename(filePath) : relativePath);
+  }
+
+  return path.join(path.dirname(filePath), ".composer-archive", path.basename(filePath));
+}
+
+function uniqueFilePath(filePath: string) {
+  if (!fs.existsSync(filePath)) {
+    return filePath;
+  }
+
+  const extension = path.extname(filePath);
+  const base = filePath.slice(0, -extension.length);
+
+  for (let index = 2; index < 1_000; index += 1) {
+    const candidate = `${base}-${index}${extension}`;
+
+    if (!fs.existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  throw new Error(`Could not allocate archive path for ${filePath}`);
+}
+
 function sessionToThread(session: SessionContent): ProjectThread {
   return {
     id: session.id,
@@ -643,6 +725,78 @@ function sessionToThread(session: SessionContent): ProjectThread {
     model: session.model,
     cwd: session.cwd
   };
+}
+
+function groupSessionsByWorkspace(sessions: SessionContent[]): Project[] {
+  const byWorkspace = new Map<
+    string,
+    { id: string; name: string; cwd?: string; sessions: SessionContent[] }
+  >();
+
+  for (const session of sessions) {
+    const cwd = normalizeCwd(session.cwd);
+    const id = cwd ?? "unknown-workspace";
+    const existing = byWorkspace.get(id);
+
+    if (existing) {
+      existing.sessions.push(session);
+      continue;
+    }
+
+    byWorkspace.set(id, {
+      id,
+      name: cwd ? path.basename(cwd) : "Unknown workspace",
+      cwd,
+      sessions: [session]
+    });
+  }
+
+  return [...byWorkspace.values()]
+    .map((workspace) => ({
+      id: workspace.id,
+      name: workspace.name,
+      cwd: workspace.cwd,
+      threads: workspace.sessions
+        .sort(compareSessionsByUpdatedAt)
+        .map(sessionToThread)
+    }))
+    .sort((a, b) => latestThreadTimestamp(b, sessions) - latestThreadTimestamp(a, sessions));
+}
+
+function compareSessionsByUpdatedAt(a: SessionContent, b: SessionContent) {
+  return sessionTimestamp(b) - sessionTimestamp(a);
+}
+
+function latestThreadTimestamp(project: Project, sessions: SessionContent[]) {
+  const sessionById = new Map(sessions.map((session) => [session.id, session]));
+
+  return Math.max(
+    0,
+    ...project.threads.map((thread) => sessionTimestamp(sessionById.get(thread.id)))
+  );
+}
+
+function sessionTimestamp(session?: Pick<SessionContent, "updatedAt">) {
+  const timestamp = Date.parse(session?.updatedAt ?? "");
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function normalizeCwd(value?: string) {
+  if (!value) {
+    return undefined;
+  }
+
+  return path.resolve(value);
+}
+
+function cwdFromClaudeProjectPath(filePath: string) {
+  const projectDir = path.basename(path.dirname(filePath));
+
+  if (!projectDir.startsWith("-")) {
+    return undefined;
+  }
+
+  return projectDir.replace(/^-/, "/").replaceAll("-", "/");
 }
 
 function extractText(value: unknown): string {

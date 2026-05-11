@@ -16,6 +16,7 @@ import type {
   AgentImageAttachment,
   ComposerChatDataTypes,
   LiveAgentEvent,
+  SessionSnapshot,
   SessionProvider
 } from "../src/types.js";
 
@@ -64,6 +65,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/interrupt") {
       await handleInterruptRequest(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/sessions/visibility") {
+      await handleSessionVisibilityRequest(request, response);
       return;
     }
 
@@ -245,6 +251,26 @@ async function handleInterruptRequest(
 
   await interruptRuntime(sessionId, requestId);
   writeJson(response, 200, { ok: true });
+}
+
+async function handleSessionVisibilityRequest(
+  request: IncomingMessage,
+  response: ServerResponse
+) {
+  const body = await readJson(request);
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+  const action =
+    body.action === "archive" || body.action === "delete"
+      ? body.action
+      : undefined;
+
+  if (!sessionId || !action) {
+    writeJson(response, 400, { error: "Expected sessionId and action" });
+    return;
+  }
+
+  const snapshot: SessionSnapshot = runtime.updateSessionVisibility(sessionId, action);
+  writeJson(response, 200, { ok: true, snapshot });
 }
 
 async function interruptRuntime(sessionId?: string, requestId?: string) {

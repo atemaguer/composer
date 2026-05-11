@@ -102,7 +102,7 @@ export function Conversation({
   return (
     <section
       className={cn(
-        "relative grid min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden",
+        "relative grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden",
         className
       )}
       aria-label="Agent conversation"

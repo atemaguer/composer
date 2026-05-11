@@ -4,7 +4,9 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties
+  type CSSProperties,
+  type KeyboardEvent,
+  type PointerEvent
 } from "react";
 import { MoreHorizontal } from "lucide-react";
 
@@ -20,6 +22,7 @@ import { ReviewPanel } from "./components/ReviewPanel";
 import { SearchModal } from "./components/SearchModal";
 import { SettingsPage } from "./components/SettingsPage";
 import { Sidebar } from "./components/Sidebar";
+import { ThreadTabs, type ThreadTabItem } from "./components/ThreadTabs";
 import {
   conversationItems,
   diffRows,
@@ -41,7 +44,8 @@ import type {
   ProjectThread,
   SessionContent,
   SessionProvider,
-  SessionSnapshot
+  SessionSnapshot,
+  ThreadViewMode
 } from "./types";
 
 type AgentServerInfo = {
@@ -53,6 +57,10 @@ type AgentServerInfo = {
 
 const workspaceStorageKey = "composer.workspaces";
 const selectedWorkspaceStorageKey = "composer.selectedWorkspace";
+const threadViewModeStorageKey = "composer.threadViewMode";
+const reviewContentWidthStorageKey = "composer.reviewContentWidth";
+const minReviewContentWidth = 300;
+const maxReviewContentWidth = 720;
 
 const defaultModelsByProvider: Record<SessionProvider, AgentModel> = {
   codex: "gpt-5.4",
@@ -72,6 +80,13 @@ export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [threadViewMode, setThreadViewMode] = useState<ThreadViewMode>(
+    () => readThreadViewMode()
+  );
+  const [reviewContentWidth, setReviewContentWidth] = useState(
+    () => readReviewContentWidth()
+  );
+  const [inspectorResizing, setInspectorResizing] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [activeNav, setActiveNav] = useState<NavKey>("New session");
@@ -142,6 +157,23 @@ export default function App() {
     selectedWorkspace?.label ??
     agentServer?.workspaceName ??
     (currentCwd ? basename(currentCwd) : "Workspace");
+  const threadTabs = useMemo(
+    () =>
+      createThreadTabs({
+        projects,
+        selectedThread,
+        selectedWorkspaceId: selectedWorkspace?.id,
+        selectedWorkspaceCwd: selectedWorkspace?.cwd,
+        selectedWorkspaceName: selectedWorkspace?.label
+      }),
+    [
+      projects,
+      selectedThread,
+      selectedWorkspace?.cwd,
+      selectedWorkspace?.id,
+      selectedWorkspace?.label
+    ]
+  );
   const activePendingItems =
     activeSession?.pendingItems ??
     (pendingNewRequestId
@@ -162,6 +194,7 @@ export default function App() {
     activeSessionRunning || pendingNewRequestId ? "stop" : "send";
   const contentMode = activeNav === "Plugins" ? "plugins" : "session";
   const shouldShowConversation = contentMode === "session" && Boolean(activeSession);
+  const showThreadTabs = shouldShowConversation && threadViewMode === "tabs";
 
   useEffect(() => {
     document.documentElement.classList.add("dark");
@@ -170,6 +203,14 @@ export default function App() {
   useEffect(() => {
     writeStorage(workspaceStorageKey, JSON.stringify(workspaceOptions));
   }, [workspaceOptions]);
+
+  useEffect(() => {
+    writeStorage(threadViewModeStorageKey, threadViewMode);
+  }, [threadViewMode]);
+
+  useEffect(() => {
+    writeStorage(reviewContentWidthStorageKey, String(reviewContentWidth));
+  }, [reviewContentWidth]);
 
   useEffect(() => {
     if (selectedWorkspace?.id) {
@@ -351,6 +392,43 @@ export default function App() {
     }
   }
 
+  function setClampedReviewContentWidth(value: number) {
+    setReviewContentWidth(clampReviewContentWidth(value));
+  }
+
+  function startInspectorResize(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setInspectorResizing(true);
+
+    const onPointerMove = (moveEvent: globalThis.PointerEvent) => {
+      setClampedReviewContentWidth(window.innerWidth - moveEvent.clientX);
+    };
+    const onPointerUp = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setInspectorResizing(false);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp, { once: true });
+  }
+
+  function resizeInspectorWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+
+    event.preventDefault();
+    setClampedReviewContentWidth(
+      reviewContentWidth + (event.key === "ArrowLeft" ? 24 : -24)
+    );
+  }
+
   async function submitPrompt() {
     const body = prompt.trim();
 
@@ -439,6 +517,49 @@ export default function App() {
       });
     } catch (error) {
       console.warn("Could not stop active run", error);
+    }
+  }
+
+  async function updateThreadVisibility(
+    sessionId: string,
+    action: "archive" | "delete"
+  ) {
+    const session = sessions[sessionId];
+
+    if (!session) {
+      return;
+    }
+
+    if (
+      action === "delete" &&
+      !window.confirm(`Delete "${session.title}"? This removes the local session file when available.`)
+    ) {
+      return;
+    }
+
+    try {
+      const snapshot = agentServer?.httpUrl
+        ? await updateThreadVisibilityViaServer(agentServer.httpUrl, sessionId, action)
+        : await window.composer?.updateSessionVisibility?.({ sessionId, action });
+
+      if (snapshot) {
+        setProjects(snapshot.projects);
+        setSessions(snapshot.sessions);
+      } else {
+        setProjects((current) => removeThreadFromProjects(current, sessionId));
+        setSessions((current) => {
+          const next = { ...current };
+          delete next[sessionId];
+          return next;
+        });
+      }
+
+      if (selectedThread === sessionId) {
+        setSelectedThread("");
+        setActiveNav("New session");
+      }
+    } catch (error) {
+      console.warn(`Could not ${action} session`, error);
     }
   }
 
@@ -587,6 +708,33 @@ export default function App() {
     return <SettingsPage onBack={() => setSettingsOpen(false)} />;
   }
 
+  function startNewSession(project?: Project) {
+    const workspaceCwd =
+      project?.cwd ?? (project?.id?.startsWith("/") ? project.id : undefined);
+    const workspaceId = workspaceCwd ?? project?.id;
+
+    if (workspaceId) {
+      if (workspaceCwd) {
+        setWorkspaceOptions((current) =>
+          mergeWorkspaceOptions([
+            ...current,
+            {
+              id: workspaceCwd,
+              label: project?.name ?? basename(workspaceCwd),
+              cwd: workspaceCwd,
+              detail: workspaceCwd
+            }
+          ])
+        );
+      }
+
+      setSelectedWorkspaceId(workspaceId);
+    }
+
+    setSelectedThread("");
+    setActiveNav("New session");
+  }
+
   return (
     <div
       className="grid h-screen min-h-0 overflow-hidden bg-app-shell text-app-text transition-[grid-template-columns] duration-[220ms] ease-in-out motion-reduce:transition-none"
@@ -595,7 +743,7 @@ export default function App() {
           gridTemplateColumns: sidebarOpen
             ? "244px minmax(0, 1fr)"
             : "0 minmax(0, 1fr)",
-          "--review-content-width": "360px"
+          "--review-content-width": `${reviewContentWidth}px`
         } as CSSProperties
       }
     >
@@ -608,10 +756,9 @@ export default function App() {
         selectedThread={selectedThread}
         setSelectedThread={selectThread}
         onThreadSelect={selectThread}
-        onNewSession={() => {
-          setSelectedThread("");
-          setActiveNav("New session");
-        }}
+        onThreadArchive={(threadId) => void updateThreadVisibility(threadId, "archive")}
+        onThreadDelete={(threadId) => void updateThreadVisibility(threadId, "delete")}
+        onNewSession={startNewSession}
         onSearch={() => setSearchOpen(true)}
         onPlugins={() => {
           setActiveNav("Plugins");
@@ -620,77 +767,128 @@ export default function App() {
         onSettings={() => setSettingsOpen(true)}
       />
 
-      <main className="grid min-h-0 min-w-0 grid-rows-[44px_minmax(0,1fr)] overflow-hidden">
-        <AppChrome
-          className="h-11"
-          mode={shouldShowConversation ? "session" : "new"}
-          sidebarOpen={sidebarOpen}
-          setSidebarOpen={setSidebarOpen}
-          inspectorOpen={inspectorOpen}
-          setInspectorOpen={setInspectorOpen}
-          selectedThread={activeSession?.title ?? ""}
-          onNewSession={() => {
-            setSelectedThread("");
-            setActiveNav("New session");
-          }}
-          centerSlot={
-            <div className="flex min-w-0 items-center gap-2">
-              <span className="truncate">
-                {contentMode === "plugins"
-                  ? "Plugins"
-                  : activeSession?.title ?? workspaceName}
-              </span>
-              <MoreHorizontal size={13} />
-            </div>
-          }
-        />
+      <main
+        className={cn(
+          "relative grid min-h-0 min-w-0 overflow-hidden motion-reduce:transition-none",
+          inspectorResizing
+            ? "transition-none"
+            : "transition-[grid-template-columns] duration-[220ms] ease-in-out",
+          !inspectorOpen && !inspectorResizing && "duration-150"
+        )}
+        style={{
+          gridTemplateColumns: inspectorOpen
+            ? "minmax(0, 1fr) var(--review-content-width)"
+            : "minmax(0, 1fr) 0"
+        }}
+      >
+        <section className="grid min-h-0 min-w-0 grid-rows-[44px_minmax(0,1fr)] overflow-hidden">
+          <AppChrome
+            className="h-11"
+            mode={shouldShowConversation ? "session" : "new"}
+            sidebarOpen={sidebarOpen}
+            setSidebarOpen={setSidebarOpen}
+            inspectorOpen={inspectorOpen}
+            setInspectorOpen={setInspectorOpen}
+            selectedThread={activeSession?.title ?? ""}
+            onNewSession={() => startNewSession()}
+            threadViewMode={threadViewMode}
+            onThreadViewModeChange={setThreadViewMode}
+            centerSlot={contentMode === "plugins" || shouldShowConversation ? (
+              <div className="flex h-full min-w-0 flex-1 items-center gap-3">
+                {!showThreadTabs && (
+                  <div className="flex min-w-0 shrink-0 items-center gap-2">
+                    <span className="max-w-[220px] truncate">
+                      {contentMode === "plugins"
+                        ? "Plugins"
+                        : activeSession?.title ?? workspaceName}
+                    </span>
+                    <MoreHorizontal size={13} />
+                  </div>
+                )}
+                {showThreadTabs && (
+                  <ThreadTabs
+                    className="min-w-0"
+                    variant="header"
+                    threads={threadTabs}
+                    selectedThread={selectedThread}
+                    workspaceName={workspaceName}
+                    onThreadSelect={selectThread}
+                    onThreadClose={() => {
+                      setSelectedThread("");
+                      setActiveNav("New session");
+                    }}
+                    onThreadArchive={(threadId) =>
+                      void updateThreadVisibility(threadId, "archive")
+                    }
+                    onThreadDelete={(threadId) =>
+                      void updateThreadVisibility(threadId, "delete")
+                    }
+                  />
+                )}
+              </div>
+            ) : null}
+          />
+
+          <div className="h-full min-h-0 min-w-0 overflow-hidden">
+            {contentMode === "plugins" ? (
+              <PluginsPage agentServerUrl={agentServer?.httpUrl} />
+            ) : shouldShowConversation && activeSession ? (
+              <Conversation
+                cwd={activeSession.cwd ?? currentCwd}
+                inspectorOpen={inspectorOpen}
+                items={activeSession.items}
+                pendingItems={activePendingItems}
+                composer={composerControls}
+                onOpenFile={openFile}
+              />
+            ) : (
+              <NewSessionPage
+                workspaceName={workspaceName}
+                composer={composerControls}
+                workspaceOptions={allWorkspaceOptions}
+                selectedWorkspaceId={selectedWorkspace?.id}
+                onWorkspaceSelect={(option) => {
+                  setSelectedWorkspaceId(option.id);
+                  setSelectedThread("");
+                }}
+                onWorkspaceCreate={createWorkspace}
+              />
+            )}
+          </div>
+        </section>
 
         <div
+          role="separator"
+          aria-label="Resize inspector"
+          aria-orientation="vertical"
+          aria-valuemin={minReviewContentWidth}
+          aria-valuemax={maxReviewContentWidth}
+          aria-valuenow={reviewContentWidth}
+          tabIndex={inspectorOpen ? 0 : -1}
           className={cn(
-            "grid min-h-0 min-w-0 overflow-hidden transition-[grid-template-columns] duration-[220ms] ease-in-out motion-reduce:transition-none",
-            !inspectorOpen && "duration-150"
+            "app-no-drag group/resize absolute inset-y-0 z-20 w-1.5 cursor-col-resize bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 motion-reduce:transition-none",
+            inspectorResizing
+              ? "transition-none"
+              : "transition-[right,opacity] duration-[220ms] ease-in-out",
+            !inspectorOpen && "pointer-events-none opacity-0"
           )}
-          style={{
-            gridTemplateColumns: inspectorOpen
-              ? "minmax(0, 1fr) var(--review-content-width)"
-              : "minmax(0, 1fr) 0"
-          }}
+          style={{ right: inspectorOpen ? "var(--review-content-width)" : 0 }}
+          onPointerDown={startInspectorResize}
+          onKeyDown={resizeInspectorWithKeyboard}
         >
-          {contentMode === "plugins" ? (
-            <PluginsPage agentServerUrl={agentServer?.httpUrl} />
-          ) : shouldShowConversation && activeSession ? (
-            <Conversation
-              cwd={activeSession.cwd ?? currentCwd}
-              inspectorOpen={inspectorOpen}
-              items={activeSession.items}
-              pendingItems={activePendingItems}
-              composer={composerControls}
-              onOpenFile={openFile}
-            />
-          ) : (
-            <NewSessionPage
-              workspaceName={workspaceName}
-              composer={composerControls}
-              workspaceOptions={allWorkspaceOptions}
-              selectedWorkspaceId={selectedWorkspace?.id}
-              onWorkspaceSelect={(option) => {
-                setSelectedWorkspaceId(option.id);
-                setSelectedThread("");
-              }}
-              onWorkspaceCreate={createWorkspace}
-            />
-          )}
-
-          <ReviewPanel
-            open={inspectorOpen}
-            present={inspectorOpen}
-            filePath={filePreview?.path ?? reviewFilePath}
-            diffRows={diffRows}
-            filePreview={filePreview}
-            filePreviewError={filePreviewError}
-            filePreviewLoading={filePreviewLoading}
-          />
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/[0.08] transition-colors group-hover/resize:bg-app-blue/55" />
         </div>
+
+        <ReviewPanel
+          open={inspectorOpen}
+          present={inspectorOpen}
+          filePath={filePreview?.path ?? reviewFilePath}
+          diffRows={diffRows}
+          filePreview={filePreview}
+          filePreviewError={filePreviewError}
+          filePreviewLoading={filePreviewLoading}
+          onClose={() => setInspectorOpen(false)}
+        />
       </main>
 
       <SearchModal
@@ -745,7 +943,7 @@ function composerProviderForSession(
 }
 
 function upsertSessionProject(projects: Project[], session: SessionContent) {
-  const projectName = providerProjectName(session.provider);
+  const project = workspaceProjectForSession(session);
   const thread: ProjectThread = {
     id: session.id,
     name: session.title,
@@ -759,25 +957,28 @@ function upsertSessionProject(projects: Project[], session: SessionContent) {
       ...project,
       threads: project.threads.filter((item) => item.id !== session.id)
     }))
-    .filter((project) => project.threads.length > 0 || project.name === projectName);
-  const existing = withoutThread.find((project) => project.name === projectName);
+    .filter((item) => item.threads.length > 0 || projectKey(item) === project.id);
+  const existing = withoutThread.find((item) => projectKey(item) === project.id);
 
   if (existing) {
-    return withoutThread.map((project) =>
-      project.name === projectName
+    return withoutThread.map((item) =>
+      projectKey(item) === project.id
         ? {
-            ...project,
-            provider: session.provider,
-            threads: [thread, ...project.threads]
+            ...item,
+            id: project.id,
+            name: project.name,
+            cwd: project.cwd,
+            threads: [thread, ...item.threads]
           }
-        : project
+        : item
     );
   }
 
   return [
     {
-      name: projectName,
-      provider: session.provider,
+      id: project.id,
+      name: project.name,
+      cwd: project.cwd,
       threads: [thread]
     },
     ...withoutThread
@@ -859,6 +1060,99 @@ function loadWorkspaceOptions(): PromptComposerFooterOption[] {
   }
 }
 
+function readThreadViewMode(): ThreadViewMode {
+  const value = readStorage(threadViewModeStorageKey);
+
+  return value === "tabs" || value === "sidebar" ? value : "sidebar";
+}
+
+function readReviewContentWidth() {
+  const value = Number(readStorage(reviewContentWidthStorageKey));
+
+  return clampReviewContentWidth(value || 360);
+}
+
+function clampReviewContentWidth(value: number) {
+  const viewportLimit =
+    typeof window === "undefined"
+      ? maxReviewContentWidth
+      : Math.max(minReviewContentWidth, Math.floor(window.innerWidth * 0.62));
+
+  return Math.min(
+    Math.max(Math.round(value), minReviewContentWidth),
+    Math.min(maxReviewContentWidth, viewportLimit)
+  );
+}
+
+function createThreadTabs({
+  projects,
+  selectedThread,
+  selectedWorkspaceId,
+  selectedWorkspaceCwd,
+  selectedWorkspaceName
+}: {
+  projects: Project[];
+  selectedThread: string;
+  selectedWorkspaceId?: string;
+  selectedWorkspaceCwd?: string;
+  selectedWorkspaceName?: string;
+}): ThreadTabItem[] {
+  const workspaceProject =
+    projects.find((project) =>
+      projectMatchesWorkspace(project, {
+        id: selectedWorkspaceId,
+        cwd: selectedWorkspaceCwd,
+        name: selectedWorkspaceName
+      })
+    ) ??
+    projects.find((project) =>
+      project.threads.some((thread) => thread.id === selectedThread)
+    ) ??
+    projects[0];
+
+  const tabs = workspaceProject
+    ? workspaceProject.threads.map((thread) => threadToTab(workspaceProject, thread))
+    : [];
+
+  if (!selectedThread || tabs.some((thread) => thread.id === selectedThread)) {
+    return tabs;
+  }
+
+  const activeThread = projects
+    .flatMap((project) => project.threads.map((thread) => threadToTab(project, thread)))
+    .find((thread) => thread.id === selectedThread);
+
+  return activeThread ? [activeThread, ...tabs] : tabs;
+}
+
+function projectMatchesWorkspace(
+  project: Project,
+  workspace: { id?: string; cwd?: string; name?: string }
+) {
+  const projectValues = [project.id, project.cwd, project.name]
+    .filter(Boolean)
+    .map((value) => normalizePathKey(String(value)));
+  const workspaceValues = [workspace.id, workspace.cwd, workspace.name]
+    .filter(Boolean)
+    .map((value) => normalizePathKey(String(value)));
+
+  return workspaceValues.some((value) => projectValues.includes(value));
+}
+
+function threadToTab(project: Project, thread: ProjectThread): ThreadTabItem {
+  return {
+    id: thread.id,
+    name: thread.name,
+    age: thread.age,
+    provider: thread.provider ?? project.provider,
+    workspaceName: project.name
+  };
+}
+
+function normalizePathKey(value: string) {
+  return value.replace(/\/+$/, "");
+}
+
 function workspaceOptionsFromSessions(
   sessions: Record<string, SessionContent>
 ): PromptComposerFooterOption[] {
@@ -935,12 +1229,32 @@ async function drainResponse(response: Response) {
   }
 }
 
-function providerProjectName(provider: SessionProvider) {
-  if (provider === "meta") {
-    return "Meta agent sessions";
+async function updateThreadVisibilityViaServer(
+  serverUrl: string,
+  sessionId: string,
+  action: "archive" | "delete"
+) {
+  const response = await fetch(`${serverUrl}/api/sessions/visibility`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ sessionId, action })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Session ${action} failed with ${response.status}`);
   }
 
-  return provider === "claude" ? "Claude sessions" : "Codex sessions";
+  const body = await response.json() as { snapshot?: SessionSnapshot };
+  return body.snapshot;
+}
+
+function removeThreadFromProjects(projects: Project[], sessionId: string) {
+  return projects
+    .map((project) => ({
+      ...project,
+      threads: project.threads.filter((thread) => thread.id !== sessionId)
+    }))
+    .filter((project) => project.threads.length > 0);
 }
 
 function providerLabel(provider: SessionProvider) {
@@ -1002,6 +1316,20 @@ function formatTime(date: Date) {
 
 function basename(filePath: string) {
   return filePath.replace(/\/+$/, "").split("/").pop() || filePath;
+}
+
+function workspaceProjectForSession(session: Pick<SessionContent, "cwd">) {
+  const cwd = session.cwd?.replace(/\/+$/, "");
+
+  return {
+    id: cwd ?? "unknown-workspace",
+    name: cwd ? basename(cwd) : "Unknown workspace",
+    cwd
+  };
+}
+
+function projectKey(project: Project) {
+  return project.id ?? project.cwd ?? project.name;
 }
 
 function createId() {

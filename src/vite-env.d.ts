@@ -13,6 +13,10 @@ declare global {
         workspaceName?: string;
       }>;
       listLocalSessions?: () => Promise<SessionSnapshot>;
+      updateSessionVisibility?: (request: {
+        sessionId: string;
+        action: "archive" | "delete";
+      }) => Promise<SessionSnapshot>;
       createProject?: (request: {
         name?: string;
         baseCwd?: string;
