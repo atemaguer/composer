@@ -1,0 +1,21 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "outDir": "dist-server",
+    "rootDir": ".",
+    "types": ["node"]
+  },
+  "include": [
+    "server/index.ts",
+    "server/capabilities.ts",
+    "server/runtime.ts",
+    "server/providers/**/*.ts",
+    "electron/session-loader.ts",
+    "src/types.ts"
+  ]
+}

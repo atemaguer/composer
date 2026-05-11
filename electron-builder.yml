@@ -1,0 +1,51 @@
+appId: com.composer.desktop
+productName: Composer
+directories:
+  buildResources: resources/build
+files:
+  - dist/**
+  - dist-electron/**
+  - dist-server/**
+  - package.json
+  - '!**/.vscode/*'
+  - '!src/**'
+  - '!electron/**'
+  - '!server/**'
+  - '!vite.config.{js,ts,mjs,cjs}'
+  - '!{components.json,README.md,CHANGELOG.md}'
+  - '!{.env,.env.*,.npmrc,pnpm-lock.yaml,bun.lockb}'
+  - '!{tsconfig.json,tsconfig.electron.json,tsconfig.server.json}'
+protocols:
+  - name: Composer Protocol
+    schemes:
+      - composer
+asarUnpack:
+  - resources/**
+win:
+  executableName: Composer
+nsis:
+  artifactName: ${name}-${version}-setup.${ext}
+  shortcutName: ${productName}
+  uninstallDisplayName: ${productName}
+  createDesktopShortcut: always
+mac:
+  entitlementsInherit: resources/build/entitlements.mac.plist
+  extendInfo:
+    NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.
+    NSDownloadsFolderUsageDescription: Application requests access to the user's Downloads folder.
+  notarize: false
+dmg:
+  artifactName: ${name}-${version}.${ext}
+linux:
+  target:
+    - AppImage
+    - snap
+    - deb
+  maintainer: composer.local
+  category: Utility
+appImage:
+  artifactName: ${name}-${version}.${ext}
+npmRebuild: false
+publish:
+  provider: generic
+  url: https://example.com/auto-updates

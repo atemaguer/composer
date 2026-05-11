@@ -1,0 +1,55 @@
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+dist-server/
+out/
+release/
+
+# Electron Builder artifacts
+*.blockmap
+*.dmg
+*.exe
+*.AppImage
+*.snap
+*.deb
+*.rpm
+*.zip
+*.tar.gz
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Environment
+.env
+.env.*
+!.env.example
+!.env.local.example
+
+# Tooling caches
+.cache/
+.vite/
+.turbo/
+.eslintcache
+.playwright-mcp/
+playwright-report/
+test-results/
+coverage/
+
+# TypeScript
+*.tsbuildinfo
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
