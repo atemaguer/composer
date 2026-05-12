@@ -801,10 +801,6 @@ export default function App() {
         onThreadArchive={(threadId) => void updateThreadVisibility(threadId, "archive")}
         onThreadDelete={(threadId) => void updateThreadVisibility(threadId, "delete")}
         onNewSession={startNewSession}
-        canNavigateBack={navigationAvailability.canGoBack}
-        canNavigateForward={navigationAvailability.canGoForward}
-        onNavigateBack={navigateBack}
-        onNavigateForward={navigateForward}
         onSearch={() => setSearchOpen(true)}
         onPlugins={() => {
           setActiveNav("Plugins");

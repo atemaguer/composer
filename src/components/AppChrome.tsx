@@ -20,6 +20,10 @@ type AppChromeProps = {
   setInspectorOpen: (value: boolean) => void;
   selectedThread: string;
   onNewSession: () => void;
+  canNavigateBack?: boolean;
+  canNavigateForward?: boolean;
+  onNavigateBack?: () => void;
+  onNavigateForward?: () => void;
   threadViewMode?: ThreadViewMode;
   onThreadViewModeChange?: (mode: ThreadViewMode) => void;
   centerSlot?: ReactNode;
@@ -35,6 +39,10 @@ export function AppChrome({
   setInspectorOpen,
   selectedThread,
   onNewSession,
+  canNavigateBack = false,
+  canNavigateForward = false,
+  onNavigateBack,
+  onNavigateForward,
   threadViewMode = "sidebar",
   onThreadViewModeChange,
   centerSlot,
@@ -63,14 +71,18 @@ export function AppChrome({
             <PanelRight size={13} />
           </button>
           <button
-            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 disabled:pointer-events-none disabled:text-zinc-700"
             aria-label="Back"
+            disabled={!canNavigateBack}
+            onClick={onNavigateBack}
           >
             <ChevronDown className="rotate-90" size={14} />
           </button>
           <button
-            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 disabled:pointer-events-none disabled:text-zinc-700"
             aria-label="Forward"
+            disabled={!canNavigateForward}
+            onClick={onNavigateForward}
           >
             <ChevronDown className="-rotate-90" size={14} />
           </button>
