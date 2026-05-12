@@ -146,6 +146,124 @@ button:disabled {
   );
 }
 
+[data-composer-content] {
+  container-type: inline-size;
+}
+
+@container (max-width: 760px) {
+  .composer-action-row {
+    gap: 0.5rem;
+  }
+
+  .composer-left-controls,
+  .composer-right-controls {
+    gap: 0.375rem;
+  }
+
+  .composer-model-button {
+    max-width: 13rem;
+  }
+}
+
+@container (max-width: 700px) {
+  .composer-model-label-full {
+    display: none;
+  }
+
+  .composer-model-label-compact {
+    display: inline;
+  }
+}
+
+@container (max-width: 660px) {
+  .composer-provider-label {
+    display: none;
+  }
+
+  .composer-provider-button {
+    width: 1.875rem;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .composer-model-button {
+    max-width: 10.5rem;
+  }
+
+  .composer-model-label,
+  .composer-model-effort {
+    min-width: 0;
+  }
+}
+
+@container (max-width: 620px) {
+  .composer-plan-button {
+    display: none;
+  }
+}
+
+@container (max-width: 580px) {
+  .composer-collapsible-text {
+    display: none;
+  }
+
+  .composer-permission-button {
+    width: 3rem;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .composer-footer-row {
+    gap: 0.5rem;
+  }
+
+  .composer-footer-button {
+    width: 2rem;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .composer-footer-label,
+  .composer-footer-chevron {
+    display: none;
+  }
+}
+
+@container (max-width: 500px) {
+  .composer-model-button {
+    width: 3rem;
+    justify-content: center;
+    padding-left: 0;
+    padding-right: 0;
+  }
+
+  .composer-model-icon {
+    display: inline-flex;
+  }
+
+  .composer-model-label,
+  .composer-model-effort {
+    display: none;
+  }
+}
+
+@container (max-width: 440px) {
+  .composer-action-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .composer-left-controls {
+    gap: 0.25rem;
+  }
+
+  .composer-right-controls {
+    gap: 0.25rem;
+  }
+}
+
 .composer-message-markdown code:not(pre code) {
   border-radius: 5px;
   background: rgba(255, 255, 255, 0.07);

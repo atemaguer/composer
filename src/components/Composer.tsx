@@ -13,8 +13,15 @@ import {
   Bot,
   Check,
   ChevronDown,
+  ChevronRight,
+  CircleGauge,
+  CloudOff,
+  ExternalLink,
   Folder,
+  Gauge,
   GitBranch,
+  GitCompareArrows,
+  GitPullRequestCreateArrow,
   Laptop,
   ListChecks,
   Mic,
@@ -37,6 +44,8 @@ import type {
   PermissionMode,
   SessionProvider
 } from "../types";
+import { ProviderLogo } from "./ProviderLogo";
+import { TooltipButton } from "./ui/tooltip-button";
 
 type ComposerProvider = SessionProvider;
 
@@ -127,12 +136,74 @@ export type PromptComposerFooterItem = {
   icon: ElementType;
   label: string;
   options?: PromptComposerFooterOption[];
+  menuItems?: PromptComposerFooterMenuItem[];
+  menuTitle?: string;
+  menuPlacement?: "up" | "down";
   selectedOptionId?: string;
   searchPlaceholder?: string;
   createLabel?: string;
   onSelect?: (option: PromptComposerFooterOption) => void;
   onCreate?: (query: string) => void | Promise<void>;
 };
+
+export type PromptComposerFooterMenuItem = {
+  icon: ElementType;
+  label: string;
+  checked?: boolean;
+  disabled?: boolean;
+  separatorBefore?: boolean;
+  trailingIcon?: ElementType;
+  onSelect?: () => void;
+};
+
+const localWorkMenuBaseItems: PromptComposerFooterMenuItem[] = [
+  {
+    icon: Laptop,
+    label: "Work locally",
+    checked: true
+  },
+  {
+    icon: CircleGauge,
+    label: "Connect Codex web",
+    trailingIcon: ExternalLink
+  },
+  {
+    icon: CloudOff,
+    label: "Send to cloud",
+    disabled: true
+  }
+];
+
+export const startInFooterMenuItems: PromptComposerFooterMenuItem[] = [
+  ...localWorkMenuBaseItems.slice(0, 1),
+  {
+    icon: GitPullRequestCreateArrow,
+    label: "New worktree"
+  },
+  ...localWorkMenuBaseItems.slice(1),
+  {
+    icon: Gauge,
+    label: "Rate limits remaining",
+    separatorBefore: true,
+    trailingIcon: ChevronRight
+  }
+];
+
+export const continueInFooterMenuItems: PromptComposerFooterMenuItem[] = [
+  ...localWorkMenuBaseItems,
+  {
+    icon: Gauge,
+    label: "Rate limits remaining",
+    separatorBefore: true,
+    trailingIcon: ChevronRight
+  },
+  {
+    icon: GitCompareArrows,
+    label: "Handoff to worktree",
+    disabled: true,
+    separatorBefore: true
+  }
+];
 
 export type PromptComposerFooterOption = {
   id: string;
@@ -183,13 +254,20 @@ export function PromptComposer({
   onAddImageAttachments,
   onRemoveImageAttachment,
   footerItems = [
-    { icon: Laptop, label: "Work locally" },
+    {
+      icon: Laptop,
+      label: "Work locally",
+      menuTitle: "Continue in",
+      menuItems: continueInFooterMenuItems,
+      menuPlacement: "up"
+    },
     { icon: GitBranch, label: "main" }
   ]
 }: PromptComposerProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeProvider = composerProvider(provider);
   const selectedModel = modelOption(activeProvider, model);
+  const compactModelLabel = compactModelOptionLabel(selectedModel);
 
   useEffect(() => {
     if (!selectedModel.efforts.includes(intelligence)) {
@@ -315,8 +393,8 @@ export function PromptComposer({
           onKeyDown={handleTextareaKeyDown}
           onPaste={handlePaste}
         />
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 max-[720px]:flex max-[720px]:flex-wrap">
-          <div className="flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
+        <div className="composer-action-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5">
+          <div className="composer-left-controls flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
             <input
               ref={fileInputRef}
               className="hidden"
@@ -325,60 +403,86 @@ export function PromptComposer({
               multiple
               onChange={handleFileInputChange}
             />
-            <button
+            <TooltipButton
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
               aria-label="Attach"
               onClick={() => fileInputRef.current?.click()}
+              tooltip="Attach image"
               type="button"
             >
               <Plus size={17} />
-            </button>
+            </TooltipButton>
             {showPlanButton && (
-              <button className="inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70">
+              <TooltipButton
+                className="composer-plan-button inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+                aria-label="Plan"
+                tooltip="Plan response"
+                type="button"
+              >
                 <ListChecks size={13} />
-                <span>Plan</span>
-              </button>
+                <span className="composer-collapsible-text">Plan</span>
+              </TooltipButton>
             )}
-            <button
-              className="inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full bg-app-orange/10 px-2.5 text-[13px] text-app-orange focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-orange/70"
+            <TooltipButton
+              className="composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full bg-app-orange/10 px-2.5 text-[13px] text-app-orange focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-orange/70"
               onClick={() => setPermissionOpen(!permissionOpen)}
+              aria-label={`Permission: ${permission}`}
               aria-controls={permissionMenuId}
               aria-expanded={permissionOpen}
               aria-haspopup="menu"
+              tooltip={`Permission: ${permission}`}
+              type="button"
             >
               <ShieldAlert className="shrink-0" size={14} />
-              <span className="truncate">{permission}</span>
+              <span className="composer-collapsible-text truncate">
+                {permission}
+              </span>
               <ChevronDown className="shrink-0" size={13} />
-            </button>
+            </TooltipButton>
             <ProviderToggle provider={provider} setProvider={setProvider} />
           </div>
 
-          <div className="flex min-w-0 flex-nowrap items-center justify-end gap-2">
+          <div className="composer-right-controls flex min-w-0 flex-nowrap items-center justify-end gap-2">
             <span className="h-3.5 w-3.5 shrink-0 rounded-full border-[3px] border-white/10 border-t-white/35" />
-            <button
-              className="inline-flex h-[30px] min-w-0 max-w-[164px] items-center gap-1.5 rounded-full bg-white/[0.05] px-2.5 text-[13px] text-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+            <TooltipButton
+              className="composer-model-button inline-flex h-[30px] min-w-0 max-w-[164px] items-center gap-1.5 rounded-full bg-white/[0.05] px-2.5 text-[13px] text-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
               onClick={() => setIntelligenceOpen(!intelligenceOpen)}
+              aria-label={`Model: ${selectedModel.label}, ${
+                activeProvider === "meta" ? "Auto" : intelligence
+              }`}
               aria-controls={intelligenceMenuId}
               aria-expanded={intelligenceOpen}
               aria-haspopup="menu"
+              tooltip={`Model: ${selectedModel.label} · ${
+                activeProvider === "meta" ? "Auto" : intelligence
+              }`}
+              type="button"
             >
-              <span className="truncate">{selectedModel.label}</span>
-              <em className="shrink-0 not-italic text-zinc-500">
+              <Bot className="composer-model-icon hidden shrink-0" size={14} />
+              <span className="composer-model-label composer-model-label-full truncate">
+                {selectedModel.label}
+              </span>
+              <span className="composer-model-label-compact hidden truncate">
+                {compactModelLabel}
+              </span>
+              <em className="composer-model-effort shrink-0 not-italic text-zinc-500">
                 {activeProvider === "meta" ? "Auto" : intelligence}
               </em>
               <ChevronDown className="shrink-0" size={13} />
-            </button>
-            <button
+            </TooltipButton>
+            <TooltipButton
               className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
               aria-label="Voice"
+              tooltip="Voice input"
             >
               <Mic size={14} />
-            </button>
-            <button
+            </TooltipButton>
+            <TooltipButton
               className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-800 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
               aria-label={submitLabel}
               disabled={submitDisabled}
               onClick={submitMode === "send" ? onSubmit : (onStop ?? onSubmit)}
+              tooltip={submitLabel}
               type="button"
             >
               {submitMode === "send" ? (
@@ -386,18 +490,21 @@ export function PromptComposer({
               ) : (
                 <Square size={14} fill="currentColor" />
               )}
-            </button>
+            </TooltipButton>
           </div>
         </div>
       </div>
 
-      <div className="flex items-center gap-5 px-3.5 pt-2">
+      <div className="composer-footer-row flex items-center gap-5 px-3.5 pt-2">
         {footerItems.map((item) => (
           <ComposerFooterButton
             key={item.label}
             icon={item.icon}
             label={item.label}
             options={item.options}
+            menuItems={item.menuItems}
+            menuTitle={item.menuTitle}
+            menuPlacement={item.menuPlacement}
             selectedOptionId={item.selectedOptionId}
             searchPlaceholder={item.searchPlaceholder}
             createLabel={item.createLabel}
@@ -425,14 +532,15 @@ function ImageAttachmentPill({
         src={attachment.previewUrl}
       />
       <span className="min-w-0 truncate">{attachment.name}</span>
-      <button
+      <TooltipButton
         className="ml-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-white/[0.08] hover:text-zinc-200"
         aria-label={`Remove ${attachment.name}`}
         onClick={onRemove}
+        tooltip={`Remove ${attachment.name}`}
         type="button"
       >
         ×
-      </button>
+      </TooltipButton>
     </div>
   );
 }
@@ -471,22 +579,24 @@ function ProviderToggle({
   const visibleProvider: ComposerProvider = provider;
 
   return (
-    <div className="inline-grid min-w-0 shrink grid-cols-3 rounded-full border border-white/[0.08] bg-white/[0.035] p-0.5 text-[12px] text-zinc-400">
+    <div className="composer-provider-toggle inline-grid min-w-0 shrink grid-cols-3 rounded-full border border-white/[0.08] bg-white/[0.035] p-0.5 text-[12px] text-zinc-400">
       {providers.map(({ value, label }) => (
-        <button
+        <TooltipButton
           key={value}
           className={[
-            "inline-flex h-[26px] min-w-0 items-center gap-1 rounded-full px-2 transition-colors",
+            "composer-provider-button inline-flex h-[26px] min-w-0 items-center gap-1 rounded-full px-2 transition-colors",
             visibleProvider === value
               ? "bg-white/[0.1] text-zinc-100"
               : "hover:bg-white/[0.05]"
           ].join(" ")}
+          aria-label={label}
           onClick={() => setProvider(value)}
+          tooltip={`Switch to ${label}`}
           type="button"
         >
-          <Bot size={12} />
-          <span className="truncate">{label}</span>
-        </button>
+          <ProviderLogo provider={value} className="h-3.5 w-3.5" />
+          <span className="composer-provider-label truncate">{label}</span>
+        </TooltipButton>
       ))}
     </div>
   );
@@ -506,7 +616,7 @@ function ApprovalButton({
   onClick: () => void;
 }) {
   return (
-    <button
+    <TooltipButton
       className={[
         "h-7 rounded-md px-2.5 text-[12px] transition-colors",
         primary
@@ -514,10 +624,11 @@ function ApprovalButton({
           : "bg-white/[0.06] text-zinc-300 hover:bg-white/[0.09]"
       ].join(" ")}
       onClick={onClick}
+      tooltip={label}
       type="button"
     >
       {label}
-    </button>
+    </TooltipButton>
   );
 }
 
@@ -565,15 +676,16 @@ function PendingTerminalStack({
               <div className="grid h-10 grid-cols-[20px_minmax(0,1fr)_22px_22px] items-center gap-2.5 px-3.5">
                 <TerminalSquare size={14} />
                 <span className="truncate">{item.label}</span>
-                <button
+                <TooltipButton
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-white/[0.06]"
                   aria-label="Stop running tool"
                   onClick={onStop}
+                  tooltip="Stop running tool"
                   type="button"
                 >
                   <Square size={10} fill="currentColor" />
-                </button>
-                <button
+                </TooltipButton>
+                <TooltipButton
                   className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-white/[0.06]"
                   aria-label={
                     expanded ? "Collapse running tool" : "Expand running tool"
@@ -585,6 +697,9 @@ function PendingTerminalStack({
                       [item.id]: !expanded
                     }))
                   }
+                  tooltip={
+                    expanded ? "Collapse running tool" : "Expand running tool"
+                  }
                   type="button"
                 >
                   <ChevronDown
@@ -594,7 +709,7 @@ function PendingTerminalStack({
                     ].join(" ")}
                     size={15}
                   />
-                </button>
+                </TooltipButton>
               </div>
               <div className="grid gap-1 border-t border-app-line/70 px-3.5 py-2 text-[12px] text-zinc-500">
                 {details.map((detail) => (
@@ -689,6 +804,9 @@ function ComposerFooterButton({
   icon: Icon,
   label,
   options,
+  menuItems,
+  menuTitle,
+  menuPlacement = "up",
   selectedOptionId,
   searchPlaceholder = "Search",
   createLabel = "New project",
@@ -698,6 +816,9 @@ function ComposerFooterButton({
   icon: ElementType;
   label: string;
   options?: PromptComposerFooterOption[];
+  menuItems?: PromptComposerFooterMenuItem[];
+  menuTitle?: string;
+  menuPlacement?: "up" | "down";
   selectedOptionId?: string;
   searchPlaceholder?: string;
   createLabel?: string;
@@ -709,7 +830,8 @@ function ComposerFooterButton({
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
-  const hasMenu = Boolean(options?.length || onCreate);
+  const hasCustomMenu = Boolean(menuItems?.length);
+  const hasMenu = Boolean(hasCustomMenu || options?.length || onCreate);
   const normalizedQuery = query.trim().toLowerCase();
   const filteredOptions = (options ?? []).filter((option) =>
     `${option.label} ${option.detail ?? ""} ${option.cwd ?? ""}`
@@ -772,129 +894,217 @@ function ComposerFooterButton({
 
   if (!hasMenu) {
     return (
-      <button
-        className="inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[13px] text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-300"
+      <TooltipButton
+        className="composer-footer-button inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[13px] text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-300"
+        aria-label={label}
+        tooltip={label}
         type="button"
       >
-        <Icon size={14} />
-        <span className="max-w-[180px] truncate">{label}</span>
-        <ChevronDown size={12} />
-      </button>
+        <Icon className="shrink-0" size={14} />
+        <span className="composer-footer-label max-w-[180px] truncate">
+          {label}
+        </span>
+        <ChevronDown className="composer-footer-chevron shrink-0" size={12} />
+      </TooltipButton>
     );
   }
 
   return (
     <div ref={menuRef} className="relative">
-      <button
+      <TooltipButton
         className={[
-          "inline-flex h-8 max-w-[280px] items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors",
+          "composer-footer-button inline-flex h-8 max-w-[280px] items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors",
           open
             ? "bg-white/[0.07] text-zinc-200"
             : "text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300"
         ].join(" ")}
+        aria-label={label}
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={() => setOpen((current) => !current)}
+        tooltip={label}
         type="button"
       >
         <Icon className="shrink-0" size={15} />
-        <span className="min-w-0 truncate">{label}</span>
+        <span className="composer-footer-label min-w-0 truncate">{label}</span>
         <ChevronDown
           className={[
-            "shrink-0 transition-transform",
+            "composer-footer-chevron shrink-0 transition-transform",
             open ? "rotate-180" : ""
           ].join(" ")}
           size={13}
         />
-      </button>
+      </TooltipButton>
 
       {open && (
         <div
-          className="absolute left-0 top-[calc(100%+8px)] z-30 grid w-[min(430px,calc(100vw-48px))] gap-1 rounded-xl border border-white/15 bg-app-panel-2/95 p-2 text-[14px] shadow-[0_18px_48px_rgba(0,0,0,0.38)]"
+          className={[
+            "absolute left-0 z-30 grid w-[min(430px,calc(100vw-48px))] gap-1 rounded-xl border border-white/15 bg-app-panel-2/95 p-2 text-[14px] shadow-[0_18px_48px_rgba(0,0,0,0.38)]",
+            menuPlacement === "up"
+              ? "bottom-[calc(100%+8px)]"
+              : "top-[calc(100%+8px)]"
+          ].join(" ")}
           role="menu"
           aria-label={label}
         >
-          <label className="grid h-9 grid-cols-[22px_minmax(0,1fr)] items-center gap-1 rounded-md px-2 text-zinc-500">
-            <Search size={15} />
-            <input
-              className="h-full min-w-0 bg-transparent text-[14px] text-zinc-200 outline-none placeholder:text-zinc-500"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              onKeyDown={(event) => {
-                if (
-                  event.key === "Enter" &&
-                  filteredOptions.length === 0 &&
-                  onCreate
-                ) {
-                  event.preventDefault();
-                  void handleCreate();
-                }
-              }}
-              placeholder={searchPlaceholder}
-              autoFocus
+          {hasCustomMenu ? (
+            <ComposerFooterCustomMenu
+              title={menuTitle}
+              items={menuItems ?? []}
+              onClose={() => setOpen(false)}
             />
-          </label>
-
-          <div className="max-h-[260px] overflow-y-auto border-t border-white/[0.08] pt-1">
-            {filteredOptions.map((option) => {
-              const selected = option.id === selectedOptionId;
-
-              return (
-                <button
-                  key={option.id}
-                  className={[
-                    "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 rounded-md px-2 text-left text-zinc-200 transition-colors hover:bg-white/[0.06]",
-                    selected ? "bg-white/[0.04]" : ""
-                  ].join(" ")}
-                  onClick={() => {
-                    onSelect?.(option);
-                    setOpen(false);
+          ) : (
+            <>
+              <label className="grid h-9 grid-cols-[22px_minmax(0,1fr)] items-center gap-1 rounded-md px-2 text-zinc-500">
+                <Search size={15} />
+                <input
+                  className="h-full min-w-0 bg-transparent text-[14px] text-zinc-200 outline-none placeholder:text-zinc-500"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (
+                      event.key === "Enter" &&
+                      filteredOptions.length === 0 &&
+                      onCreate
+                    ) {
+                      event.preventDefault();
+                      void handleCreate();
+                    }
                   }}
-                  role="menuitemradio"
-                  aria-checked={selected}
+                  placeholder={searchPlaceholder}
+                  autoFocus
+                />
+              </label>
+
+              <div className="max-h-[260px] overflow-y-auto border-t border-white/[0.08] pt-1">
+                {filteredOptions.map((option) => {
+                  const selected = option.id === selectedOptionId;
+
+                  return (
+                    <TooltipButton
+                      key={option.id}
+                      className={[
+                        "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 rounded-md px-2 text-left text-zinc-200 transition-colors hover:bg-white/[0.06]",
+                        selected ? "bg-white/[0.04]" : ""
+                      ].join(" ")}
+                      onClick={() => {
+                        onSelect?.(option);
+                        setOpen(false);
+                      }}
+                      role="menuitemradio"
+                      aria-checked={selected}
+                      tooltip={`Select ${option.label}`}
+                      type="button"
+                    >
+                      <Folder className="text-zinc-400" size={16} />
+                      <span className="grid min-w-0">
+                        <span className="truncate">{option.label}</span>
+                        {option.detail && (
+                          <span className="truncate text-[12px] text-zinc-500">
+                            {option.detail}
+                          </span>
+                        )}
+                      </span>
+                      {selected && <Check size={15} />}
+                    </TooltipButton>
+                  );
+                })}
+
+                {filteredOptions.length === 0 && (
+                  <div className="px-2 py-3 text-[13px] text-zinc-500">
+                    No projects found
+                  </div>
+                )}
+              </div>
+
+              {onCreate && (
+                <TooltipButton
+                  className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 rounded-md border-t border-white/[0.08] px-2 pt-2 text-left text-zinc-200 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={creating}
+                  onClick={() => void handleCreate()}
+                  tooltip={creating ? "Creating project" : createActionLabel}
                   type="button"
                 >
-                  <Folder className="text-zinc-400" size={16} />
-                  <span className="grid min-w-0">
-                    <span className="truncate">{option.label}</span>
-                    {option.detail && (
-                      <span className="truncate text-[12px] text-zinc-500">
-                        {option.detail}
-                      </span>
-                    )}
+                  <Plus className="text-zinc-400" size={16} />
+                  <span className="truncate">
+                    {creating ? "Creating project..." : createActionLabel}
                   </span>
-                  {selected && <Check size={15} />}
-                </button>
-              );
-            })}
+                </TooltipButton>
+              )}
 
-            {filteredOptions.length === 0 && (
-              <div className="px-2 py-3 text-[13px] text-zinc-500">
-                No projects found
-              </div>
-            )}
-          </div>
-
-          {onCreate && (
-            <button
-              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 rounded-md border-t border-white/[0.08] px-2 pt-2 text-left text-zinc-200 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
-              disabled={creating}
-              onClick={() => void handleCreate()}
-              type="button"
-            >
-              <Plus className="text-zinc-400" size={16} />
-              <span className="truncate">
-                {creating ? "Creating project..." : createActionLabel}
-              </span>
-            </button>
-          )}
-
-          {error && (
-            <div className="px-2 pb-1 text-[12px] text-red-300">{error}</div>
+              {error && (
+                <div className="px-2 pb-1 text-[12px] text-red-300">
+                  {error}
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
     </div>
+  );
+}
+
+function ComposerFooterCustomMenu({
+  title = "Continue in",
+  items,
+  onClose
+}: {
+  title?: string;
+  items: PromptComposerFooterMenuItem[];
+  onClose: () => void;
+}) {
+  return (
+    <>
+      <div className="px-3 pb-2 pt-1 text-[14px] font-medium text-zinc-500">
+        {title}
+      </div>
+      <div className="grid gap-0.5">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const TrailingIcon =
+            item.trailingIcon ?? (item.checked ? Check : undefined);
+
+          return (
+            <TooltipButton
+              key={item.label}
+              className={[
+                "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 rounded-md px-2 text-left text-[14px] transition-colors",
+                item.separatorBefore ? "mt-1 border-t border-white/[0.08] pt-2" : "",
+                item.disabled
+                  ? "cursor-not-allowed text-zinc-600"
+                  : "text-zinc-200 hover:bg-white/[0.06]"
+              ].join(" ")}
+              disabled={item.disabled}
+              onClick={() => {
+                if (item.disabled) {
+                  return;
+                }
+
+                item.onSelect?.();
+                onClose();
+              }}
+              role={item.checked ? "menuitemradio" : "menuitem"}
+              aria-checked={item.checked}
+              tooltip={item.label}
+              type="button"
+            >
+              <Icon
+                className={item.disabled ? "text-zinc-600" : "text-zinc-400"}
+                size={16}
+              />
+              <span className="truncate">{item.label}</span>
+              {TrailingIcon && (
+                <TrailingIcon
+                  className={item.disabled ? "text-zinc-600" : "text-zinc-400"}
+                  size={16}
+                />
+              )}
+            </TooltipButton>
+          );
+        })}
+      </div>
+    </>
   );
 }
 
@@ -921,17 +1131,18 @@ function PermissionMenu({
       aria-label="Permission mode"
     >
       {options.map(([label, Icon]) => (
-        <button
+        <TooltipButton
           key={label}
           className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 rounded-md px-2 text-left text-[14px] text-zinc-200 hover:bg-white/[0.06]"
           onClick={() => setPermission(label)}
           role="menuitemradio"
           aria-checked={permission === label}
+          tooltip={`Select ${label}`}
         >
           <Icon size={14} />
           <span>{label}</span>
           {permission === label && <Check size={14} />}
-        </button>
+        </TooltipButton>
       ))}
     </div>
   );
@@ -975,12 +1186,13 @@ function ModelSettingsMenu({
         {providerLabel} model
       </div>
       {models.map((option) => (
-        <button
+        <TooltipButton
           key={option.value}
           className="grid min-h-11 grid-cols-[minmax(0,1fr)_18px] items-center rounded-md px-2 text-left text-[14px] text-zinc-100 hover:bg-white/[0.06]"
           onClick={() => setModel(option.value)}
           role="menuitemradio"
           aria-checked={selectedModel.value === option.value}
+          tooltip={`Select ${option.label}`}
         >
           <span className="grid min-w-0">
             <span className="truncate">{option.label}</span>
@@ -989,7 +1201,7 @@ function ModelSettingsMenu({
             </span>
           </span>
           {selectedModel.value === option.value && <Check size={14} />}
-        </button>
+        </TooltipButton>
       ))}
       <div className="my-1 h-px bg-white/[0.09]" />
       <div className="px-3 pb-2 pt-1 text-[14px] text-zinc-400">
@@ -1012,16 +1224,17 @@ function ModelSettingsMenu({
         </div>
       ) : (
         efforts.map((label) => (
-          <button
+          <TooltipButton
             key={label}
             className="grid min-h-9 grid-cols-[minmax(0,1fr)_18px] items-center rounded-md px-2 text-left text-[14px] text-zinc-100 hover:bg-white/[0.06]"
             onClick={() => setIntelligence(label)}
             role="menuitemradio"
             aria-checked={intelligence === label}
+            tooltip={`Set ${effortLabel}: ${label}`}
           >
             <span>{label}</span>
             {intelligence === label && <Check size={14} />}
-          </button>
+          </TooltipButton>
         ))
       )}
     </div>
@@ -1033,6 +1246,26 @@ function modelOption(provider: ComposerProvider, value: AgentModel) {
     providerModels[provider].find((option) => option.value === value) ??
     providerModels[provider][0]
   );
+}
+
+function compactModelOptionLabel(option: ModelOption) {
+  if (option.value.startsWith("gpt-")) {
+    return option.label.replace(/^GPT-/, "");
+  }
+
+  if (option.value.includes("sonnet")) {
+    return "Sonnet";
+  }
+
+  if (option.value.includes("opus")) {
+    return "Opus";
+  }
+
+  if (option.value.startsWith("meta-")) {
+    return "Plan -> Execute";
+  }
+
+  return option.label;
 }
 
 function defaultEffort(option: ModelOption) {

@@ -7,6 +7,7 @@ import {
 import { cn } from "../lib/cn";
 import {
   PromptComposer,
+  startInFooterMenuItems,
   type PromptComposerControls,
   type PromptComposerFooterOption
 } from "./Composer";
@@ -58,7 +59,13 @@ export function NewSessionPage({
                 onSelect: onWorkspaceSelect,
                 onCreate: onWorkspaceCreate
               },
-              { icon: Laptop, label: "Work locally" },
+              {
+                icon: Laptop,
+                label: "Work locally",
+                menuTitle: "Start in",
+                menuItems: startInFooterMenuItems,
+                menuPlacement: "down"
+              },
               { icon: GitBranch, label: "main" }
             ]}
             placeholder="Ask Composer anything. @ to use plugins or mention files"
