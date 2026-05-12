@@ -1,0 +1,61 @@
+{
+  "$schema": "https://turborepo.dev/schema.json",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "dist/**",
+        "dist-electron/**",
+        "dist-server/**"
+      ]
+    },
+    "server:build": {
+      "outputs": ["dist-server/**"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build"],
+      "outputs": []
+    },
+    "lint": {
+      "outputs": []
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "start": {
+      "cache": false,
+      "persistent": true
+    },
+    "preview": {
+      "cache": false,
+      "persistent": true
+    },
+    "electron:build:dir": {
+      "dependsOn": ["build"],
+      "outputs": ["dist/**", "dist-electron/**", "dist-server/**", "dist-builder/**", "release/**", "out/**"]
+    },
+    "build:unpack": {
+      "dependsOn": ["build"],
+      "outputs": ["dist/**", "dist-electron/**", "dist-server/**", "release/**", "out/**"]
+    },
+    "build:win": {
+      "dependsOn": ["build"],
+      "outputs": ["release/**", "out/**"]
+    },
+    "build:mac": {
+      "dependsOn": ["build"],
+      "outputs": ["release/**", "out/**"]
+    },
+    "build:mac:dev": {
+      "dependsOn": ["build"],
+      "outputs": ["release/**", "out/**"]
+    },
+    "build:linux": {
+      "dependsOn": ["build"],
+      "outputs": ["release/**", "out/**"]
+    }
+  }
+}
