@@ -37,6 +37,7 @@ import type {
   ToolDetail
 } from "../types";
 import { Composer, type ComposerProps } from "./Composer";
+import { TooltipButton } from "./ui/tooltip-button";
 
 type ConversationProps = {
   className?: string;
@@ -357,12 +358,13 @@ export function UserMessageBubble({
       </div>
       <div className="flex items-center gap-2.5 pr-1 text-[11px] text-zinc-500">
         {timestamp && <span>{timestamp}</span>}
-        <button
+        <TooltipButton
           className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-white/[0.06]"
           aria-label="Copy user message"
+          tooltip="Copy message"
         >
           <Copy size={13} />
-        </button>
+        </TooltipButton>
       </div>
     </div>
   );
@@ -580,13 +582,14 @@ function MarkdownLink({
 
   if (filePath && onOpenFile) {
     return (
-      <button
+      <TooltipButton
         className="inline text-left text-app-blue underline-offset-4 hover:underline"
+        tooltip="Open file"
         type="button"
         onClick={() => onOpenFile(filePath)}
       >
         {children}
-      </button>
+      </TooltipButton>
     );
   }
 
@@ -738,10 +741,11 @@ function CollapsedCodeBlock({
       data-language={label}
       data-composer-code-accordion
     >
-      <button
+      <TooltipButton
         className="composer-code-accordion-trigger"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
+        tooltip={open ? "Collapse code block" : "Expand code block"}
         type="button"
       >
         <span className="font-mono lowercase">{label}</span>
@@ -752,7 +756,7 @@ function CollapsedCodeBlock({
           size={14}
           className={cn("transition-transform", !open && "-rotate-90")}
         />
-      </button>
+      </TooltipButton>
       {open && <CodeSheet code={code} language={language} />}
     </div>
   );
@@ -812,10 +816,11 @@ export function ToolActivityGroup({
 
   return (
     <div className="grid gap-2.5" data-tool-activity-group>
-      <button
+      <TooltipButton
         className="grid w-fit max-w-full grid-cols-[18px_minmax(0,1fr)_18px] items-center gap-2 text-left text-[13.5px] text-zinc-500 transition-colors hover:text-app-muted"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
+        tooltip={open ? "Collapse tool activity" : "Expand tool activity"}
       >
         <TerminalSquare size={13} className="text-zinc-500" />
         <span className="truncate">{item.summary}</span>
@@ -826,7 +831,7 @@ export function ToolActivityGroup({
             !open && "-rotate-90"
           )}
         />
-      </button>
+      </TooltipButton>
 
       {open && (
         <div className="grid gap-2 text-[13px] text-zinc-500">
@@ -872,11 +877,11 @@ function ToolDetailRow({
   if (expandable) {
     return (
       <div className="grid gap-2">
-        <button
+        <TooltipButton
           className="grid min-w-0 grid-cols-[minmax(0,1fr)_18px] items-center gap-2 text-left text-zinc-400 transition-colors hover:text-zinc-300"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
-          title={detail.label}
+          tooltip={detail.label}
         >
           <span
             className={cn(
@@ -892,14 +897,14 @@ function ToolDetailRow({
             className={cn("text-zinc-500 transition-transform", !open && "-rotate-90")}
             size={15}
           />
-        </button>
+        </TooltipButton>
         {open && <ToolPayloadCard detail={detail} />}
       </div>
     );
   }
 
   return (
-    <button
+    <TooltipButton
       className={cn(
         "min-w-0 truncate text-left",
         filePath && onOpenFile && "transition-colors hover:text-app-blue",
@@ -909,10 +914,10 @@ function ToolDetailRow({
       type="button"
       disabled={!filePath || !onOpenFile}
       onClick={() => filePath && onOpenFile?.(filePath)}
-      title={detail.label}
+      tooltip={detail.label}
     >
       {rowLabel}
-    </button>
+    </TooltipButton>
   );
 }
 
@@ -993,18 +998,20 @@ export function RunningToolCard({
     >
       <TerminalSquare size={15} />
       <span className="truncate">{label}</span>
-      <button
+      <TooltipButton
         className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/[0.06]"
         aria-label="Stop running tool"
+        tooltip="Stop running tool"
       >
         <Square size={10} fill="currentColor" />
-      </button>
-      <button
+      </TooltipButton>
+      <TooltipButton
         className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/[0.06]"
         aria-label="Expand running tool"
+        tooltip="Expand running tool"
       >
         <ChevronDown className="-rotate-90" size={15} />
-      </button>
+      </TooltipButton>
     </div>
   );
 }
@@ -1025,30 +1032,38 @@ export function FileChangeSummaryCard({
           <span className="text-red-400">-{item.deletions}</span>
         </div>
         <div className="flex items-center gap-3 text-[13px] text-zinc-500">
-          <button className="inline-flex items-center gap-1.5 hover:text-zinc-300">
+          <TooltipButton
+            className="inline-flex items-center gap-1.5 hover:text-zinc-300"
+            tooltip="Undo changes"
+          >
             <span>Undo</span>
-          </button>
-          <button className="inline-flex items-center gap-1.5 hover:text-zinc-300">
+          </TooltipButton>
+          <TooltipButton
+            className="inline-flex items-center gap-1.5 hover:text-zinc-300"
+            tooltip="Review changes"
+          >
             <span>Review</span>
             <ExternalLink size={13} />
-          </button>
-          <button
+          </TooltipButton>
+          <TooltipButton
             className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/[0.06]"
             aria-label={open ? "Collapse file changes" : "Expand file changes"}
             aria-expanded={open}
+            tooltip={open ? "Collapse file changes" : "Expand file changes"}
             onClick={() => setOpen(!open)}
           >
             <ChevronDown
               size={15}
               className={cn("transition-transform", !open && "-rotate-90")}
             />
-          </button>
-          <button
+          </TooltipButton>
+          <TooltipButton
             className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/[0.06]"
             aria-label="Expand review card"
+            tooltip="Expand review card"
           >
             <Maximize2 size={13} />
-          </button>
+          </TooltipButton>
         </div>
       </div>
 
@@ -1065,14 +1080,17 @@ export function FileChangeSummaryCard({
 
 function FileChangeRowView({ file }: { file: FileChangeRow }) {
   return (
-    <button className="grid min-h-[38px] grid-cols-[minmax(0,1fr)_auto_22px] items-center gap-2.5 border-b border-app-line px-3.5 text-left text-[13px] last:border-b-0 hover:bg-white/[0.035]">
+    <TooltipButton
+      className="grid min-h-[38px] grid-cols-[minmax(0,1fr)_auto_22px] items-center gap-2.5 border-b border-app-line px-3.5 text-left text-[13px] last:border-b-0 hover:bg-white/[0.035]"
+      tooltip={`View changes in ${file.path}`}
+    >
       <span className="min-w-0 truncate text-zinc-200">{file.path}</span>
       <span className="whitespace-nowrap">
         <span className="text-app-green">+{file.additions}</span>{" "}
         <span className="text-red-400">-{file.deletions}</span>
       </span>
       <ChevronDown size={14} className="text-zinc-500" />
-    </button>
+    </TooltipButton>
   );
 }
 
@@ -1098,13 +1116,14 @@ export function JumpToLatestButton({
 }) {
   return (
     <div className="grid justify-items-center">
-      <button
+      <TooltipButton
         className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-app-line bg-app-panel/80 text-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.22)]"
         aria-label={label ?? "Jump to latest"}
+        tooltip={label ?? "Jump to latest"}
         onClick={onClick}
       >
         <ArrowDown size={16} />
-      </button>
+      </TooltipButton>
     </div>
   );
 }

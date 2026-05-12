@@ -6,7 +6,9 @@ import {
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
-import type { Project, SessionProvider } from "../types";
+import type { SessionProvider } from "../types";
+import { ProviderLogo } from "./ProviderLogo";
+import { TooltipButton } from "./ui/tooltip-button";
 
 export type ThreadTabItem = {
   id: string;
@@ -97,23 +99,31 @@ function ThreadTab({
           : "border-transparent bg-transparent text-zinc-300/75 hover:border-white/[0.08] hover:bg-white/[0.045]"
       )}
     >
-      <button
-        className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-[5px] px-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
-        title={`${thread.name} - ${thread.workspaceName}`}
+      <TooltipButton
+        className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 rounded-[5px] px-1.5 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+        tooltip={`${thread.name} - ${thread.workspaceName}`}
         onClick={onSelect}
       >
+        <ProviderLogo
+          provider={thread.provider}
+          className={cn(
+            thread.provider === "claude" && "text-app-orange/85",
+            thread.provider === "codex" && "text-zinc-300",
+            thread.provider === "meta" && "text-app-green"
+          )}
+        />
         <span className="truncate text-[13px] font-medium">{thread.name}</span>
-        <ProviderBadge provider={thread.provider} />
         <em className="text-[12px] not-italic text-zinc-500">{thread.age}</em>
-      </button>
-      <button
+      </TooltipButton>
+      <TooltipButton
         className="inline-flex h-5 w-5 items-center justify-center rounded-[5px] text-zinc-400 opacity-0 transition-opacity hover:bg-white/[0.08] focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 group-hover/tab:opacity-100"
         aria-label={`Archive ${thread.name}`}
+        tooltip={`Archive ${thread.name}`}
         onClick={onArchive}
       >
         <Archive size={12} />
-      </button>
-      <button
+      </TooltipButton>
+      <TooltipButton
         className={cn(
           "inline-flex h-5 w-5 items-center justify-center rounded-[5px] transition-all focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70",
           active
@@ -121,32 +131,11 @@ function ThreadTab({
             : "text-zinc-500 opacity-0 hover:bg-white/[0.08] hover:text-red-200 group-hover/tab:opacity-100"
         )}
         aria-label={active ? `Close ${thread.name}` : `Delete ${thread.name}`}
+        tooltip={active ? `Close ${thread.name}` : `Delete ${thread.name}`}
         onClick={active ? onClose : onDelete}
       >
         {active ? <X size={12} /> : <Trash2 size={12} />}
-      </button>
+      </TooltipButton>
     </div>
-  );
-}
-
-function ProviderBadge({ provider }: { provider?: Project["provider"] }) {
-  if (!provider) {
-    return null;
-  }
-
-  return (
-    <span
-      className={cn(
-        "rounded-[5px] border px-1.5 py-0.5 text-[10px] font-medium uppercase leading-none",
-        provider === "codex" &&
-          "border-app-blue/20 bg-app-blue/10 text-app-blue/85",
-        provider === "claude" &&
-          "border-app-orange/20 bg-app-orange/10 text-app-orange/85",
-        provider === "meta" &&
-          "border-app-green/20 bg-app-green/10 text-app-green/85"
-      )}
-    >
-      {provider}
-    </span>
   );
 }

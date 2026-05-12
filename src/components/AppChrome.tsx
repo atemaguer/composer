@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 import {
-  ChevronDown,
+  ArrowLeft,
+  ArrowRight,
   MoreHorizontal,
   PanelTop,
   PanelRight,
@@ -10,6 +11,7 @@ import {
 import { cn } from "../lib/cn";
 import type { ThreadViewMode } from "../types";
 import { iconButton } from "./style-tokens";
+import { TooltipButton } from "./ui/tooltip-button";
 
 type AppChromeProps = {
   className?: string;
@@ -62,30 +64,33 @@ export function AppChrome({
     >
       {!sidebarOpen && (
         <div className="flex h-full min-w-0 items-center gap-1.5 py-0 pl-[76px] pr-3">
-          <button
+          <TooltipButton
             className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
             aria-label="Show sidebar"
             aria-pressed={sidebarOpen}
+            tooltip="Show sidebar"
             onClick={() => setSidebarOpen(true)}
           >
             <PanelRight size={13} />
-          </button>
-          <button
-            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 disabled:pointer-events-none disabled:text-zinc-700"
+          </TooltipButton>
+          <TooltipButton
+            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
             aria-label="Back"
             disabled={!canNavigateBack}
+            tooltip="Back"
             onClick={onNavigateBack}
           >
-            <ChevronDown className="rotate-90" size={14} />
-          </button>
-          <button
-            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-600 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 disabled:pointer-events-none disabled:text-zinc-700"
+            <ArrowLeft size={16} />
+          </TooltipButton>
+          <TooltipButton
+            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
             aria-label="Forward"
             disabled={!canNavigateForward}
+            tooltip="Forward"
             onClick={onNavigateForward}
           >
-            <ChevronDown className="-rotate-90" size={14} />
-          </button>
+            <ArrowRight size={16} />
+          </TooltipButton>
         </div>
       )}
 
@@ -102,16 +107,17 @@ export function AppChrome({
         {rightSlot ?? (
           <>
             {mode === "session" && (
-              <button
+              <TooltipButton
                 className={iconButton}
                 aria-label="New session"
+                tooltip="New session"
                 onClick={onNewSession}
               >
                 <Plus size={15} />
-              </button>
+              </TooltipButton>
             )}
             {mode === "session" && (
-              <button
+              <TooltipButton
                 className={cn(
                   iconButton,
                   threadViewMode === "tabs" &&
@@ -121,6 +127,9 @@ export function AppChrome({
                   threadViewMode === "tabs" ? "Use sidebar view" : "Use tab view"
                 }
                 aria-pressed={threadViewMode === "tabs"}
+                tooltip={
+                  threadViewMode === "tabs" ? "Use sidebar view" : "Use tab view"
+                }
                 onClick={() =>
                   onThreadViewModeChange?.(
                     threadViewMode === "tabs" ? "sidebar" : "tabs"
@@ -128,17 +137,18 @@ export function AppChrome({
                 }
               >
                 <PanelTop size={14} />
-              </button>
+              </TooltipButton>
             )}
             {!inspectorOpen && (
-              <button
+              <TooltipButton
                 className={iconButton}
                 aria-label="Show inspector"
                 aria-pressed={inspectorOpen}
+                tooltip="Show inspector"
                 onClick={() => setInspectorOpen(true)}
               >
                 <PanelRight size={14} />
-              </button>
+              </TooltipButton>
             )}
           </>
         )}

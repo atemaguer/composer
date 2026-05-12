@@ -23,6 +23,7 @@ import {
 
 import { cn } from "../lib/cn";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { TooltipButton } from "./ui/tooltip-button";
 import type {
   CapabilityProvider,
   ComposerCapability,
@@ -391,7 +392,7 @@ function CapabilityRow({
         )}
       </div>
 
-      <button
+      <TooltipButton
         className={cn(
           "inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70",
           item.enabled
@@ -399,11 +400,12 @@ function CapabilityRow({
             : "bg-white/[0.055] text-app-muted hover:bg-white/[0.09]"
         )}
         aria-label={item.enabled ? `${item.name} enabled` : `Add ${item.name}`}
+        tooltip={item.enabled ? `${item.name} enabled` : `Add ${item.name}`}
         type="button"
         onClick={(event) => event.stopPropagation()}
       >
         {item.enabled ? <Check size={16} /> : <Plus size={17} />}
-      </button>
+      </TooltipButton>
     </article>
   );
 }
@@ -442,14 +444,15 @@ function CapabilityModal({
             >
               <Icon size={26} />
             </span>
-            <button
+            <TooltipButton
               className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-white/[0.07] hover:text-app-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
               aria-label="Close capability details"
+              tooltip="Close details"
               type="button"
               onClick={onClose}
             >
               <X size={18} />
-            </button>
+            </TooltipButton>
           </div>
 
           <div className="grid gap-2">
@@ -482,18 +485,19 @@ function CapabilityModal({
         </div>
 
         <footer className="flex justify-end gap-2">
-          <button
+          <TooltipButton
             className={cn(
               "inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[15px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70",
               item.enabled
                 ? "bg-white/[0.08] text-app-muted hover:bg-white/[0.12] hover:text-app-text"
                 : "bg-zinc-100 text-zinc-950 hover:bg-white"
             )}
+            tooltip={item.enabled ? `${item.name} installed` : `Install ${item.name}`}
             type="button"
           >
             {item.enabled ? <Check size={17} /> : <Plus size={18} />}
             <span>{item.enabled ? "Installed" : "Install"}</span>
-          </button>
+          </TooltipButton>
         </footer>
       </section>
     </div>

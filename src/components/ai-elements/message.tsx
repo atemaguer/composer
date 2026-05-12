@@ -5,12 +5,6 @@ import {
   ButtonGroup,
   ButtonGroupText,
 } from "@/components/ui/button-group";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { cjk } from "@streamdown/cjk";
 import { code } from "@streamdown/code";
@@ -90,27 +84,18 @@ export const MessageAction = ({
   size = "icon-sm",
   ...props
 }: MessageActionProps) => {
-  const button = (
-    <Button size={size} type="button" variant={variant} {...props}>
+  return (
+    <Button
+      size={size}
+      tooltip={tooltip}
+      type="button"
+      variant={variant}
+      {...props}
+    >
       {children}
       <span className="sr-only">{label || tooltip}</span>
     </Button>
   );
-
-  if (tooltip) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger>{button}</TooltipTrigger>
-          <TooltipContent>
-            <p>{tooltip}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    );
-  }
-
-  return button;
 };
 
 interface MessageBranchContextType {
@@ -266,6 +251,7 @@ export const MessageBranchPrevious = ({
       disabled={totalBranches <= 1}
       onClick={goToPrevious}
       size="icon-sm"
+      tooltip="Previous branch"
       type="button"
       variant="ghost"
       {...props}
@@ -289,6 +275,7 @@ export const MessageBranchNext = ({
       disabled={totalBranches <= 1}
       onClick={goToNext}
       size="icon-sm"
+      tooltip="Next branch"
       type="button"
       variant="ghost"
       {...props}

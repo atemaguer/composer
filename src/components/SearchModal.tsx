@@ -3,6 +3,7 @@ import { Monitor, Search } from "lucide-react";
 
 import { cn } from "../lib/cn";
 import type { Project, ProjectThread } from "../types";
+import { TooltipButton } from "./ui/tooltip-button";
 
 type SearchModalProps = {
   open: boolean;
@@ -142,7 +143,7 @@ export function SearchModal({
         <div className="thin-scrollbar max-h-[410px] overflow-y-auto px-2 pb-2">
           {results.length > 0 ? (
             results.map((result, index) => (
-              <button
+              <TooltipButton
                 key={result.thread.id}
                 className={cn(
                   "grid min-h-11 w-full grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-xl px-3 text-left text-[17px] text-app-text/84 transition-colors",
@@ -150,6 +151,7 @@ export function SearchModal({
                     ? "bg-app-panel-2/88 text-app-text shadow-[0_0_0_1px_rgba(210,229,252,0.06)_inset]"
                     : "hover:bg-app-panel/55"
                 )}
+                tooltip={`Open ${result.thread.name}`}
                 onClick={() => selectResult(result)}
                 onMouseEnter={() => setActiveIndex(index)}
               >
@@ -161,7 +163,7 @@ export function SearchModal({
                 <kbd className="rounded-full border border-app-line bg-app-panel/80 px-2 py-0.5 text-[13px] font-medium text-app-muted">
                   ⌘{index + 1}
                 </kbd>
-              </button>
+              </TooltipButton>
             ))
           ) : (
             <div className="px-3 py-8 text-center text-[15px] text-app-muted/70">

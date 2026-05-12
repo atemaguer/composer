@@ -20,6 +20,7 @@ import {
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
+import { TooltipButton } from "./ui/tooltip-button";
 
 type SettingsPageProps = {
   className?: string;
@@ -58,13 +59,14 @@ export function SettingsPage({ className, onBack }: SettingsPageProps) {
     >
       <aside className="min-h-0 border-r border-app-line bg-app-sidebar/88 max-[780px]:hidden">
         <div className="thin-scrollbar flex h-full flex-col overflow-y-auto px-2.5 pb-5 pt-[58px]">
-          <button
+          <TooltipButton
             className="mb-5 inline-flex h-9 w-fit items-center gap-2 rounded-lg px-2.5 text-[15px] text-app-dim transition-colors hover:bg-white/[0.05] hover:text-app-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+            tooltip="Back to app"
             onClick={onBack}
           >
             <ArrowLeft size={14} />
             <span>Back to app</span>
-          </button>
+          </TooltipButton>
 
           <nav className="grid gap-1" aria-label="Settings sections">
             {settingsNav.map((item) => (
@@ -76,13 +78,14 @@ export function SettingsPage({ className, onBack }: SettingsPageProps) {
 
       <div className="thin-scrollbar min-h-0 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-[690px] gap-10 px-8 pb-20 pt-[82px] max-[780px]:px-5 max-[780px]:pt-6">
-          <button
+          <TooltipButton
             className="hidden h-9 w-fit items-center gap-2 rounded-lg px-2.5 text-[15px] text-app-muted transition-colors hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 max-[780px]:inline-flex"
+            tooltip="Back to app"
             onClick={onBack}
           >
             <ArrowLeft size={14} />
             <span>Back to app</span>
-          </button>
+          </TooltipButton>
 
           <h1 className="text-[24px] font-semibold leading-none text-zinc-200">
             General
@@ -154,12 +157,23 @@ export function SettingsPage({ className, onBack }: SettingsPageProps) {
             <SettingsRow
               title="Default open destination"
               description="Where files and folders open by default"
-              trailing={<SelectValue icon={Code2} value="Windsurf" />}
+              trailing={
+                <SelectValue
+                  icon={Code2}
+                  value="Windsurf"
+                  tooltip="Change default open destination"
+                />
+              }
             />
             <SettingsRow
               title="Language"
               description="Language for the app UI"
-              trailing={<SelectValue value="Auto Detect" />}
+              trailing={
+                <SelectValue
+                  value="Auto Detect"
+                  tooltip="Change language"
+                />
+              }
             />
             <SettingsRow
               title="Show in menu bar"
@@ -190,15 +204,16 @@ export function SettingsPage({ className, onBack }: SettingsPageProps) {
 
 function SettingsNavButton({ icon: Icon, label, active }: SettingsNavItem) {
   return (
-    <button
+    <TooltipButton
       className={cn(
         "grid min-h-9 w-full grid-cols-[22px_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[15px] text-zinc-300/86 transition-colors hover:bg-white/[0.05]",
         active && "bg-white/[0.08] text-zinc-100"
       )}
+      tooltip={label}
     >
       <Icon className="text-zinc-300/85" size={14} />
       <span className="truncate">{label}</span>
-    </button>
+    </TooltipButton>
   );
 }
 
@@ -214,7 +229,7 @@ function WorkModeCard({
   active?: boolean;
 }) {
   return (
-    <button
+    <TooltipButton
       className={cn(
         "grid min-h-[74px] grid-cols-[24px_minmax(0,1fr)_22px] items-center gap-3 rounded-lg border px-4 text-left transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70",
         active
@@ -222,6 +237,7 @@ function WorkModeCard({
           : "border-app-line bg-transparent hover:bg-white/[0.04]"
       )}
       aria-pressed={active}
+      tooltip={title}
     >
       <Icon size={15} className="text-zinc-300" />
       <span className="grid gap-1">
@@ -240,7 +256,7 @@ function WorkModeCard({
       >
         {active && <span className="h-1.5 w-1.5 rounded-full bg-white" />}
       </span>
-    </button>
+    </TooltipButton>
   );
 }
 
@@ -292,19 +308,24 @@ function SettingsRow({
 
 function SelectValue({
   icon: Icon,
-  value
+  value,
+  tooltip
 }: {
   icon?: ElementType;
   value: string;
+  tooltip: string;
 }) {
   return (
-    <button className="inline-flex h-8 min-w-[190px] items-center justify-between gap-2 rounded-lg bg-white/[0.055] px-3 text-[14px] text-zinc-300">
+    <TooltipButton
+      className="inline-flex h-8 min-w-[190px] items-center justify-between gap-2 rounded-lg bg-white/[0.055] px-3 text-[14px] text-zinc-300"
+      tooltip={tooltip}
+    >
       <span className="inline-flex min-w-0 items-center gap-2">
         {Icon && <Icon size={14} className="shrink-0 text-zinc-200" />}
         <span className="truncate">{value}</span>
       </span>
       <ChevronDown size={13} className="shrink-0 text-app-dim" />
-    </button>
+    </TooltipButton>
   );
 }
 
@@ -312,9 +333,12 @@ function HotkeyValue() {
   return (
     <span className="inline-flex items-center gap-2">
       <span className="text-[14px] text-app-dim">Off</span>
-      <button className="h-8 rounded-lg bg-white/[0.06] px-3 text-[14px] text-zinc-300">
+      <TooltipButton
+        className="h-8 rounded-lg bg-white/[0.06] px-3 text-[14px] text-zinc-300"
+        tooltip="Set popout window hotkey"
+      >
         Set
-      </button>
+      </TooltipButton>
     </span>
   );
 }
