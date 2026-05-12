@@ -1,6 +1,17 @@
+import {
+  useCallback,
+  useState,
+  type ComponentProps,
+  type ReactNode,
+} from "react"
 import { Button as ButtonPrimitive } from "@base-ui/react/button"
 import { cva, type VariantProps } from "class-variance-authority"
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 import { cn } from "@/lib/utils"
 
 const buttonVariants = cva(
@@ -40,18 +51,94 @@ const buttonVariants = cva(
   }
 )
 
+type ButtonProps = ButtonPrimitive.Props &
+  VariantProps<typeof buttonVariants> & {
+    tooltip?: ReactNode
+    tooltipSide?: ComponentProps<typeof TooltipContent>["side"] | "auto"
+  }
+
+type TooltipSide = NonNullable<ComponentProps<typeof TooltipContent>["side"]>
+
+function getAutoTooltipSide(element: HTMLElement): TooltipSide {
+  const rect = element.getBoundingClientRect()
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+  const centerX = rect.left + rect.width / 2
+  const centerY = rect.top + rect.height / 2
+
+  if (centerX < viewportWidth * 0.25) {
+    return "right"
+  }
+
+  if (centerX > viewportWidth * 0.75) {
+    return "left"
+  }
+
+  if (centerY > viewportHeight * 0.72) {
+    return "top"
+  }
+
+  if (centerY < viewportHeight * 0.22) {
+    return "bottom"
+  }
+
+  return "top"
+}
+
 function Button({
   className,
   variant = "default",
   size = "default",
+  tooltip,
+  tooltipSide = "auto",
+  onFocus,
+  onPointerEnter,
   ...props
-}: ButtonPrimitive.Props & VariantProps<typeof buttonVariants>) {
-  return (
+}: ButtonProps) {
+  const [autoSide, setAutoSide] = useState<TooltipSide>("top")
+  const side = tooltipSide === "auto" ? autoSide : tooltipSide
+  const updateAutoSide = useCallback(
+    (element: HTMLElement) => {
+      if (tooltipSide === "auto") {
+        setAutoSide(getAutoTooltipSide(element))
+      }
+    },
+    [tooltipSide]
+  )
+  const handleFocus: ButtonPrimitive.Props["onFocus"] = useCallback(
+    (event) => {
+      updateAutoSide(event.currentTarget)
+      onFocus?.(event)
+    },
+    [onFocus, updateAutoSide]
+  )
+  const handlePointerEnter: ButtonPrimitive.Props["onPointerEnter"] =
+    useCallback(
+      (event) => {
+        updateAutoSide(event.currentTarget)
+        onPointerEnter?.(event)
+      },
+      [onPointerEnter, updateAutoSide]
+    )
+  const button = (
     <ButtonPrimitive
       data-slot="button"
       className={cn(buttonVariants({ variant, size, className }))}
+      onFocus={handleFocus}
+      onPointerEnter={handlePointerEnter}
       {...props}
     />
+  )
+
+  if (!tooltip) {
+    return button
+  }
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={button} />
+      <TooltipContent side={side}>{tooltip}</TooltipContent>
+    </Tooltip>
   )
 }
 

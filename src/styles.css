@@ -34,7 +34,7 @@
   --color-app-dim: #747e8e;
   --color-app-blue: #65a7ff;
   --color-app-green: #71d697;
-  --color-app-orange: #ffbf3f;
+  --color-app-orange: rgb(217 119 87);
 }
 
 :root {

@@ -200,6 +200,7 @@ function parseCodexSession(
   let title = "";
   const items: ConversationItem[] = [];
   let toolIndex = 0;
+  let firstRawUserText = "";
   let firstUserText = "";
 
   for (const row of rows) {
@@ -233,6 +234,7 @@ function parseCodexSession(
           extractText(payload.content);
 
         if (rawBody) {
+          firstRawUserText ||= rawBody;
           const parsedMessage = parseCodexUserMessage(
             rawBody,
             `${id}-user-${items.length}`,
@@ -340,6 +342,10 @@ function parseCodexSession(
   }
 
   const indexed = index.get(id);
+  if (isBackgroundBranchNamePrompt(firstRawUserText)) {
+    return null;
+  }
+
   title = indexed?.title ?? titleFromText(firstUserText) ?? titleFromPath(filePath);
   updatedAt = indexed?.updatedAt ?? updatedAt;
 
@@ -1097,18 +1103,19 @@ function parseCodexUserMessage(
   idPrefix: string,
   imageUrls: string[] = []
 ) {
+  const visibleValue = userVisiblePrompt(value);
   const requestMarker = value.match(/^##\s+My request for Codex:\s*$/m);
 
   if (!/^#\s+Files mentioned by the user:/m.test(value) || !requestMarker) {
     return {
-      body: value,
+      body: visibleValue,
       attachments: [] as ConversationAttachment[]
     };
   }
 
   const requestStart = (requestMarker.index ?? 0) + requestMarker[0].length;
   const filesSection = value.slice(0, requestMarker.index).trim();
-  const requestBody = value.slice(requestStart).trim();
+  const requestBody = userVisiblePrompt(value.slice(requestStart).trim());
   const attachments: ConversationAttachment[] = [];
 
   for (const line of filesSection.split("\n")) {
@@ -1275,7 +1282,19 @@ function trimToLength(value: string, length: number) {
 }
 
 function titleFromText(value: string) {
-  const firstLine = value
+  const titleText = titleVisiblePrompt(value);
+
+  if (isContinuationSummary(titleText)) {
+    return undefined;
+  }
+
+  const normalizedTitle = normalizedTitleFromPrompt(titleText);
+
+  if (normalizedTitle) {
+    return normalizedTitle;
+  }
+
+  const firstLine = titleText
     .split("\n")
     .map((line) => line.trim())
     .find(Boolean);
@@ -1285,6 +1304,143 @@ function titleFromText(value: string) {
   }
 
   return trimToLength(firstLine.replace(/^#+\s*/, ""), 58);
+}
+
+function normalizedTitleFromPrompt(value: string) {
+  const normalized = value.trim().replace(/\s+/g, " ");
+  const featureTitle = normalized.match(/^Feature:\s*(.+?)(?:\.|$)/i)?.[1];
+
+  if (featureTitle) {
+    return titleFromFeature(featureTitle);
+  }
+
+  const errorDocsTitle = titleFromErrorDocsPrompt(normalized);
+
+  if (errorDocsTitle) {
+    return errorDocsTitle;
+  }
+
+  const comparable = normalized
+    .toLowerCase()
+    .replace(/[?.!]+$/g, "")
+    .replace(/\bwhat's\b/g, "what is");
+
+  if (/^what is (?:this|the) project about$/.test(comparable)) {
+    return "Explain project";
+  }
+
+  if (/^what features (?:could|can|should) we add to (?:this|the) project$/.test(comparable)) {
+    return "Add features";
+  }
+
+  return undefined;
+}
+
+function titleFromFeature(value: string) {
+  const comparable = value.toLowerCase();
+
+  if (
+    comparable.includes("model") &&
+    comparable.includes("provider") &&
+    comparable.includes("project")
+  ) {
+    return "Persist project model choice";
+  }
+
+  return titleCaseWords(value)
+    .replace(/\bA\b/g, "a")
+    .replace(/\bAn\b/g, "an")
+    .replace(/\bThe\b/g, "the");
+}
+
+function titleFromErrorDocsPrompt(value: string) {
+  const urlMatch = value.match(
+    /reviewing the docs at (https?:\/\/\S+)/i
+  );
+
+  if (!urlMatch) {
+    return undefined;
+  }
+
+  let url: URL;
+
+  try {
+    url = new URL(urlMatch[1].replace(/[),.;]+$/g, ""));
+  } catch {
+    return "Resolve documented error";
+  }
+
+  if (!url.hostname.endsWith("vercel.com")) {
+    return "Resolve documented error";
+  }
+
+  const errorName = path.basename(url.pathname).replace(/\.md$/i, "");
+
+  return errorName
+    ? `Fix Vercel ${errorName} error`
+    : "Fix Vercel error";
+}
+
+function titleCaseWords(value: string) {
+  return trimToLength(value, 58)
+    .split(" ")
+    .map((word) =>
+      word ? `${word[0].toUpperCase()}${word.slice(1).toLowerCase()}` : word
+    )
+    .join(" ");
+}
+
+function titleVisiblePrompt(value: string) {
+  const contextPacketTitle = value.match(
+    /^(?:Composer|Forge) context packet\.[\s\S]*?^Session title:\s*(.+)$/im
+  );
+
+  if (contextPacketTitle?.[1]) {
+    return contextPacketTitle[1].trim();
+  }
+
+  return userVisiblePrompt(value);
+}
+
+function userVisiblePrompt(value: string) {
+  const withoutLeadingSystemInstruction = value
+    .trim()
+    .replace(/^<system_instruction>[\s\S]*?<\/system_instruction>\s*/i, "");
+
+  const contextPacketUserRequest = withoutLeadingSystemInstruction.match(
+    /^(?:Composer|Forge) context packet\.[\s\S]*?^User request:\s*([\s\S]+)$/im
+  );
+
+  if (contextPacketUserRequest?.[1]) {
+    return contextPacketUserRequest[1].trim();
+  }
+
+  const branchPromptUserMessage = withoutLeadingSystemInstruction.match(
+    /(?:^|\n)User message:\s*\n([\s\S]+)$/i
+  );
+
+  if (
+    branchPromptUserMessage &&
+    isBackgroundBranchNamePrompt(withoutLeadingSystemInstruction)
+  ) {
+    return branchPromptUserMessage[1].trim();
+  }
+
+  return withoutLeadingSystemInstruction.trim() || value.trim();
+}
+
+function isContinuationSummary(value: string) {
+  return /^This session is being continued from a previous conversation/i.test(
+    value.trim()
+  );
+}
+
+function isBackgroundBranchNamePrompt(value: string) {
+  return (
+    /Respond directly to the user's prompt/i.test(value) &&
+    /generating a git branch name for a coding task/i.test(value) &&
+    /Return only the branch name/i.test(value)
+  );
 }
 
 function titleFromCwd(cwd?: string) {
