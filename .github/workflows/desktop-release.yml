@@ -119,14 +119,19 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -d '' release_files < <(find apps/desktop/release -maxdepth 1 -type f -print0)
+          release_file_count=0
 
-          if [[ "${#release_files[@]}" -eq 0 ]]; then
+          for release_file in apps/desktop/release/*; do
+            if [[ -f "$release_file" ]]; then
+              release_file_count=$((release_file_count + 1))
+              gcloud storage cp \
+                --cache-control="public, max-age=60" \
+                "$release_file" \
+                "$GCS_DESTINATION/"
+            fi
+          done
+
+          if [[ "$release_file_count" -eq 0 ]]; then
             echo "No top-level release files found to upload." >&2
             exit 1
           fi
-
-          gcloud storage cp \
-            --cache-control="public, max-age=60" \
-            "${release_files[@]}" \
-            "$GCS_DESTINATION/"
