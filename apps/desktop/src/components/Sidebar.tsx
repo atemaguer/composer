@@ -238,7 +238,12 @@ export function Sidebar({
     !sessionsLoading && providerFilter === "all" && visibleProjects.length === 0;
   const showEmptyFilter =
     !sessionsLoading && providerFilter !== "all" && visibleProjects.length === 0;
-  const updateDownloaded = autoUpdateState?.status === "downloaded";
+  const updateDownloaded =
+    autoUpdateState?.status === "downloaded" ||
+    autoUpdateState?.status === "installing" ||
+    autoUpdateState?.status === "install-error";
+  const updateInstalling = autoUpdateState?.status === "installing";
+  const updateInstallError = autoUpdateState?.status === "install-error";
 
   return (
     <aside
@@ -614,13 +619,22 @@ export function Sidebar({
             <TooltipButton
               className={cn(
                 "flex min-h-8 items-center gap-2 rounded-md bg-app-accent px-3 py-1 text-[13px] font-medium text-white transition-colors hover:bg-app-accent/90",
+                updateInstalling && "cursor-default opacity-80 hover:bg-app-accent",
+                updateInstallError && "bg-red-500/90 hover:bg-red-500",
                 focusRing
               )}
-              tooltip={`Install Composer ${autoUpdateState.version}`}
+              tooltip={
+                updateInstallError
+                  ? `Update failed: ${autoUpdateState.message}`
+                  : `Install Composer ${autoUpdateState.version}`
+              }
+              disabled={updateInstalling}
               onClick={onInstallAutoUpdate}
             >
               <ArrowRight size={14} />
-              <span>Update</span>
+              <span>
+                {updateInstalling ? "Installing" : updateInstallError ? "Retry" : "Update"}
+              </span>
             </TooltipButton>
           )}
           <span className="text-[11px] tabular-nums text-app-dim">

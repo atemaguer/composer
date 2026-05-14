@@ -6,6 +6,8 @@ type AutoUpdateState =
   | { status: "available"; version: string }
   | { status: "downloading"; version?: string; percent: number }
   | { status: "downloaded"; version: string }
+  | { status: "installing"; version: string }
+  | { status: "install-error"; version: string; message: string }
   | { status: "error"; message: string };
 
 contextBridge.exposeInMainWorld("composer", {
