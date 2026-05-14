@@ -9,6 +9,7 @@ import {
   loadLocalSessions,
   updateLocalSessionVisibility
 } from "./session-loader.js";
+import { configureAutoUpdates } from "./auto-updater.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FILE_PREVIEW_BYTES = 1_000_000;
@@ -144,6 +145,7 @@ async function createWindow() {
 app.whenReady().then(() => {
   void ensureAgentServer();
   void createWindow();
+  configureAutoUpdates();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {

@@ -1,0 +1,129 @@
+name: Desktop Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      channel:
+        description: Update channel/path inside the GCS bucket
+        required: true
+        default: stable
+      bucket:
+        description: GCS bucket name. Falls back to vars.GCP_UPDATES_BUCKET.
+        required: false
+        default: ""
+      prefix:
+        description: GCS object prefix
+        required: false
+        default: composer/desktop
+      update_base_url:
+        description: Public update base URL. Falls back to https://storage.googleapis.com/<bucket>/<prefix>/<channel>.
+        required: false
+        default: ""
+  push:
+    tags:
+      - "v*"
+      - "desktop-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS
+            os: macos-latest
+            target: mac
+          - name: Windows
+            os: windows-latest
+            target: win
+          - name: Linux
+            os: ubuntu-latest
+            target: linux
+    env:
+      CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
+      GCS_PREFIX: ${{ github.event.inputs.prefix || 'composer/desktop' }}
+      GCS_BUCKET: ${{ github.event.inputs.bucket || vars.GCP_UPDATES_BUCKET }}
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install Linux packaging dependencies
+        if: matrix.target == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-tools rpm
+          sudo snap install snapcraft --classic
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compute update URL
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${GCS_BUCKET}" ]]; then
+            echo "GCP_UPDATES_BUCKET is required. Set it as a repository variable or pass the workflow input." >&2
+            exit 1
+          fi
+
+          if [[ -n "${{ github.event.inputs.update_base_url }}" ]]; then
+            update_base_url="${{ github.event.inputs.update_base_url }}"
+          else
+            update_base_url="https://storage.googleapis.com/${GCS_BUCKET}/${GCS_PREFIX}/${CHANNEL}"
+          fi
+
+          echo "COMPOSER_UPDATE_BASE_URL=${update_base_url%/}" >> "$GITHUB_ENV"
+          echo "GCS_DESTINATION=gs://${GCS_BUCKET}/${GCS_PREFIX}/${CHANNEL}" >> "$GITHUB_ENV"
+
+      - name: Typecheck
+        run: npm --workspace composer run typecheck
+
+      - name: Build renderer and Electron sources
+        run: npm --workspace composer run build
+
+      - name: Package desktop app
+        run: npm exec --workspace composer -- electron-builder --${{ matrix.target }} --publish never
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+
+      - name: Upload workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-${{ matrix.target }}-${{ github.sha }}
+          path: apps/desktop/release/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Upload to GCS update bucket
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud storage cp \
+            --recursive \
+            --cache-control="public, max-age=60" \
+            apps/desktop/release/* \
+            "$GCS_DESTINATION/"
