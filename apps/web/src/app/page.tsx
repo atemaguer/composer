@@ -33,16 +33,15 @@ export default function Home() {
           changes, and keeping project context in one place.
         </p>
 
-        <div className="mt-12 w-full overflow-hidden rounded-[28px] border border-[#d8dee8] bg-white shadow-[0_24px_80px_rgba(23,32,51,0.16)]">
-          <Image
-            src="/composer-session.png"
-            alt="Composer desktop thread session"
-            width={3104}
-            height={2024}
-            className="h-auto w-full"
-            priority
-          />
-        </div>
+        <Image
+          src="/composer-session.png"
+          alt="Composer desktop thread session"
+          width={3104}
+          height={2024}
+          className="mt-12 h-auto w-full"
+          priority
+          unoptimized
+        />
       </section>
 
       <footer className="border-t border-[#d8dee8]">
