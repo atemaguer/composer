@@ -3,6 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "description": "Composer desktop app",
+  "author": "Atem Atem",
+  "homepage": "https://github.com/atemaguer/composer",
   "main": "dist-electron/main.js",
   "license": "MIT",
   "type": "module",

@@ -30,6 +30,9 @@ nsis:
   uninstallDisplayName: ${productName}
   createDesktopShortcut: always
 mac:
+  target:
+    - dmg
+    - zip
   entitlementsInherit: resources/build/entitlements.mac.plist
   extendInfo:
     NSDocumentsFolderUsageDescription: Application requests access to the user's Documents folder.

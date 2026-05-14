@@ -97,9 +97,6 @@ jobs:
 
       - name: Package desktop app
         run: npm exec --workspace composer -- electron-builder --${{ matrix.target }} --publish never
-        env:
-          CSC_LINK: ${{ secrets.CSC_LINK }}
-          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
