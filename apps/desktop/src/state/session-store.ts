@@ -1,6 +1,5 @@
 import { create } from "zustand";
 
-import { conversationItems, projects as mockProjects } from "../data/mock-data";
 import type {
   ApprovalRequest,
   LiveAgentEvent,
@@ -41,11 +40,9 @@ export type SessionStoreActions = {
 
 export type SessionStore = SessionStoreState & SessionStoreActions;
 
-const initialSnapshot = createInitialSnapshot();
-
 export const useSessionStore = create<SessionStore>((set) => ({
-  projects: initialSnapshot.projects,
-  sessions: initialSnapshot.sessions,
+  projects: [],
+  sessions: {},
   selectedThread: "",
   approvals: [],
   pendingNewRequestId: null,
@@ -207,28 +204,6 @@ export function applyAgentEventToState(
   }
 
   return {};
-}
-
-function createInitialSnapshot(): SessionSnapshot {
-  const sessions = Object.fromEntries(
-    mockProjects.flatMap((project) =>
-      project.threads.map((thread) => [
-        thread.id,
-        normalizeSession({
-          id: thread.id,
-          provider: thread.provider ?? project.provider ?? "codex",
-          title: thread.name,
-          updatedAt: new Date().toISOString(),
-          cwd: thread.cwd,
-          model: thread.model,
-          items: thread.active ? conversationItems : [],
-          pendingItems: []
-        })
-      ])
-    )
-  );
-
-  return { projects: mockProjects, sessions };
 }
 
 function upsertApprovalState(

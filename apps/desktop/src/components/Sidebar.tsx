@@ -10,6 +10,7 @@ import {
   Folder,
   FolderOpen,
   ListFilter,
+  LoaderCircle,
   MessageSquarePlus,
   MoreHorizontal,
   PanelRight,
@@ -55,6 +56,7 @@ type SidebarProps = {
   providerFilter: ProviderFilter;
   setProviderFilter: (value: ProviderFilter) => void;
   runningSessionIds: ReadonlySet<string>;
+  sessionsLoading?: boolean;
   onThreadSelect?: (value: string) => void;
   onThreadArchive?: (value: string) => void;
   onThreadDelete?: (value: string) => void;
@@ -95,6 +97,7 @@ export function Sidebar({
   providerFilter,
   setProviderFilter,
   runningSessionIds,
+  sessionsLoading = false,
   onThreadSelect,
   onThreadArchive,
   onThreadDelete,
@@ -226,6 +229,11 @@ export function Sidebar({
 
   const visibleProjects = filteredProjects.slice(0, visibleWorkspaceCount);
   const hiddenWorkspaceCount = filteredProjects.length - visibleProjects.length;
+  const showWorkspaceLoading = sessionsLoading && visibleProjects.length === 0;
+  const showEmptyWorkspaces =
+    !sessionsLoading && providerFilter === "all" && visibleProjects.length === 0;
+  const showEmptyFilter =
+    !sessionsLoading && providerFilter !== "all" && visibleProjects.length === 0;
 
   return (
     <aside
@@ -418,7 +426,30 @@ export function Sidebar({
               id="workspace-list"
               className="thin-scrollbar grid h-full min-h-0 auto-rows-min content-start gap-1 overflow-x-hidden overflow-y-auto py-2 pr-1"
             >
-              {visibleProjects.map((project) => {
+              {showWorkspaceLoading && (
+                <div
+                  className="flex min-h-20 items-center gap-2 rounded-md px-2 py-3 text-[13px] text-app-muted"
+                  role="status"
+                  aria-live="polite"
+                >
+                  <LoaderCircle
+                    className="shrink-0 animate-spin text-app-accent"
+                    size={14}
+                  />
+                  <span>Loading sessions</span>
+                </div>
+              )}
+              {showEmptyWorkspaces && (
+                <div className="rounded-md px-2 py-3 text-[13px] leading-5 text-app-dim">
+                  No sessions yet
+                </div>
+              )}
+              {showEmptyFilter && (
+                <div className="rounded-md px-2 py-3 text-[13px] leading-5 text-app-dim">
+                  No {selectedProviderFilter.label.toLowerCase()} yet
+                </div>
+              )}
+              {!showWorkspaceLoading && visibleProjects.map((project) => {
                 const key = projectKey(project);
                 const expanded = expandedWorkspaces.has(key);
                 const workspaceId = `workspace-${key.replace(/[^A-Za-z0-9_-]/g, "-")}`;

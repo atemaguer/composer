@@ -163,6 +163,11 @@ export default function App() {
   const expectingNewSessionRef = useRef(false);
   const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
+  const [sessionsLoading, setSessionsLoading] = useState(
+    () =>
+      Boolean(window.composer?.listLocalSessions) ||
+      Boolean(window.composer?.getAgentServer)
+  );
 
   const activeSession = selectedThread ? sessions[selectedThread] : undefined;
   const activeProvider = provider;
@@ -274,12 +279,17 @@ export default function App() {
 
   useEffect(() => {
     if (agentServer?.wsUrl || !window.composer?.listLocalSessions) {
+      if (!agentServer?.wsUrl && !window.composer?.listLocalSessions) {
+        setSessionsLoading(false);
+      }
       return;
     }
 
     let cancelled = false;
 
     async function loadLocalSessions() {
+      setSessionsLoading(true);
+
       try {
         const snapshot = await window.composer?.listLocalSessions?.();
 
@@ -288,6 +298,10 @@ export default function App() {
         }
       } catch (error) {
         console.warn("Could not load local sessions", error);
+      } finally {
+        if (!cancelled) {
+          setSessionsLoading(false);
+        }
       }
     }
 
@@ -302,10 +316,12 @@ export default function App() {
     (event: LiveAgentEvent) => {
       if (event.type === "sessions.snapshot") {
         setSessionSnapshot(event.snapshot);
+        setSessionsLoading(false);
         return;
       }
 
       if (event.type === "session.started") {
+        setSessionsLoading(false);
         upsertSession(event.session);
 
         if (expectingNewSessionRef.current) {
@@ -319,6 +335,7 @@ export default function App() {
       }
 
       if (event.type === "session.updated") {
+        setSessionsLoading(false);
         upsertSession(event.session);
         return;
       }
@@ -370,6 +387,7 @@ export default function App() {
       if (socketRef.current === socket) {
         socketRef.current = null;
       }
+      setSessionsLoading(false);
     };
 
     return () => {
@@ -811,6 +829,7 @@ export default function App() {
         providerFilter={providerFilter}
         setProviderFilter={setProviderFilter}
         runningSessionIds={runningSessionIds}
+        sessionsLoading={sessionsLoading}
         onThreadSelect={selectThread}
         onThreadArchive={(threadId) => void updateThreadVisibility(threadId, "archive")}
         onThreadDelete={(threadId) => void updateThreadVisibility(threadId, "delete")}
