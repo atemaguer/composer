@@ -20,17 +20,86 @@ on:
         required: false
         default: ""
   push:
+    branches:
+      - main
     tags:
       - "v*"
       - "desktop-v*"
 
 permissions:
-  contents: read
+  contents: write
   id-token: write
 
+concurrency:
+  group: desktop-release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
+  prepare:
+    name: Prepare desktop release
+    if: github.event_name != 'push' || github.ref != 'refs/heads/main' || github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    outputs:
+      desktop_version: ${{ steps.release.outputs.desktop_version }}
+      release_ref: ${{ steps.release.outputs.release_ref }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Resolve release version
+        id: release
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git pull --ff-only origin "${GITHUB_REF_NAME}"
+
+            npm version patch --workspace composer --no-git-tag-version
+            npm install --package-lock-only --ignore-scripts
+
+            desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+            release_tag="desktop-v${desktop_version}"
+
+            if git rev-parse "${release_tag}" >/dev/null 2>&1; then
+              echo "Release tag ${release_tag} already exists." >&2
+              exit 1
+            fi
+
+            git add apps/desktop/package.json package-lock.json
+            git commit -m "chore(desktop): release v${desktop_version}"
+            git tag "${release_tag}"
+            git push origin "HEAD:${GITHUB_REF_NAME}" "${release_tag}"
+
+            release_ref="${release_tag}"
+          elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            release_ref="${GITHUB_REF_NAME}"
+            release_tag="${GITHUB_REF_NAME}"
+            desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+          else
+            release_ref="${GITHUB_SHA}"
+            release_tag=""
+            desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+          fi
+
+          echo "desktop_version=${desktop_version}" >> "$GITHUB_OUTPUT"
+          echo "release_ref=${release_ref}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+
   build:
     name: Build ${{ matrix.name }}
+    needs: prepare
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -52,6 +121,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+        with:
+          ref: ${{ needs.prepare.outputs.release_ref }}
 
       - name: Set up Node
         uses: actions/setup-node@v5
@@ -125,14 +196,51 @@ jobs:
           chmod 600 "${apple_api_key_path}"
           echo "APPLE_API_KEY=${apple_api_key_path}" >> "${GITHUB_ENV}"
 
+      - name: Validate Windows code signing secrets
+        if: matrix.target == 'win'
+        shell: bash
+        env:
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          for required_var in WIN_CSC_LINK WIN_CSC_KEY_PASSWORD; do
+            if [[ -z "${!required_var}" ]]; then
+              echo "${required_var} is required for signed Windows builds." >&2
+              exit 1
+            fi
+          done
+
       - name: Package desktop app
         env:
           APPLE_API_KEY_ID: ${{ matrix.target == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
           APPLE_API_ISSUER: ${{ matrix.target == 'mac' && secrets.APPLE_API_ISSUER || '' }}
           CSC_LINK: ${{ matrix.target == 'mac' && secrets.CSC_LINK || '' }}
           CSC_KEY_PASSWORD: ${{ matrix.target == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.target == 'mac' && 'true' || 'false' }}
+          WIN_CSC_LINK: ${{ matrix.target == 'win' && secrets.WIN_CSC_LINK || '' }}
+          WIN_CSC_KEY_PASSWORD: ${{ matrix.target == 'win' && secrets.WIN_CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (matrix.target == 'mac' || matrix.target == 'win') && 'true' || 'false' }}
         run: npm exec --workspace composer -- electron-builder --${{ matrix.target }} --publish never
+
+      - name: Verify Windows signature
+        if: matrix.target == 'win'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $installer = Get-ChildItem -Path "apps/desktop/release" -Filter "*setup.exe" -File | Select-Object -First 1
+
+          if (-not $installer) {
+            throw "No Windows installer was found in apps/desktop/release."
+          }
+
+          $signature = Get-AuthenticodeSignature -FilePath $installer.FullName
+
+          if ($signature.Status -ne "Valid") {
+            throw "Windows installer signature is $($signature.Status): $($signature.StatusMessage)"
+          }
+
+          Write-Host "Windows installer signature is valid: $($signature.SignerCertificate.Subject)"
 
       - name: Upload workflow artifact
         uses: actions/upload-artifact@v4

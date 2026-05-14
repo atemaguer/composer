@@ -563,7 +563,7 @@ export function Sidebar({
 
         <TooltipButton
           className={cn(
-            "grid min-h-8 w-full shrink-0 grid-cols-[20px_minmax(0,1fr)] items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors",
+            "grid min-h-8 w-full shrink-0 grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors",
             appHoverSurfaceSubtle,
             focusRing
           )}
@@ -572,6 +572,9 @@ export function Sidebar({
         >
           <Settings className={mutedIcon} size={15} />
           <span>Settings</span>
+          <span className="justify-self-end text-[11px] tabular-nums text-app-dim">
+            v{__APP_VERSION__}
+          </span>
         </TooltipButton>
       </div>
     </aside>

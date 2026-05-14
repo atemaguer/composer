@@ -169,7 +169,8 @@ export default function Home() {
           </nav>
           <a
             className="inline-flex h-10 items-center gap-2 rounded-md border border-[#f6f3ea]/16 bg-[#f6f3ea]/5 px-4 text-sm font-medium text-[#f6f3ea] transition hover:border-[#f6f3ea]/34 hover:bg-[#f6f3ea]/10"
-            href="#download"
+            href="/api/download"
+            aria-label="Download Composer for your current platform"
           >
             <Download className="size-4" aria-hidden="true" />
             Download
@@ -197,7 +198,8 @@ export default function Home() {
             <div className="mt-9 flex flex-col gap-3 sm:flex-row">
               <a
                 className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#f6f3ea] px-5 text-sm font-semibold text-[#0f1115] transition hover:bg-white"
-                href="#download"
+                href="/api/download"
+                aria-label="Download Composer for your current platform"
               >
                 <Download className="size-4" aria-hidden="true" />
                 Get Composer
@@ -352,7 +354,8 @@ export default function Home() {
           <div className="flex flex-col gap-3 sm:flex-row">
             <a
               className="inline-flex h-12 items-center justify-center gap-2 rounded-md bg-[#111317] px-5 text-sm font-semibold text-[#f6f3ea] transition hover:bg-black"
-              href="#"
+              href="/api/download"
+              aria-label="Download Composer for your current platform"
             >
               <Download className="size-4" aria-hidden="true" />
               Download app

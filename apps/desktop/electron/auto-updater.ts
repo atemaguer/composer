@@ -1,5 +1,13 @@
 import { app } from "electron";
-import { autoUpdater } from "electron-updater";
+import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
+import { join } from "node:path";
+import type { AppUpdater } from "electron-updater";
+
+const require = createRequire(import.meta.url);
+const { autoUpdater } = require("electron-updater") as {
+  autoUpdater: AppUpdater;
+};
 
 const UPDATE_CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000;
 
@@ -28,6 +36,9 @@ export function configureAutoUpdates() {
       provider: "generic",
       url: feedUrl
     });
+  } else if (!existsSync(join(process.resourcesPath, "app-update.yml"))) {
+    console.info("[auto-update] skipping update checks; no update feed configured");
+    return;
   }
 
   autoUpdater.autoDownload = true;

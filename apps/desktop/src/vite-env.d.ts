@@ -3,6 +3,8 @@
 import type { FilePreview, SessionSnapshot } from "./types";
 
 declare global {
+  const __APP_VERSION__: string;
+
   interface Window {
     composer?: {
       platform: string;
