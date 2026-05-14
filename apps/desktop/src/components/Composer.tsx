@@ -1030,7 +1030,7 @@ function ComposerFooterButton({
                 />
               </label>
 
-              <div className="max-h-[260px] overflow-y-auto border-t border-app-text/[0.08] pt-1">
+              <div className="max-h-[260px] overflow-y-auto border-t border-app-line pt-1">
                 {filteredOptions.map((option) => {
                   const selected = option.id === selectedOptionId;
 
@@ -1075,7 +1075,7 @@ function ComposerFooterButton({
               {onCreate && (
                 <TooltipButton
                   className={cn(
-                    "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 border-t border-app-text/[0.08] px-2 pt-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60",
+                    "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 border-t border-app-line px-2 pt-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60",
                     menuItem
                   )}
                   disabled={creating}
@@ -1129,7 +1129,7 @@ function ComposerFooterCustomMenu({
               className={cn(
                 "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-[14px]",
                 menuItem,
-                item.separatorBefore ? "mt-1 border-t border-app-text/[0.08] pt-2" : "",
+                item.separatorBefore ? "mt-1 border-t border-app-line pt-2" : "",
                 item.disabled
                   ? "cursor-not-allowed text-app-dim/60"
                   : "text-app-text hover:bg-app-text/[0.06]"
@@ -1270,7 +1270,7 @@ function ModelSettingsMenu({
           {selectedModel.value === option.value && <Check size={14} />}
         </TooltipButton>
       ))}
-      <div className="my-1 h-px bg-app-text/[0.09]" />
+      <div className="my-1 h-px bg-app-line" />
       <div className="px-3 pb-2 pt-1 text-[14px] text-app-muted">
         {effortLabel}
       </div>

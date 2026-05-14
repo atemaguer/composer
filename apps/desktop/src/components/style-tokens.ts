@@ -24,8 +24,8 @@ export const appActiveSurfaceStrong = "bg-app-text/[0.1]";
 export const appSoftSurface = "bg-app-text/[0.04]";
 export const appSoftSurfaceStrong = "bg-app-text/[0.07]";
 export const appOverlaySurface = "bg-app-bg/75";
-export const appSoftBorder = "border-app-text/[0.1]";
-export const appSubtleDivider = "border-app-text/[0.08]";
+export const appSoftBorder = "border-app-line";
+export const appSubtleDivider = "border-app-line";
 export const appInsetHighlight =
   "shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)]";
 export const appPanelShadow =

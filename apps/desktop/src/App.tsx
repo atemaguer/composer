@@ -996,7 +996,7 @@ export default function App() {
           onPointerDown={startInspectorResize}
           onKeyDown={resizeInspectorWithKeyboard}
         >
-          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-white/[0.08] transition-colors group-hover/resize:bg-app-blue/55" />
+          <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-app-line-strong transition-colors group-hover/resize:bg-app-accent/55" />
         </div>
 
         <ReviewPanel
