@@ -11,5 +11,9 @@ contextBridge.exposeInMainWorld("composer", {
   createProject: (request: { name?: string; baseCwd?: string }) =>
     ipcRenderer.invoke("composer:create-project", request),
   readTextFile: (filePath: string) =>
-    ipcRenderer.invoke("composer:read-text-file", filePath)
+    ipcRenderer.invoke("composer:read-text-file", filePath),
+  setNativeAppearance: (request: {
+    themeSource: "light" | "dark" | "system";
+    backgroundColor: string;
+  }) => ipcRenderer.invoke("composer:set-native-appearance", request)
 });

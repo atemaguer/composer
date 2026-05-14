@@ -3,6 +3,7 @@ import {
   useEffect,
   useMemo,
   useRef,
+  useState,
   type CSSProperties,
   type KeyboardEvent,
   type PointerEvent
@@ -25,7 +26,7 @@ import { cn } from "./lib/cn";
 import { useComposerStore } from "./state/composer-store";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { useRuntimeStore } from "./state/runtime-store";
-import { useSessionStore } from "./state/session-store";
+import { isSessionRunning, useSessionStore } from "./state/session-store";
 import { clampReviewContentWidth, useUiStore } from "./state/ui-store";
 import {
   mergeWorkspaceOptions,
@@ -36,6 +37,7 @@ import type {
   ApprovalDecision,
   ComposerImageAttachment,
   LiveAgentEvent,
+  ProviderFilter,
   Project,
   ProjectThread,
   SessionContent,
@@ -160,6 +162,7 @@ export default function App() {
   const socketRef = useRef<WebSocket | null>(null);
   const expectingNewSessionRef = useRef(false);
   const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
+  const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
 
   const activeSession = selectedThread ? sessions[selectedThread] : undefined;
   const activeProvider = provider;
@@ -190,10 +193,21 @@ export default function App() {
     selectedWorkspace?.label ??
     agentServer?.workspaceName ??
     (currentCwd ? basename(currentCwd) : "Workspace");
+  const runningSessionIds = useMemo(
+    () =>
+      new Set(
+        Object.values(sessions).flatMap((session) =>
+          isSessionRunning(session) ? [session.id] : []
+        )
+      ),
+    [sessions]
+  );
   const threadTabs = useMemo(
     () =>
       createThreadTabs({
         projects,
+        providerFilter,
+        runningSessionIds,
         selectedThread,
         selectedWorkspaceId: selectedWorkspace?.id,
         selectedWorkspaceCwd: selectedWorkspace?.cwd,
@@ -201,6 +215,8 @@ export default function App() {
       }),
     [
       projects,
+      providerFilter,
+      runningSessionIds,
       selectedThread,
       selectedWorkspace?.cwd,
       selectedWorkspace?.id,
@@ -219,19 +235,14 @@ export default function App() {
           }
         ]
       : []);
-  const activeSessionRunning =
-    Boolean(activeSession?.pendingItems.length) ||
-    activeSession?.runtimeStatus === "running" ||
-    activeSession?.runtimeStatus === "awaiting_approval";
+  const activeSessionRunning = activeSession
+    ? isSessionRunning(activeSession)
+    : false;
   const submitMode: "send" | "stop" =
     activeSessionRunning || pendingNewRequestId ? "stop" : "send";
   const contentMode = activeNav === "Plugins" ? "plugins" : "session";
   const shouldShowConversation = contentMode === "session" && Boolean(activeSession);
   const showThreadTabs = shouldShowConversation && threadViewMode === "tabs";
-
-  useEffect(() => {
-    document.documentElement.classList.add("dark");
-  }, []);
 
   useEffect(() => {
     if (!selectedWorkspaceId && allWorkspaceOptions[0]) {
@@ -797,10 +808,17 @@ export default function App() {
         setActiveNav={setActiveNav}
         selectedThread={selectedThread}
         setSelectedThread={selectThread}
+        providerFilter={providerFilter}
+        setProviderFilter={setProviderFilter}
+        runningSessionIds={runningSessionIds}
         onThreadSelect={selectThread}
         onThreadArchive={(threadId) => void updateThreadVisibility(threadId, "archive")}
         onThreadDelete={(threadId) => void updateThreadVisibility(threadId, "delete")}
         onNewSession={startNewSession}
+        canNavigateBack={navigationAvailability.canGoBack}
+        canNavigateForward={navigationAvailability.canGoForward}
+        onNavigateBack={navigateBack}
+        onNavigateForward={navigateForward}
         onSearch={() => setSearchOpen(true)}
         onPlugins={() => {
           setActiveNav("Plugins");
@@ -1020,12 +1038,16 @@ function appendErrorMessage(
 
 function createThreadTabs({
   projects,
+  providerFilter,
+  runningSessionIds,
   selectedThread,
   selectedWorkspaceId,
   selectedWorkspaceCwd,
   selectedWorkspaceName
 }: {
   projects: Project[];
+  providerFilter: ProviderFilter;
+  runningSessionIds: ReadonlySet<string>;
   selectedThread: string;
   selectedWorkspaceId?: string;
   selectedWorkspaceCwd?: string;
@@ -1045,7 +1067,9 @@ function createThreadTabs({
     projects[0];
 
   const tabs = workspaceProject
-    ? workspaceProject.threads.map((thread) => threadToTab(workspaceProject, thread))
+    ? workspaceProject.threads
+        .filter((thread) => threadMatchesProviderFilter(thread, providerFilter))
+        .map((thread) => threadToTab(workspaceProject, thread, runningSessionIds))
     : [];
 
   if (!selectedThread || tabs.some((thread) => thread.id === selectedThread)) {
@@ -1053,10 +1077,21 @@ function createThreadTabs({
   }
 
   const activeThread = projects
-    .flatMap((project) => project.threads.map((thread) => threadToTab(project, thread)))
+    .flatMap((project) =>
+      project.threads
+        .filter((thread) => threadMatchesProviderFilter(thread, providerFilter))
+        .map((thread) => threadToTab(project, thread, runningSessionIds))
+    )
     .find((thread) => thread.id === selectedThread);
 
   return activeThread ? [activeThread, ...tabs] : tabs;
+}
+
+function threadMatchesProviderFilter(
+  thread: ProjectThread,
+  providerFilter: ProviderFilter
+) {
+  return providerFilter === "all" || thread.provider === providerFilter;
 }
 
 function projectMatchesWorkspace(
@@ -1073,13 +1108,18 @@ function projectMatchesWorkspace(
   return workspaceValues.some((value) => projectValues.includes(value));
 }
 
-function threadToTab(project: Project, thread: ProjectThread): ThreadTabItem {
+function threadToTab(
+  project: Project,
+  thread: ProjectThread,
+  runningSessionIds: ReadonlySet<string>
+): ThreadTabItem {
   return {
     id: thread.id,
     name: thread.name,
     age: thread.age,
     provider: thread.provider ?? project.provider,
-    workspaceName: project.name
+    workspaceName: project.name,
+    running: runningSessionIds.has(thread.id)
   };
 }
 

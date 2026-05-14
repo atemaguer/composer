@@ -10,7 +10,14 @@ import {
 
 import { cn } from "../lib/cn";
 import type { ThreadViewMode } from "../types";
-import { iconButton } from "./style-tokens";
+import {
+  appAccentBorderSoft,
+  appAccentSurface,
+  appAccentText,
+  iconButton,
+  subtleIconButton,
+  titlebarControlRow
+} from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type AppChromeProps = {
@@ -63,9 +70,9 @@ export function AppChrome({
       }}
     >
       {!sidebarOpen && (
-        <div className="flex h-full min-w-0 items-center gap-1.5 py-0 pl-[76px] pr-3">
+        <div className={cn("h-full pr-3", titlebarControlRow)}>
           <TooltipButton
-            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+            className={cn("app-no-drag", subtleIconButton)}
             aria-label="Show sidebar"
             aria-pressed={sidebarOpen}
             tooltip="Show sidebar"
@@ -74,7 +81,10 @@ export function AppChrome({
             <PanelRight size={13} />
           </TooltipButton>
           <TooltipButton
-            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+            className={cn(
+              "app-no-drag disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent",
+              subtleIconButton
+            )}
             aria-label="Back"
             disabled={!canNavigateBack}
             tooltip="Back"
@@ -83,7 +93,10 @@ export function AppChrome({
             <ArrowLeft size={16} />
           </TooltipButton>
           <TooltipButton
-            className="app-no-drag inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+            className={cn(
+              "app-no-drag disabled:cursor-default disabled:opacity-35 disabled:hover:bg-transparent",
+              subtleIconButton
+            )}
             aria-label="Forward"
             disabled={!canNavigateForward}
             tooltip="Forward"
@@ -94,7 +107,7 @@ export function AppChrome({
         </div>
       )}
 
-      <div className="flex min-w-0 items-center justify-start gap-2 px-3 text-[13px] font-semibold text-zinc-200/90 max-[900px]:hidden">
+      <div className="flex min-w-0 items-center justify-start gap-2 px-3 text-[13px] font-semibold text-app-text/90 max-[900px]:hidden">
         {centerSlot ?? (selectedThread && (
           <>
             <span className="truncate">{selectedThread}</span>
@@ -121,7 +134,7 @@ export function AppChrome({
                 className={cn(
                   iconButton,
                   threadViewMode === "tabs" &&
-                    "border-app-blue/30 bg-app-blue/12 text-app-blue"
+                    `${appAccentBorderSoft} ${appAccentSurface} ${appAccentText}`
                 )}
                 aria-label={
                   threadViewMode === "tabs" ? "Use sidebar view" : "Use tab view"

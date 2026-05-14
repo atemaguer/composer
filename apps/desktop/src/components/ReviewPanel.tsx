@@ -13,6 +13,12 @@ import {
 import { cn } from "../lib/cn";
 import type { DiffRowData, FilePreview } from "../types";
 import { CodeEditor } from "./CodeEditor";
+import {
+  cardSurface,
+  pillButton,
+  subtleCardSurface,
+  subtleIconButton
+} from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type ReviewPanelProps = {
@@ -53,25 +59,25 @@ export function ReviewPanel({
     >
       <div className="thin-scrollbar h-full w-[var(--review-content-width)] min-w-[var(--review-content-width)] overflow-auto">
         <div className="sticky top-0 z-10 bg-app-shell/95">
-          <div className="flex h-11 items-center justify-between border-b border-white/[0.09] px-4">
+          <div className="flex h-11 items-center justify-between border-b border-app-line px-4">
             <div className="flex items-center gap-2">
               <TooltipButton
-                className="inline-flex h-8 items-center gap-2 rounded-lg bg-white/[0.06] px-3 text-[14px] font-semibold text-zinc-200"
+                className={cn("h-8 gap-2 px-3 text-[14px] font-semibold", pillButton)}
                 tooltip="Review changes"
               >
                 <FileCode2 size={14} />
                 <span>Review</span>
               </TooltipButton>
               <TooltipButton
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-white/[0.06] hover:text-zinc-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+                className={subtleIconButton}
                 tooltip="New review"
               >
                 <Plus size={16} />
               </TooltipButton>
             </div>
-            <div className="flex items-center text-zinc-500">
+            <div className="flex items-center text-app-dim">
               <TooltipButton
-                className="inline-flex h-8 w-8 items-center justify-center rounded-md bg-white/[0.04] text-zinc-300 hover:bg-white/[0.07] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+                className={subtleIconButton}
                 aria-label="Hide inspector"
                 tooltip="Hide inspector"
                 onClick={onClose}
@@ -80,10 +86,10 @@ export function ReviewPanel({
               </TooltipButton>
             </div>
           </div>
-          <div className="flex h-11 items-center justify-between border-b border-white/[0.09] px-4 text-[13px]">
+          <div className="flex h-11 items-center justify-between border-b border-app-line px-4 text-[13px]">
             <div className="flex items-center gap-2">
               <TooltipButton
-                className="text-zinc-500"
+                className="text-app-dim"
                 tooltip={
                   filePreview || filePreviewLoading || filePreviewError
                     ? "File preview"
@@ -96,13 +102,13 @@ export function ReviewPanel({
               </TooltipButton>
               {!filePreview && !filePreviewLoading && !filePreviewError && (
                 <>
-                  <ChevronDown size={14} className="text-zinc-500" />
+                  <ChevronDown size={14} className="text-app-dim" />
                   <span className="ml-2 text-app-green">+33</span>
-                  <span className="text-red-400">-5</span>
+                  <span className="text-destructive">-5</span>
                 </>
               )}
             </div>
-            <div className="flex items-center gap-3.5 text-zinc-500">
+            <div className="flex items-center gap-3.5 text-app-dim">
               <MoreHorizontal size={14} />
               <FileCode2 size={13} className="text-app-green" />
               <GitBranch size={14} />
@@ -112,18 +118,18 @@ export function ReviewPanel({
         </div>
 
         <div className="grid min-h-[calc(100%-88px)] grid-rows-[auto_minmax(0,1fr)] px-4 py-3">
-          <div className="mb-2.5 flex items-center justify-between text-[13px] text-zinc-300">
+          <div className="mb-2.5 flex items-center justify-between text-[13px] text-app-muted">
             <span className="truncate">
               {activePath}
               {!filePreview && !filePreviewLoading && !filePreviewError && (
                 <>
                   {" "}
                   <span className="text-app-green">+33</span>{" "}
-                  <span className="text-red-400">-5</span>
+                  <span className="text-destructive">-5</span>
                 </>
               )}
             </span>
-            <div className="flex items-center gap-4 text-zinc-500">
+            <div className="flex items-center gap-4 text-app-dim">
               <ExternalLink size={13} />
               <ChevronDown size={13} />
             </div>
@@ -147,7 +153,7 @@ export function ReviewPanel({
 
 function FilePreviewLoading() {
   return (
-    <div className="grid min-h-[260px] place-items-center rounded-md bg-app-bg/35 text-[13px] text-zinc-500">
+    <div className={cn("grid min-h-[260px] place-items-center text-[13px] text-app-dim", subtleCardSurface)}>
       <div className="inline-flex items-center gap-2">
         <LoaderCircle size={14} className="animate-spin" />
         <span>Opening file</span>
@@ -158,7 +164,7 @@ function FilePreviewLoading() {
 
 function FilePreviewError({ message }: { message: string }) {
   return (
-    <div className="rounded-md bg-red-500/10 p-4 text-[13px] text-red-200">
+    <div className="rounded-[14px] border border-destructive/20 bg-destructive/10 p-4 text-[13px] text-destructive">
       {message}
     </div>
   );
@@ -166,9 +172,9 @@ function FilePreviewError({ message }: { message: string }) {
 
 function FilePreviewEditor({ file }: { file: FilePreview }) {
   return (
-    <div className="grid min-h-0 overflow-hidden rounded-md border border-white/[0.06] bg-app-bg/35">
+    <div className={cn("grid min-h-0 overflow-hidden", cardSurface)}>
       {file.truncated && (
-        <div className="border-b border-white/[0.06] bg-yellow-500/10 px-3 py-2 text-[12px] text-yellow-100/80">
+        <div className="border-b border-app-line bg-app-orange/10 px-3 py-2 text-[12px] text-app-orange">
           Showing the first {formatBytes(file.content.length)} of{" "}
           {formatBytes(file.size)}.
         </div>
@@ -180,17 +186,17 @@ function FilePreviewEditor({ file }: { file: FilePreview }) {
 
 function DiffPreview({ diffRows }: { diffRows: DiffRowData[] }) {
   return (
-    <div className="overflow-hidden rounded-md border border-white/[0.06] bg-app-bg/35 font-mono text-[12px] leading-5">
+    <div className={cn("overflow-hidden font-mono text-[12px] leading-5", cardSurface)}>
       {diffRows.slice(0, 4).map(([line, tone, code]) => (
         <DiffRow key={`${line}-${code}`} line={line} tone={tone} code={code} />
       ))}
-      <div className="bg-white/[0.18] px-3 py-0.5 font-sans text-[11px] text-zinc-400">
+      <div className="bg-app-line-strong px-3 py-0.5 font-sans text-[11px] text-app-dim">
         22 unmodified lines
       </div>
       {diffRows.slice(4, 9).map(([line, tone, code]) => (
         <DiffRow key={`${line}-${code}`} line={line} tone={tone} code={code} />
       ))}
-      <div className="bg-white/[0.18] px-3 py-0.5 font-sans text-[11px] text-zinc-400">
+      <div className="bg-app-line-strong px-3 py-0.5 font-sans text-[11px] text-app-dim">
         18 unmodified lines
       </div>
       {diffRows.slice(9).map(([line, tone, code]) => (
@@ -228,7 +234,7 @@ function DiffRow({
         tone === "+"
           ? "border-app-green bg-app-green/15"
           : tone === "-"
-            ? "border-red-400 bg-red-500/14"
+            ? "border-destructive bg-destructive/14"
             : "border-transparent"
       )}
     >
@@ -238,14 +244,14 @@ function DiffRow({
           tone === "+"
             ? "text-app-green"
             : tone === "-"
-              ? "text-red-400"
-              : "text-zinc-500"
+              ? "text-destructive"
+              : "text-app-dim"
         )}
       >
         {line}
       </span>
-      <span className="text-zinc-500">{tone}</span>
-      <code className="truncate text-zinc-300">{code}</code>
+      <span className="text-app-dim">{tone}</span>
+      <code className="truncate text-app-muted">{code}</code>
     </div>
   );
 }

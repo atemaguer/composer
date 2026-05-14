@@ -1,5 +1,6 @@
 import { cn } from "../lib/cn";
 import type { SessionProvider } from "../types";
+import { appAccentText, appWarningText } from "./style-tokens";
 
 type ProviderLogoProps = {
   provider?: SessionProvider;
@@ -28,8 +29,8 @@ export function ProviderLogo({ provider, className }: ProviderLogoProps) {
           className
         )}
       >
-        <OpenAILogo className="absolute left-0 top-0 h-3.5 w-3.5 text-app-blue" />
-        <ClaudeLogo className="absolute bottom-0 right-0 h-3.5 w-3.5 text-app-orange" />
+        <OpenAILogo className={cn("absolute left-0 top-0 h-3.5 w-3.5", appAccentText)} />
+        <ClaudeLogo className={cn("absolute bottom-0 right-0 h-3.5 w-3.5", appWarningText)} />
       </span>
     );
   }

@@ -5,8 +5,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme {
-  --font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Roboto Mono", monospace;
+  --font-sans: var(--app-font-sans);
+  --font-mono: var(--app-font-mono);
 
   --color-background: hsl(var(--background));
   --color-foreground: hsl(var(--foreground));
@@ -21,20 +21,26 @@
   --color-ring: hsl(var(--ring));
   --color-destructive: hsl(var(--destructive));
 
-  --color-app-bg: #07111c;
-  --color-app-shell: #091522;
-  --color-app-sidebar: #101923;
-  --color-app-panel: #17263a;
-  --color-app-panel-2: #1a2c42;
-  --color-app-line: rgba(180, 204, 232, 0.12);
-  --color-app-line-strong: rgba(180, 204, 232, 0.18);
-  --color-app-line-bright: rgba(210, 229, 252, 0.28);
-  --color-app-text: #e7edf5;
-  --color-app-muted: #aab4c3;
-  --color-app-dim: #747e8e;
-  --color-app-blue: #65a7ff;
-  --color-app-green: #71d697;
-  --color-app-orange: rgb(217 119 87);
+  --color-app-bg: var(--app-bg);
+  --color-app-shell: var(--app-shell);
+  --color-app-sidebar: var(--app-sidebar);
+  --color-app-panel: var(--app-panel);
+  --color-app-panel-2: var(--app-panel-2);
+  --color-app-line: var(--app-line);
+  --color-app-line-strong: var(--app-line-strong);
+  --color-app-line-bright: var(--app-line-bright);
+  --color-app-text: var(--app-text);
+  --color-app-muted: var(--app-muted);
+  --color-app-dim: var(--app-dim);
+  --color-app-blue: var(--app-accent);
+  --color-app-accent: var(--app-accent);
+  --color-app-green: var(--app-success);
+  --color-app-success: var(--app-success);
+  --color-app-orange: var(--app-warning);
+  --color-app-warning: var(--app-warning);
+  --color-app-danger: var(--app-danger);
+  --color-app-hover: var(--app-hover);
+  --color-app-overlay: var(--app-overlay);
 }
 
 :root {
@@ -51,6 +57,53 @@
   --ring: 213 100% 68%;
   --destructive: 0 82% 64%;
   --radius-md: 8px;
+  --app-bg: #07111c;
+  --app-shell: #091522;
+  --app-sidebar: #101923;
+  --app-panel: #17263a;
+  --app-panel-2: #1a2c42;
+  --app-line: rgba(180, 204, 232, 0.12);
+  --app-line-strong: rgba(180, 204, 232, 0.18);
+  --app-line-bright: rgba(210, 229, 252, 0.28);
+  --app-text: #e7edf5;
+  --app-muted: #aab4c3;
+  --app-dim: #747e8e;
+  --app-accent: #65a7ff;
+  --app-success: #71d697;
+  --app-warning: rgb(217 119 87);
+  --app-danger: #f87171;
+  --app-hover: rgba(255, 255, 255, 0.06);
+  --app-hover-strong: rgba(255, 255, 255, 0.1);
+  --app-overlay: rgba(7, 17, 28, 0.58);
+  --app-code-bg: rgba(255, 255, 255, 0.07);
+  --app-pre-bg: rgba(0, 0, 0, 0.25);
+  --app-selection: rgba(101, 167, 255, 0.28);
+  --app-scrollbar: rgba(197, 213, 235, 0.18);
+  --app-scrollbar-hover: rgba(197, 213, 235, 0.3);
+  --app-scrollbar-color: rgba(197, 213, 235, 0.22);
+  --app-body-gradient:
+    radial-gradient(circle at 22% 0%, rgba(38, 91, 138, 0.16), transparent 34%),
+    linear-gradient(180deg, var(--app-bg) 0%, var(--app-shell) 100%);
+  --app-composer-fade:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--app-shell) 0%, transparent) 0%,
+      color-mix(in srgb, var(--app-shell) 76%, transparent) 28%,
+      color-mix(in srgb, var(--app-shell) 96%, transparent) 62%,
+      var(--app-shell) 100%
+    );
+  --app-font-sans: "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --app-font-mono: "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Roboto Mono", monospace;
+  --app-ui-font-size: 14px;
+  --app-code-font-size: 12px;
+  --app-font-smoothing: antialiased;
+  --app-text-rendering: geometricPrecision;
+  --app-editor-bg: transparent;
+  --app-editor-text: #e4e4e7;
+  --app-editor-muted: rgba(164, 174, 190, 0.62);
+  --app-editor-active-line: rgba(214, 235, 255, 0.04);
+  --app-editor-gutter-active: rgba(214, 235, 255, 0.055);
+  --app-editor-tooltip-bg: #121f2d;
 }
 
 html,
@@ -63,19 +116,19 @@ body,
 }
 
 html {
-  background: #07111c;
+  background: var(--app-bg);
+  font-size: calc(var(--app-ui-font-size) * 1.142857);
 }
 
 body {
   overflow: hidden;
-  background:
-    radial-gradient(circle at 22% 0%, rgba(38, 91, 138, 0.16), transparent 34%),
-    linear-gradient(180deg, #07111c 0%, #091522 100%);
-  color: #e7edf5;
-  font-family: "Geist Variable", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--app-body-gradient);
+  color: var(--app-text);
+  font-family: var(--app-font-sans);
+  font-size: var(--app-ui-font-size);
   font-synthesis: none;
-  text-rendering: geometricPrecision;
-  -webkit-font-smoothing: antialiased;
+  text-rendering: var(--app-text-rendering);
+  -webkit-font-smoothing: var(--app-font-smoothing);
 }
 
 button,
@@ -98,7 +151,7 @@ button:disabled {
 }
 
 ::selection {
-  background: rgba(101, 167, 255, 0.28);
+  background: var(--app-selection);
 }
 
 .app-drag {
@@ -111,7 +164,7 @@ button:disabled {
 }
 
 .thin-scrollbar {
-  scrollbar-color: rgba(197, 213, 235, 0.22) transparent;
+  scrollbar-color: var(--app-scrollbar-color) transparent;
   scrollbar-width: thin;
 }
 
@@ -125,25 +178,27 @@ button:disabled {
 }
 
 .thin-scrollbar::-webkit-scrollbar-thumb {
-  background: rgba(197, 213, 235, 0.18);
+  background: var(--app-scrollbar);
   border: 2px solid transparent;
   border-radius: 999px;
   background-clip: padding-box;
 }
 
 .thin-scrollbar::-webkit-scrollbar-thumb:hover {
-  background: rgba(197, 213, 235, 0.3);
+  background: var(--app-scrollbar-hover);
   background-clip: padding-box;
 }
 
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 .composer-fade {
-  background: linear-gradient(
-    180deg,
-    rgba(9, 21, 34, 0) 0%,
-    rgba(9, 21, 34, 0.76) 28%,
-    rgba(9, 21, 34, 0.96) 62%,
-    #091522 100%
-  );
+  background: var(--app-composer-fade);
 }
 
 [data-composer-content] {
@@ -266,7 +321,7 @@ button:disabled {
 
 .composer-message-markdown code:not(pre code) {
   border-radius: 5px;
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--app-code-bg);
   padding: 0.08rem 0.32rem;
-  color: #dbeafe;
+  color: var(--app-accent);
 }

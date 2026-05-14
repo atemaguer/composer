@@ -33,21 +33,23 @@ a {
   text-underline-offset: 4px;
 }
 
-.hero-shell {
-  background: #080a0d;
+::selection {
+  background: #b8ffca;
+  color: #101217;
 }
 
-.product-window {
-  transform-origin: center;
+.hero-stage {
+  background: #08090b;
 }
 
-@media (max-width: 1023px) {
-  .hero-shell {
-    background: #080a0d;
+@keyframes composerSessionIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.99);
   }
 
-  .product-window {
-    opacity: 0.2;
-    transform: scale(0.9);
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }

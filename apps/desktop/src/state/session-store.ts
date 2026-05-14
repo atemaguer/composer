@@ -120,13 +120,17 @@ export const sessionStoreSelectors = {
   isSessionRunning: (sessionId: string) => (state: SessionStoreState) => {
     const session = state.sessions[sessionId];
 
-    return Boolean(
-      session?.pendingItems.length ||
-        session?.runtimeStatus === "running" ||
-        session?.runtimeStatus === "awaiting_approval"
-    );
+    return session ? isSessionRunning(session) : false;
   }
 };
+
+export function isSessionRunning(session: SessionContent) {
+  return Boolean(
+    session.pendingItems.length ||
+      session.runtimeStatus === "running" ||
+      session.runtimeStatus === "awaiting_approval"
+  );
+}
 
 export function normalizedSnapshotState(
   snapshot: SessionSnapshot

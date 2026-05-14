@@ -3,6 +3,7 @@ import { Monitor, Search } from "lucide-react";
 
 import { cn } from "../lib/cn";
 import type { Project, ProjectThread } from "../types";
+import { appHoverSurface, cardSurface, menuItem } from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type SearchModalProps = {
@@ -120,7 +121,7 @@ export function SearchModal({
       <section
         aria-label="Search chats"
         aria-modal="true"
-        className="w-full max-w-[760px] overflow-hidden rounded-[22px] border border-app-line-strong bg-app-shell/95 text-app-text shadow-[0_28px_90px_rgba(0,0,0,0.48),0_0_0_1px_rgba(210,229,252,0.04)_inset]"
+        className={cn("w-full max-w-[760px] overflow-hidden text-app-text", cardSurface)}
         role="dialog"
       >
         <label className="flex h-[58px] items-center gap-3 px-5">
@@ -147,9 +148,10 @@ export function SearchModal({
                 key={result.thread.id}
                 className={cn(
                   "grid min-h-11 w-full grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-xl px-3 text-left text-[17px] text-app-text/84 transition-colors",
+                  menuItem,
                   index === activeIndex
-                    ? "bg-app-panel-2/88 text-app-text shadow-[0_0_0_1px_rgba(210,229,252,0.06)_inset]"
-                    : "hover:bg-app-panel/55"
+                    ? "bg-app-panel-2/88 text-app-text shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-app-text)_6%,transparent)_inset]"
+                    : appHoverSurface
                 )}
                 tooltip={`Open ${result.thread.name}`}
                 onClick={() => selectResult(result)}

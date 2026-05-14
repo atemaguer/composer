@@ -121,7 +121,7 @@ export type SessionSnapshot = {
 type JsonRecord = Record<string, unknown>;
 export type LocalSessionAction = "archive" | "delete";
 
-const MAX_SESSIONS_PER_PROVIDER = 5;
+const MAX_SESSIONS_PER_PROVIDER = 50;
 const MAX_ITEMS_PER_SESSION = 140;
 const MAX_TEXT_LENGTH = 4_000;
 const MAX_DETAIL_LENGTH = 520;
@@ -129,7 +129,7 @@ const MAX_DETAIL_LENGTH = 520;
 export function loadLocalSessions(): SessionSnapshot {
   const claudeSessions = loadClaudeSessions();
   const codexSessions = loadCodexSessions();
-  const localSessions = [...claudeSessions, ...codexSessions];
+  const localSessions = uniqueSessionsById([...claudeSessions, ...codexSessions]);
   const sessions = Object.fromEntries(
     localSessions.map((session) => [
       session.id,
@@ -141,6 +141,10 @@ export function loadLocalSessions(): SessionSnapshot {
     projects: groupSessionsByWorkspace(localSessions),
     sessions
   };
+}
+
+function uniqueSessionsById(sessions: SessionContent[]) {
+  return [...new Map(sessions.map((session) => [session.id, session])).values()];
 }
 
 function loadCodexSessions(): SessionContent[] {

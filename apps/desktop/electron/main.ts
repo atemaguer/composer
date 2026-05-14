@@ -49,6 +49,25 @@ ipcMain.handle("composer:get-agent-server", async () => {
     workspaceName: path.basename(cwd)
   };
 });
+ipcMain.handle("composer:set-native-appearance", (_event, request: unknown) => {
+  const value = isRecord(request) ? request : {};
+  const themeSource =
+    value.themeSource === "light" ||
+    value.themeSource === "dark" ||
+    value.themeSource === "system"
+      ? value.themeSource
+      : "system";
+  const backgroundColor =
+    typeof value.backgroundColor === "string" && /^#[0-9a-fA-F]{6}$/.test(value.backgroundColor)
+      ? value.backgroundColor
+      : "#091522";
+
+  nativeTheme.themeSource = themeSource;
+
+  for (const browserWindow of BrowserWindow.getAllWindows()) {
+    browserWindow.setBackgroundColor(backgroundColor);
+  }
+});
 ipcMain.handle("composer:create-project", (_event, request: unknown) =>
   createProject(request)
 );
@@ -83,7 +102,7 @@ ipcMain.handle("composer:read-text-file", (_event, requestedPath: unknown) => {
 });
 
 async function createWindow() {
-  nativeTheme.themeSource = "dark";
+  nativeTheme.themeSource = "system";
 
   const window = new BrowserWindow({
     width: 1440,
@@ -92,7 +111,7 @@ async function createWindow() {
     minHeight: 720,
     show: false,
     title: "Composer",
-    backgroundColor: "#0b0c0f",
+    backgroundColor: "#091522",
     titleBarStyle: "hiddenInset",
     trafficLightPosition: { x: 18, y: 17 },
     vibrancy: "under-window",

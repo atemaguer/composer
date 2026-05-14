@@ -23,6 +23,13 @@ import {
 
 import { cn } from "../lib/cn";
 import { MessageResponse } from "@/components/ai-elements/message";
+import {
+  cardSurface,
+  primaryButton,
+  secondaryButton,
+  subtleCardSurface,
+  subtleIconButton
+} from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
 import type {
   CapabilityProvider,
@@ -247,7 +254,7 @@ export function PluginsPage({
             </h1>
 
             <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
-              <label className="grid h-9 grid-cols-[18px_minmax(0,1fr)] items-center gap-2 rounded-lg border border-app-line-strong bg-app-panel/55 px-3 text-app-dim shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
+              <label className="grid h-9 grid-cols-[18px_minmax(0,1fr)] items-center gap-2 rounded-full border border-app-line bg-app-panel/40 px-3 text-app-dim shadow-[inset_0_1px_0_var(--color-app-line)]">
                 <Search size={15} />
                 <input
                   className="h-full min-w-0 bg-transparent text-[14px] text-app-text outline-none placeholder:text-app-dim"
@@ -257,7 +264,7 @@ export function PluginsPage({
                 />
               </label>
               <select
-                className="h-9 min-w-[112px] rounded-lg border border-app-line-strong bg-app-panel/55 px-3 text-[14px] text-app-muted outline-none focus:border-app-blue/60"
+                className="h-9 min-w-[112px] rounded-full border border-app-line bg-app-panel/70 px-3 text-[14px] text-app-muted outline-none focus:border-app-blue/60"
                 value={filter}
                 onChange={(event) => setFilter(event.target.value as CatalogFilter)}
                 aria-label="Catalog filter"
@@ -271,7 +278,7 @@ export function PluginsPage({
 
           <div className="grid content-start gap-6">
             {error && (
-              <div className="rounded-lg border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-[13px] text-amber-100/80">
+              <div className="rounded-lg border border-app-orange/25 bg-app-orange/10 px-3 py-2 text-[13px] text-app-orange">
                 Showing local fallback catalog. {error}
               </div>
             )}
@@ -348,7 +355,10 @@ function CapabilityRow({
 
   return (
     <article
-      className="grid min-h-[66px] min-w-0 cursor-pointer grid-cols-[40px_minmax(0,1fr)_28px] items-center gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-white/[0.045] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+      className={cn(
+        "grid min-h-[66px] min-w-0 cursor-pointer grid-cols-[40px_minmax(0,1fr)_28px] items-center gap-3 px-3 py-2 transition-colors hover:bg-app-panel-2/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70",
+        subtleCardSurface
+      )}
       role="button"
       tabIndex={0}
       onClick={() => onSelect(item)}
@@ -361,7 +371,7 @@ function CapabilityRow({
     >
       <span
         className={cn(
-          "flex h-9 w-9 items-center justify-center rounded-lg border border-app-line text-app-text",
+          "flex h-9 w-9 items-center justify-center rounded-xl border border-app-line text-app-text shadow-[inset_0_1px_0_var(--color-app-line)]",
           iconSurface(item.iconKey)
         )}
       >
@@ -383,7 +393,7 @@ function CapabilityRow({
             {item.components.slice(0, 4).map((component) => (
               <span
                 key={component}
-                className="rounded-md bg-white/[0.045] px-1.5 py-0.5 text-[11px] uppercase text-app-dim"
+                className="rounded-md bg-app-line px-1.5 py-0.5 text-[11px] uppercase text-app-dim"
               >
                 {componentLabel(component)}
               </span>
@@ -394,10 +404,11 @@ function CapabilityRow({
 
       <TooltipButton
         className={cn(
-          "inline-flex h-7 w-7 items-center justify-center rounded-lg transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70",
+          subtleIconButton,
+          "h-7 w-7",
           item.enabled
-            ? "text-app-dim hover:bg-white/[0.06] hover:text-app-muted"
-            : "bg-white/[0.055] text-app-muted hover:bg-white/[0.09]"
+            ? "text-app-dim hover:text-app-muted"
+            : "bg-app-line text-app-muted hover:bg-app-line-strong"
         )}
         aria-label={item.enabled ? `${item.name} enabled` : `Add ${item.name}`}
         tooltip={item.enabled ? `${item.name} enabled` : `Add ${item.name}`}
@@ -423,12 +434,12 @@ function CapabilityModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-[#02070d]/70 px-5 py-8 backdrop-blur-[2px]"
+      className="fixed inset-0 z-50 grid place-items-center bg-app-bg/70 px-5 py-8 backdrop-blur-[2px]"
       role="presentation"
       onMouseDown={onClose}
     >
       <section
-        className="grid max-h-[86vh] w-full max-w-[780px] grid-rows-[auto_minmax(0,1fr)_auto] gap-7 rounded-[22px] border border-app-line-strong bg-app-panel p-7 shadow-[0_30px_120px_rgba(0,0,0,0.55)]"
+        className={cn("grid max-h-[86vh] w-full max-w-[780px] grid-rows-[auto_minmax(0,1fr)_auto] gap-7 p-7", cardSurface)}
         role="dialog"
         aria-modal="true"
         aria-label={`${item.name} details`}
@@ -438,14 +449,14 @@ function CapabilityModal({
           <div className="flex items-start justify-between gap-4">
             <span
               className={cn(
-                "flex h-[54px] w-[54px] items-center justify-center rounded-2xl border border-app-line text-app-text",
+                "flex h-[54px] w-[54px] items-center justify-center rounded-[18px] border border-app-line text-app-text shadow-[inset_0_1px_0_var(--color-app-line)]",
                 iconSurface(item.iconKey)
               )}
             >
               <Icon size={26} />
             </span>
             <TooltipButton
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-white/[0.07] hover:text-app-text focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+              className={subtleIconButton}
               aria-label="Close capability details"
               tooltip="Close details"
               type="button"
@@ -470,13 +481,13 @@ function CapabilityModal({
           </div>
         </header>
 
-        <div className="thin-scrollbar min-h-0 overflow-auto rounded-2xl border border-app-line bg-app-shell/70 p-5">
+        <div className={cn("thin-scrollbar min-h-0 overflow-auto p-5", subtleCardSurface)}>
           {contentState.status === "loading" ? (
             <div className="grid min-h-[240px] place-items-center text-app-dim">
               <Loader2 size={22} className="animate-spin" />
             </div>
           ) : contentState.status === "error" ? (
-            <p className="text-[14px] leading-6 text-rose-200/90">
+            <p className="text-[14px] leading-6 text-destructive">
               {contentState.content}
             </p>
           ) : (
@@ -487,10 +498,8 @@ function CapabilityModal({
         <footer className="flex justify-end gap-2">
           <TooltipButton
             className={cn(
-              "inline-flex h-10 items-center gap-2 rounded-xl px-4 text-[15px] font-medium transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70",
-              item.enabled
-                ? "bg-white/[0.08] text-app-muted hover:bg-white/[0.12] hover:text-app-text"
-                : "bg-zinc-100 text-zinc-950 hover:bg-white"
+              "h-10 gap-2 px-4 text-[15px] font-medium",
+              item.enabled ? secondaryButton : primaryButton
             )}
             tooltip={item.enabled ? `${item.name} installed` : `Install ${item.name}`}
             type="button"
@@ -510,9 +519,9 @@ function CapabilityMarkdown({ children }: { children: string }) {
       className={cn(
         "composer-message-markdown min-w-0 text-[15px] leading-7 text-app-muted [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
         "[&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:border-app-line-strong [&_blockquote]:pl-3 [&_blockquote]:text-app-dim",
-        "[&_code]:rounded-md [&_code]:bg-white/[0.08] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.9em]",
+        "[&_code]:rounded-md [&_code]:bg-app-panel/80 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.9em]",
         "[&_h1]:mb-3 [&_h1]:mt-5 [&_h1]:text-[22px] [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:mt-5 [&_h2]:text-[18px] [&_h2]:font-semibold [&_h3]:mb-1.5 [&_h3]:mt-4 [&_h3]:text-[16px] [&_h3]:font-semibold",
-        "[&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:my-0 [&_p+p]:mt-3 [&_pre]:my-3 [&_pre]:max-w-full [&_pre]:overflow-auto [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-app-line [&_pre]:bg-black/30 [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
+        "[&_li]:my-1 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-7 [&_p]:my-0 [&_p+p]:mt-3 [&_pre]:my-3 [&_pre]:max-w-full [&_pre]:overflow-auto [&_pre]:rounded-xl [&_pre]:border [&_pre]:border-app-line [&_pre]:bg-app-panel/70 [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
         "[&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-6"
       )}
       controls={{
@@ -532,7 +541,7 @@ function ProviderPills({ providers }: { providers: CapabilityProvider[] }) {
   }
 
   return (
-    <span className="rounded-md bg-white/[0.045] px-1.5 py-0.5 text-[11px] uppercase text-app-dim">
+    <span className="rounded-md bg-app-line px-1.5 py-0.5 text-[11px] uppercase text-app-dim">
       {providers[0]}
     </span>
   );
@@ -548,12 +557,12 @@ function SkeletonSection() {
             key={index}
             className="grid grid-cols-[48px_minmax(0,1fr)_32px] items-center gap-3"
           >
-            <div className="h-11 w-11 rounded-xl bg-white/[0.05]" />
+            <div className="h-11 w-11 rounded-xl bg-app-line" />
             <div className="grid gap-2">
-              <div className="h-4 w-1/2 rounded bg-white/[0.05]" />
-              <div className="h-3 w-4/5 rounded bg-white/[0.035]" />
+              <div className="h-4 w-1/2 rounded bg-app-line" />
+              <div className="h-3 w-4/5 rounded bg-app-line/70" />
             </div>
-            <div className="h-8 w-8 rounded-lg bg-white/[0.04]" />
+            <div className="h-8 w-8 rounded-lg bg-app-line/80" />
           </div>
         ))}
       </div>
@@ -657,9 +666,9 @@ function iconSurface(iconKey?: string) {
       return "bg-[#3578ff]/18 text-[#7dabff]";
     case "github":
     case "terminal":
-      return "bg-white/[0.045] text-zinc-300";
+      return "bg-app-line text-app-muted";
     case "vercel":
-      return "bg-white/[0.06] text-zinc-100";
+      return "bg-app-line-strong text-app-text";
     case "expo":
       return "bg-[#f0bd5b]/14 text-[#ffd27a]";
     case "openai":
@@ -667,7 +676,7 @@ function iconSurface(iconKey?: string) {
     case "plugin":
       return "bg-[#bb7cff]/14 text-[#d3adff]";
     default:
-      return "bg-white/[0.045] text-zinc-300";
+      return "bg-app-line text-app-muted";
   }
 }
 

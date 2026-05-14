@@ -40,7 +40,7 @@ export function NewSessionPage({
       aria-label="New agent session"
     >
       <div className="grid w-full max-w-[760px] gap-5 px-5 pb-[9vh]">
-        <h1 className="text-center text-[25px] font-medium leading-tight text-zinc-200">
+        <h1 className="text-center text-[25px] font-medium leading-tight text-app-text">
           What should we build in {workspaceName}?
         </h1>
 

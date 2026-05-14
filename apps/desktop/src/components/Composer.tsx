@@ -44,7 +44,31 @@ import type {
   PermissionMode,
   SessionProvider
 } from "../types";
+import { cn } from "../lib/cn";
 import { ProviderLogo } from "./ProviderLogo";
+import {
+  appActiveSurface,
+  appDangerText,
+  appHoverSurface,
+  appInsetHighlight,
+  appSoftBorder,
+  appSoftSurface,
+  appWarningBorder,
+  appWarningBorderStrong,
+  appWarningHoverSurface,
+  appWarningSurface,
+  appWarningText,
+  cardSurface,
+  menuItem,
+  menuSurface,
+  pillButton,
+  primaryIconButton,
+  primaryButton,
+  secondaryButton,
+  subtleCardSurface,
+  subtleIconButton,
+  warningFocusRing
+} from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type ComposerProvider = SessionProvider;
@@ -366,7 +390,7 @@ export function PromptComposer({
       )}
 
       <div
-        className="relative z-10 min-h-[84px] rounded-2xl border border-white/[0.09] bg-app-panel-2 px-3 py-2 shadow-[0_16px_44px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.04)]"
+        className={cn("relative z-10 min-h-[84px] px-3 py-2", cardSurface)}
         role="group"
         aria-label="Prompt composer"
         onDragOver={handleDragOver}
@@ -385,7 +409,7 @@ export function PromptComposer({
         )}
         <textarea
           aria-label="Ask Composer"
-          className="mt-0.5 min-h-7 w-full resize-none rounded-md bg-transparent px-1 text-[13px] leading-6 text-app-text outline-none placeholder:text-zinc-500 focus-visible:outline-none focus-visible:ring-0"
+          className="mt-0.5 min-h-7 w-full resize-none rounded-md bg-transparent px-1 text-[13px] leading-6 text-app-text outline-none placeholder:text-app-dim focus-visible:outline-none focus-visible:ring-0"
           placeholder={placeholder}
           rows={textareaRows}
           value={value}
@@ -404,7 +428,7 @@ export function PromptComposer({
               onChange={handleFileInputChange}
             />
             <TooltipButton
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+              className={subtleIconButton}
               aria-label="Attach"
               onClick={() => fileInputRef.current?.click()}
               tooltip="Attach image"
@@ -414,7 +438,10 @@ export function PromptComposer({
             </TooltipButton>
             {showPlanButton && (
               <TooltipButton
-                className="composer-plan-button inline-flex h-[30px] shrink-0 items-center gap-1.5 rounded-md px-2 text-[13px] text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+                className={cn(
+                  "composer-plan-button h-[30px] shrink-0 gap-1.5 px-2 text-[13px]",
+                  pillButton
+                )}
                 aria-label="Plan"
                 tooltip="Plan response"
                 type="button"
@@ -424,7 +451,14 @@ export function PromptComposer({
               </TooltipButton>
             )}
             <TooltipButton
-              className="composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full bg-app-orange/10 px-2.5 text-[13px] text-app-orange focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-orange/70"
+              className={cn(
+                "composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
+                appWarningBorder,
+                appWarningSurface,
+                appWarningText,
+                appWarningHoverSurface,
+                warningFocusRing
+              )}
               onClick={() => setPermissionOpen(!permissionOpen)}
               aria-label={`Permission: ${permission}`}
               aria-controls={permissionMenuId}
@@ -443,9 +477,12 @@ export function PromptComposer({
           </div>
 
           <div className="composer-right-controls flex min-w-0 flex-nowrap items-center justify-end gap-2">
-            <span className="h-3.5 w-3.5 shrink-0 rounded-full border-[3px] border-white/10 border-t-white/35" />
+            <span className="h-3.5 w-3.5 shrink-0 rounded-full border-[3px] border-app-text/10 border-t-app-text/35" />
             <TooltipButton
-              className="composer-model-button inline-flex h-[30px] min-w-0 max-w-[164px] items-center gap-1.5 rounded-full bg-white/[0.05] px-2.5 text-[13px] text-zinc-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+              className={cn(
+                "composer-model-button h-[30px] min-w-0 max-w-[164px] gap-1.5 px-2.5 text-[13px]",
+                pillButton
+              )}
               onClick={() => setIntelligenceOpen(!intelligenceOpen)}
               aria-label={`Model: ${selectedModel.label}, ${
                 activeProvider === "meta" ? "Auto" : intelligence
@@ -465,20 +502,20 @@ export function PromptComposer({
               <span className="composer-model-label-compact hidden truncate">
                 {compactModelLabel}
               </span>
-              <em className="composer-model-effort shrink-0 not-italic text-zinc-500">
+              <em className="composer-model-effort shrink-0 not-italic text-app-dim">
                 {activeProvider === "meta" ? "Auto" : intelligence}
               </em>
               <ChevronDown className="shrink-0" size={13} />
             </TooltipButton>
             <TooltipButton
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+              className={subtleIconButton}
               aria-label="Voice"
               tooltip="Voice input"
             >
               <Mic size={14} />
             </TooltipButton>
             <TooltipButton
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-zinc-200 text-zinc-800 disabled:cursor-not-allowed disabled:opacity-45 focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+              className={primaryIconButton}
               aria-label={submitLabel}
               disabled={submitDisabled}
               onClick={submitMode === "send" ? onSubmit : (onStop ?? onSubmit)}
@@ -525,15 +562,15 @@ function ImageAttachmentPill({
   onRemove: () => void;
 }) {
   return (
-    <div className="inline-flex h-7 max-w-[210px] items-center gap-2 rounded-full border border-white/[0.09] bg-white/[0.035] py-0.5 pl-1 pr-2 text-[13px] text-zinc-200">
+    <div className={cn("inline-flex h-7 max-w-[210px] items-center gap-2 py-0.5 pl-1 pr-2 text-[13px] text-app-text", pillButton)}>
       <img
         alt=""
-        className="h-5 w-5 shrink-0 rounded-full border border-white/10 object-cover"
+        className="h-5 w-5 shrink-0 rounded-full border border-app-text/10 object-cover"
         src={attachment.previewUrl}
       />
       <span className="min-w-0 truncate">{attachment.name}</span>
       <TooltipButton
-        className="ml-0.5 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-zinc-500 hover:bg-white/[0.08] hover:text-zinc-200"
+        className={cn(subtleIconButton, "ml-0.5")}
         aria-label={`Remove ${attachment.name}`}
         onClick={onRemove}
         tooltip={`Remove ${attachment.name}`}
@@ -579,15 +616,22 @@ function ProviderToggle({
   const visibleProvider: ComposerProvider = provider;
 
   return (
-    <div className="composer-provider-toggle inline-grid min-w-0 shrink grid-cols-3 rounded-full border border-white/[0.08] bg-white/[0.035] p-0.5 text-[12px] text-zinc-400">
+    <div
+      className={cn(
+        "composer-provider-toggle inline-grid min-w-0 shrink grid-cols-3 rounded-full border p-0.5 text-[12px] text-app-muted",
+        appSoftBorder,
+        appSoftSurface,
+        appInsetHighlight
+      )}
+    >
       {providers.map(({ value, label }) => (
         <TooltipButton
           key={value}
           className={[
             "composer-provider-button inline-flex h-[26px] min-w-0 items-center gap-1 rounded-full px-2 transition-colors",
             visibleProvider === value
-              ? "bg-white/[0.1] text-zinc-100"
-              : "hover:bg-white/[0.05]"
+              ? "bg-app-text/[0.12] text-app-text shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_4%,transparent)]"
+              : appHoverSurface
           ].join(" ")}
           aria-label={label}
           onClick={() => setProvider(value)}
@@ -618,10 +662,8 @@ function ApprovalButton({
   return (
     <TooltipButton
       className={[
-        "h-7 rounded-md px-2.5 text-[12px] transition-colors",
-        primary
-          ? "bg-zinc-100 text-zinc-950 hover:bg-white"
-          : "bg-white/[0.06] text-zinc-300 hover:bg-white/[0.09]"
+        "h-7 px-2.5 text-[12px]",
+        primary ? primaryButton : secondaryButton
       ].join(" ")}
       onClick={onClick}
       tooltip={label}
@@ -668,8 +710,8 @@ function PendingTerminalStack({
               data-awaiting-approval={Boolean(approval)}
               data-pending-terminal-card
               className={[
-                "overflow-hidden rounded-t-xl border border-b-0 border-app-line bg-app-panel/92 text-[13px] text-zinc-400 shadow-[0_12px_30px_rgba(0,0,0,0.22)] transition-[height] duration-200 ease-in-out",
-                approval ? "border-app-orange/35" : "",
+                "overflow-hidden rounded-t-[18px] border border-b-0 bg-app-panel-2/92 text-[13px] text-app-muted shadow-[0_18px_48px_color-mix(in_srgb,var(--color-app-bg)_34%,transparent),inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-[height] duration-200 ease-in-out",
+                approval ? appWarningBorderStrong : appSoftBorder,
                 expanded ? expandedHeight : "h-[40px]"
               ].join(" ")}
             >
@@ -677,7 +719,7 @@ function PendingTerminalStack({
                 <TerminalSquare size={14} />
                 <span className="truncate">{item.label}</span>
                 <TooltipButton
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-white/[0.06]"
+                  className={subtleIconButton}
                   aria-label="Stop running tool"
                   onClick={onStop}
                   tooltip="Stop running tool"
@@ -686,7 +728,7 @@ function PendingTerminalStack({
                   <Square size={10} fill="currentColor" />
                 </TooltipButton>
                 <TooltipButton
-                  className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-white/[0.06]"
+                  className={subtleIconButton}
                   aria-label={
                     expanded ? "Collapse running tool" : "Expand running tool"
                   }
@@ -711,7 +753,7 @@ function PendingTerminalStack({
                   />
                 </TooltipButton>
               </div>
-              <div className="grid gap-1 border-t border-app-line/70 px-3.5 py-2 text-[12px] text-zinc-500">
+              <div className="grid gap-1 border-t border-app-line/70 px-3.5 py-2 text-[12px] text-app-dim">
                 {details.map((detail) => (
                   <div
                     key={detail.id}
@@ -759,13 +801,19 @@ function InlineApproval({
   onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => void;
 }) {
   return (
-    <div className="mt-2 grid gap-2 rounded-lg border border-app-orange/20 bg-app-panel-2/80 p-2.5">
+    <div
+      className={cn(
+        "mt-2 grid gap-2 rounded-[14px] border bg-app-panel-2/85 p-2.5",
+        appWarningBorder,
+        appInsetHighlight
+      )}
+    >
       <div className="grid gap-1">
-        <div className="text-[13px] font-medium text-zinc-100">
+        <div className="text-[13px] font-medium text-app-text">
           {approval.title}
         </div>
         {approval.details && (
-          <div className="line-clamp-2 text-[12px] text-zinc-500">
+          <div className="line-clamp-2 text-[12px] text-app-dim">
             {Object.entries(approval.details)
               .slice(0, 4)
               .map(([key, value]) => `${key}: ${value}`)
@@ -895,7 +943,11 @@ function ComposerFooterButton({
   if (!hasMenu) {
     return (
       <TooltipButton
-        className="composer-footer-button inline-flex h-8 items-center gap-1.5 rounded-full px-2.5 text-[13px] text-zinc-500 transition-colors hover:bg-white/[0.05] hover:text-zinc-300"
+        className={cn(
+          "composer-footer-button h-8 gap-1.5 px-2.5 text-[13px]",
+          pillButton,
+          "border-transparent bg-transparent text-app-dim shadow-none hover:bg-app-text/[0.06] hover:text-app-muted"
+        )}
         aria-label={label}
         tooltip={label}
         type="button"
@@ -912,12 +964,13 @@ function ComposerFooterButton({
   return (
     <div ref={menuRef} className="relative">
       <TooltipButton
-        className={[
-          "composer-footer-button inline-flex h-8 max-w-[280px] items-center gap-1.5 rounded-full px-3 text-[13px] transition-colors",
+        className={cn(
+          "composer-footer-button h-8 max-w-[280px] gap-1.5 px-3 text-[13px]",
+          pillButton,
           open
-            ? "bg-white/[0.07] text-zinc-200"
-            : "text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-300"
-        ].join(" ")}
+            ? "bg-app-text/[0.09] text-app-text"
+            : "border-transparent bg-transparent text-app-dim shadow-none hover:bg-app-text/[0.06] hover:text-app-muted"
+        )}
         aria-label={label}
         aria-expanded={open}
         aria-haspopup="menu"
@@ -938,12 +991,13 @@ function ComposerFooterButton({
 
       {open && (
         <div
-          className={[
-            "absolute left-0 z-30 grid w-[min(430px,calc(100vw-48px))] gap-1 rounded-xl border border-white/15 bg-app-panel-2/95 p-2 text-[14px] shadow-[0_18px_48px_rgba(0,0,0,0.38)]",
+          className={cn(
+            "absolute left-0 z-30 grid w-[min(430px,calc(100vw-48px))] gap-1 text-[14px]",
+            menuSurface,
             menuPlacement === "up"
               ? "bottom-[calc(100%+8px)]"
               : "top-[calc(100%+8px)]"
-          ].join(" ")}
+          )}
           role="menu"
           aria-label={label}
         >
@@ -955,10 +1009,10 @@ function ComposerFooterButton({
             />
           ) : (
             <>
-              <label className="grid h-9 grid-cols-[22px_minmax(0,1fr)] items-center gap-1 rounded-md px-2 text-zinc-500">
+              <label className="grid h-9 grid-cols-[22px_minmax(0,1fr)] items-center gap-1 rounded-lg px-2 text-app-dim">
                 <Search size={15} />
                 <input
-                  className="h-full min-w-0 bg-transparent text-[14px] text-zinc-200 outline-none placeholder:text-zinc-500"
+                  className="h-full min-w-0 bg-transparent text-[14px] text-app-text outline-none placeholder:text-app-dim"
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
                   onKeyDown={(event) => {
@@ -976,17 +1030,18 @@ function ComposerFooterButton({
                 />
               </label>
 
-              <div className="max-h-[260px] overflow-y-auto border-t border-white/[0.08] pt-1">
+              <div className="max-h-[260px] overflow-y-auto border-t border-app-text/[0.08] pt-1">
                 {filteredOptions.map((option) => {
                   const selected = option.id === selectedOptionId;
 
                   return (
                     <TooltipButton
                       key={option.id}
-                      className={[
-                        "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 rounded-md px-2 text-left text-zinc-200 transition-colors hover:bg-white/[0.06]",
-                        selected ? "bg-white/[0.04]" : ""
-                      ].join(" ")}
+                      className={cn(
+                        "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-app-text",
+                        menuItem,
+                        selected ? `${appActiveSurface} text-app-text` : ""
+                      )}
                       onClick={() => {
                         onSelect?.(option);
                         setOpen(false);
@@ -996,11 +1051,11 @@ function ComposerFooterButton({
                       tooltip={`Select ${option.label}`}
                       type="button"
                     >
-                      <Folder className="text-zinc-400" size={16} />
+                      <Folder className="text-app-muted" size={16} />
                       <span className="grid min-w-0">
                         <span className="truncate">{option.label}</span>
                         {option.detail && (
-                          <span className="truncate text-[12px] text-zinc-500">
+                          <span className="truncate text-[12px] text-app-dim">
                             {option.detail}
                           </span>
                         )}
@@ -1011,7 +1066,7 @@ function ComposerFooterButton({
                 })}
 
                 {filteredOptions.length === 0 && (
-                  <div className="px-2 py-3 text-[13px] text-zinc-500">
+                  <div className="px-2 py-3 text-[13px] text-app-dim">
                     No projects found
                   </div>
                 )}
@@ -1019,13 +1074,16 @@ function ComposerFooterButton({
 
               {onCreate && (
                 <TooltipButton
-                  className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 rounded-md border-t border-white/[0.08] px-2 pt-2 text-left text-zinc-200 transition-colors hover:bg-white/[0.06] disabled:cursor-not-allowed disabled:opacity-60"
+                  className={cn(
+                    "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 border-t border-app-text/[0.08] px-2 pt-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60",
+                    menuItem
+                  )}
                   disabled={creating}
                   onClick={() => void handleCreate()}
                   tooltip={creating ? "Creating project" : createActionLabel}
                   type="button"
                 >
-                  <Plus className="text-zinc-400" size={16} />
+                  <Plus className="text-app-muted" size={16} />
                   <span className="truncate">
                     {creating ? "Creating project..." : createActionLabel}
                   </span>
@@ -1033,7 +1091,7 @@ function ComposerFooterButton({
               )}
 
               {error && (
-                <div className="px-2 pb-1 text-[12px] text-red-300">
+                <div className={cn("px-2 pb-1 text-[12px]", appDangerText)}>
                   {error}
                 </div>
               )}
@@ -1056,7 +1114,7 @@ function ComposerFooterCustomMenu({
 }) {
   return (
     <>
-      <div className="px-3 pb-2 pt-1 text-[14px] font-medium text-zinc-500">
+      <div className="px-3 pb-2 pt-1 text-[14px] font-medium text-app-dim">
         {title}
       </div>
       <div className="grid gap-0.5">
@@ -1068,13 +1126,14 @@ function ComposerFooterCustomMenu({
           return (
             <TooltipButton
               key={item.label}
-              className={[
-                "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 rounded-md px-2 text-left text-[14px] transition-colors",
-                item.separatorBefore ? "mt-1 border-t border-white/[0.08] pt-2" : "",
+              className={cn(
+                "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-[14px]",
+                menuItem,
+                item.separatorBefore ? "mt-1 border-t border-app-text/[0.08] pt-2" : "",
                 item.disabled
-                  ? "cursor-not-allowed text-zinc-600"
-                  : "text-zinc-200 hover:bg-white/[0.06]"
-              ].join(" ")}
+                  ? "cursor-not-allowed text-app-dim/60"
+                  : "text-app-text hover:bg-app-text/[0.06]"
+              )}
               disabled={item.disabled}
               onClick={() => {
                 if (item.disabled) {
@@ -1090,13 +1149,13 @@ function ComposerFooterCustomMenu({
               type="button"
             >
               <Icon
-                className={item.disabled ? "text-zinc-600" : "text-zinc-400"}
+                className={item.disabled ? "text-app-dim/60" : "text-app-muted"}
                 size={16}
               />
               <span className="truncate">{item.label}</span>
               {TrailingIcon && (
                 <TrailingIcon
-                  className={item.disabled ? "text-zinc-600" : "text-zinc-400"}
+                  className={item.disabled ? "text-app-dim/60" : "text-app-muted"}
                   size={16}
                 />
               )}
@@ -1126,14 +1185,18 @@ function PermissionMenu({
   return (
     <div
       id={id}
-      className="absolute bottom-[108px] left-[74px] z-20 grid min-w-[220px] rounded-xl border border-white/15 bg-app-panel-2/95 p-2 shadow-[0_18px_48px_rgba(0,0,0,0.38)]"
+      className={cn("absolute bottom-[108px] left-[74px] z-20 grid min-w-[220px] gap-1", menuSurface)}
       role="menu"
       aria-label="Permission mode"
     >
       {options.map(([label, Icon]) => (
         <TooltipButton
           key={label}
-          className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 rounded-md px-2 text-left text-[14px] text-zinc-200 hover:bg-white/[0.06]"
+          className={cn(
+            "grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-[14px] text-app-text",
+            menuItem,
+            permission === label && `${appActiveSurface} text-app-text`
+          )}
           onClick={() => setPermission(label)}
           role="menuitemradio"
           aria-checked={permission === label}
@@ -1178,17 +1241,21 @@ function ModelSettingsMenu({
   return (
     <div
       id={id}
-      className="absolute -right-2 bottom-[64px] z-20 grid min-w-[280px] rounded-xl border border-white/15 bg-app-panel-2/95 p-2 shadow-[0_18px_48px_rgba(0,0,0,0.38)]"
+      className={cn("absolute -right-2 bottom-[64px] z-20 grid min-w-[280px] gap-1", menuSurface)}
       role="menu"
       aria-label={`${providerLabel} model settings`}
     >
-      <div className="px-3 pb-2.5 pt-1 text-[14px] text-zinc-400">
+      <div className="px-3 pb-2.5 pt-1 text-[14px] text-app-muted">
         {providerLabel} model
       </div>
       {models.map((option) => (
         <TooltipButton
           key={option.value}
-          className="grid min-h-11 grid-cols-[minmax(0,1fr)_18px] items-center rounded-md px-2 text-left text-[14px] text-zinc-100 hover:bg-white/[0.06]"
+          className={cn(
+            "grid min-h-11 grid-cols-[minmax(0,1fr)_18px] items-center px-2 text-[14px] text-app-text",
+            menuItem,
+            selectedModel.value === option.value && appActiveSurface
+          )}
           onClick={() => setModel(option.value)}
           role="menuitemradio"
           aria-checked={selectedModel.value === option.value}
@@ -1196,28 +1263,28 @@ function ModelSettingsMenu({
         >
           <span className="grid min-w-0">
             <span className="truncate">{option.label}</span>
-            <span className="truncate text-[12px] text-zinc-500">
+            <span className="truncate text-[12px] text-app-dim">
               {option.detail}
             </span>
           </span>
           {selectedModel.value === option.value && <Check size={14} />}
         </TooltipButton>
       ))}
-      <div className="my-1 h-px bg-white/[0.09]" />
-      <div className="px-3 pb-2 pt-1 text-[14px] text-zinc-400">
+      <div className="my-1 h-px bg-app-text/[0.09]" />
+      <div className="px-3 pb-2 pt-1 text-[14px] text-app-muted">
         {effortLabel}
       </div>
       {provider === "meta" ? (
-        <div className="grid gap-1 px-2 pb-1 text-[13px] text-zinc-200">
-          <div className="rounded-md bg-white/[0.04] px-2.5 py-2">
-            <div className="text-zinc-100">Claude Opus 4.7</div>
-            <div className="text-[12px] text-zinc-500">
+        <div className="grid gap-1 px-2 pb-1 text-[13px] text-app-text">
+          <div className={cn("px-2.5 py-2", subtleCardSurface)}>
+            <div className="text-app-text">Claude Opus 4.7</div>
+            <div className="text-[12px] text-app-dim">
               Planning with Extra High thinking
             </div>
           </div>
-          <div className="rounded-md bg-white/[0.04] px-2.5 py-2">
-            <div className="text-zinc-100">GPT-5.4 Mini</div>
-            <div className="text-[12px] text-zinc-500">
+          <div className={cn("px-2.5 py-2", subtleCardSurface)}>
+            <div className="text-app-text">GPT-5.4 Mini</div>
+            <div className="text-[12px] text-app-dim">
               Execution with Low reasoning
             </div>
           </div>
@@ -1226,7 +1293,11 @@ function ModelSettingsMenu({
         efforts.map((label) => (
           <TooltipButton
             key={label}
-            className="grid min-h-9 grid-cols-[minmax(0,1fr)_18px] items-center rounded-md px-2 text-left text-[14px] text-zinc-100 hover:bg-white/[0.06]"
+            className={cn(
+              "grid min-h-9 grid-cols-[minmax(0,1fr)_18px] items-center px-2 text-[14px] text-app-text",
+              menuItem,
+              intelligence === label && appActiveSurface
+            )}
             onClick={() => setIntelligence(label)}
             role="menuitemradio"
             aria-checked={intelligence === label}

@@ -25,6 +25,10 @@ declare global {
         workspaceName: string;
       }>;
       readTextFile?: (filePath: string) => Promise<FilePreview>;
+      setNativeAppearance?: (request: {
+        themeSource: "light" | "dark" | "system";
+        backgroundColor: string;
+      }) => Promise<void>;
     };
   }
 }

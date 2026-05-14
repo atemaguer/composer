@@ -4,10 +4,11 @@ import { html } from "@codemirror/lang-html";
 import { javascript } from "@codemirror/lang-javascript";
 import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
+import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { oneDark } from "@codemirror/theme-one-dark";
+import { tags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
 
 import { cn } from "../lib/cn";
@@ -35,12 +36,12 @@ export function CodeEditor({ className, path, value }: CodeEditorProps) {
         doc: value,
         extensions: [
           basicSetup,
-          oneDark,
           language,
           EditorState.readOnly.of(true),
           EditorView.editable.of(false),
           EditorView.lineWrapping,
-          editorTheme
+          editorTheme,
+          syntaxHighlighting(editorHighlightStyle)
         ]
       })
     });
@@ -95,38 +96,72 @@ function languageForPath(filePath: string): Extension {
 const editorTheme = EditorView.theme({
   "&": {
     height: "100%",
-    backgroundColor: "transparent",
-    color: "rgb(228 228 231)"
+    backgroundColor: "var(--app-editor-bg)",
+    color: "var(--app-editor-text)"
   },
   ".cm-scroller": {
-    fontFamily:
-      '"SF Mono", "Menlo", "Monaco", "Cascadia Code", "Roboto Mono", monospace',
-    fontSize: "12px",
+    fontFamily: "var(--app-font-mono)",
+    fontSize: "var(--app-code-font-size)",
     lineHeight: "1.65"
   },
   ".cm-content": {
     padding: "12px 0",
-    caretColor: "rgb(214 235 255)"
+    caretColor: "var(--app-accent)"
   },
   ".cm-gutters": {
-    backgroundColor: "transparent",
-    borderRight: "1px solid rgba(214, 235, 255, 0.08)",
-    color: "rgba(164, 174, 190, 0.62)"
+    backgroundColor: "var(--app-editor-bg)",
+    borderRight: "1px solid var(--app-line)",
+    color: "var(--app-editor-muted)"
   },
   ".cm-activeLineGutter": {
-    backgroundColor: "rgba(214, 235, 255, 0.055)"
+    backgroundColor: "var(--app-editor-gutter-active)"
   },
   ".cm-activeLine": {
-    backgroundColor: "rgba(214, 235, 255, 0.04)"
+    backgroundColor: "var(--app-editor-active-line)"
   },
   ".cm-selectionBackground": {
-    backgroundColor: "rgba(96, 165, 250, 0.28) !important"
+    backgroundColor: "var(--app-selection) !important"
   },
   ".cm-line": {
     padding: "0 14px"
   },
   ".cm-tooltip": {
-    backgroundColor: "rgb(18 31 45)",
-    border: "1px solid rgba(214, 235, 255, 0.12)"
+    backgroundColor: "var(--app-editor-tooltip-bg)",
+    border: "1px solid var(--app-line-strong)"
   }
 });
+
+const editorHighlightStyle = HighlightStyle.define([
+  {
+    tag: tags.comment,
+    color: "var(--app-dim)"
+  },
+  {
+    tag: [tags.keyword, tags.operatorKeyword, tags.modifier],
+    color: "var(--app-accent)"
+  },
+  {
+    tag: [tags.string, tags.special(tags.string), tags.regexp],
+    color: "var(--app-success)"
+  },
+  {
+    tag: [tags.number, tags.bool, tags.null],
+    color: "var(--app-warning)"
+  },
+  {
+    tag: [tags.function(tags.variableName), tags.definition(tags.function(tags.variableName))],
+    color: "var(--app-text)"
+  },
+  {
+    tag: [tags.variableName, tags.propertyName, tags.attributeName],
+    color: "var(--app-muted)"
+  },
+  {
+    tag: [tags.typeName, tags.className, tags.tagName],
+    color: "var(--app-accent)"
+  },
+  {
+    tag: tags.invalid,
+    color: "hsl(var(--destructive))"
+  }
+]);

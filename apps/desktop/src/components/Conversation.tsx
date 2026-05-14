@@ -37,6 +37,20 @@ import type {
   ToolDetail
 } from "../types";
 import { Composer, type ComposerProps } from "./Composer";
+import {
+  appAccentHoverText,
+  appAccentScope,
+  appAccentText,
+  appDangerSoftText,
+  appDangerText,
+  appOverlaySurface,
+  appSoftSurface,
+  appSuccessText,
+  cardSurface,
+  dimIcon,
+  subtleCardSurface,
+  subtleIconButton
+} from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type ConversationProps = {
@@ -108,16 +122,20 @@ export function Conversation({
       )}
       aria-label="Agent conversation"
     >
-      <div
-        ref={scrollRef}
-        className="thin-scrollbar overflow-auto px-5 pb-[220px]"
-        onScroll={updateJumpVisibility}
-      >
-        <ConversationTimeline
-          items={timelineItems}
-          cwd={cwd}
-          onOpenFile={onOpenFile}
-        />
+      <div className="relative min-h-0">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-gradient-to-b from-app-shell via-app-shell/70 to-app-shell/0" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-9 bg-gradient-to-t from-app-shell via-app-shell/70 to-app-shell/0" />
+        <div
+          ref={scrollRef}
+          className="thin-scrollbar h-full overflow-auto px-5 pb-[220px] pt-4"
+          onScroll={updateJumpVisibility}
+        >
+          <ConversationTimeline
+            items={timelineItems}
+            cwd={cwd}
+            onOpenFile={onOpenFile}
+          />
+        </div>
       </div>
 
       {showJumpToLatest && (
@@ -346,20 +364,20 @@ export function UserMessageBubble({
   return (
     <div className="grid justify-items-end gap-1.5">
       {steered && (
-        <div className="inline-flex items-center gap-1.5 text-[11px] text-zinc-500">
+        <div className="inline-flex items-center gap-1.5 text-[11px] text-app-dim">
           <History size={12} />
           <span>Steered conversation</span>
         </div>
       )}
-      <div className="max-w-[620px] rounded-2xl bg-white/[0.065] px-4 py-3 text-zinc-100 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className={cn("max-w-[620px] px-4 py-3 text-app-text", cardSurface)}>
         <ChatMessageMarkdown tone="user" onOpenFile={onOpenFile}>
           {body}
         </ChatMessageMarkdown>
       </div>
-      <div className="flex items-center gap-2.5 pr-1 text-[11px] text-zinc-500">
+      <div className="flex items-center gap-2.5 pr-1 text-[11px] text-app-dim">
         {timestamp && <span>{timestamp}</span>}
         <TooltipButton
-          className="inline-flex h-6 w-6 items-center justify-center rounded-md hover:bg-white/[0.06]"
+          className={subtleIconButton}
           aria-label="Copy user message"
           tooltip="Copy message"
         >
@@ -426,12 +444,12 @@ export function AttachmentGroup({
                 }
               }}
               className={cn(
-                "size-[64px] cursor-zoom-in rounded-lg border border-app-line-strong",
-                "bg-app-panel-2/70 p-0.5 shadow-[0_12px_32px_rgba(0,0,0,0.24)]",
-                "ring-1 ring-white/[0.03] transition hover:border-app-line-bright hover:bg-app-panel-2"
+                "size-[64px] cursor-zoom-in p-0.5",
+                subtleCardSurface,
+                "ring-1 ring-app-text/[0.03] transition hover:border-app-line-bright hover:bg-app-panel-2"
               )}
             >
-              <AttachmentPreview className="rounded-md bg-white/[0.04]" />
+              <AttachmentPreview className={cn("rounded-md", appSoftSurface)} />
             </Attachment>
           ))}
         </Attachments>
@@ -448,19 +466,19 @@ export function AttachmentGroup({
               key={attachment.id}
               title={attachment.title ?? attachment.filename}
               className={cn(
-                "h-8 max-w-[220px] rounded-full border-app-line-strong bg-white/[0.07] px-2",
-                "text-zinc-200 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]",
-                "hover:bg-white/[0.09]"
+                "h-8 max-w-[220px] rounded-full border-app-line-strong bg-app-text/[0.07] px-2",
+                "text-app-text shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_4%,transparent)]",
+                "hover:bg-app-text/[0.09]"
               )}
             >
-              <AttachmentPreview className="bg-white/[0.06] text-zinc-400 [&_svg]:text-zinc-400" />
+              <AttachmentPreview className="bg-app-text/[0.06] text-app-muted [&_svg]:text-app-muted" />
               <AttachmentInfo className="text-[12px]" />
             </Attachment>
           ))}
         </Attachments>
       )}
       {item.timestamp && (
-        <div className="pr-1 text-xs text-zinc-500">{item.timestamp}</div>
+        <div className="pr-1 text-xs text-app-dim">{item.timestamp}</div>
       )}
       <AttachmentPreviewDialog
         attachment={previewAttachment}
@@ -498,7 +516,7 @@ function AttachmentPreviewDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 grid place-items-center bg-black/75 p-8 backdrop-blur-md"
+      className={cn("fixed inset-0 z-50 grid place-items-center p-8 backdrop-blur-md", appOverlaySurface)}
       role="dialog"
       aria-modal="true"
       aria-label={getAttachmentLabel(attachment)}
@@ -510,10 +528,10 @@ function AttachmentPreviewDialog({
       >
         <img
           alt={getAttachmentLabel(attachment)}
-          className="max-h-[82vh] max-w-full rounded-2xl object-contain shadow-[0_28px_90px_rgba(0,0,0,0.55)]"
+          className="max-h-[82vh] max-w-full rounded-2xl object-contain shadow-[0_28px_90px_color-mix(in_srgb,var(--color-app-bg)_55%,transparent)]"
           src={attachment.url}
         />
-        <div className="mx-auto max-w-[80vw] truncate rounded-full bg-black/45 px-3 py-1 text-center text-xs text-zinc-300">
+        <div className="mx-auto max-w-[80vw] truncate rounded-full bg-app-bg/45 px-3 py-1 text-center text-xs text-app-muted">
           {getAttachmentLabel(attachment)}
         </div>
       </div>
@@ -534,16 +552,17 @@ function ChatMessageMarkdown({
     <MessageResponse
       className={cn(
         "composer-message-markdown min-w-0 text-[13.5px] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        "[&_a]:text-app-blue [&_a]:underline-offset-4 hover:[&_a]:underline",
+        appAccentScope,
+        "[&_a]:text-[var(--app-accent)] [&_a]:underline-offset-4 hover:[&_a]:underline",
         "[&_blockquote]:my-2.5 [&_blockquote]:border-l-2 [&_blockquote]:border-app-line-strong [&_blockquote]:pl-3 [&_blockquote]:text-app-muted",
-        "[&_code]:rounded [&_code]:bg-white/[0.07] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.9em]",
+        "[&_code]:rounded [&_code]:bg-app-text/[0.07] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.9em]",
         "[&_h1]:mb-2.5 [&_h1]:mt-4 [&_h1]:text-[18px] [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-[16px] [&_h2]:font-semibold [&_h3]:mb-1.5 [&_h3]:mt-3.5 [&_h3]:text-[14px] [&_h3]:font-semibold",
-        "[&_li]:my-0.5 [&_ol]:my-2.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_p+p]:mt-3 [&_pre]:my-2.5 [&_pre]:max-w-full [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-app-line [&_pre]:bg-black/25 [&_pre]:p-2.5 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
+        "[&_li]:my-0.5 [&_ol]:my-2.5 [&_ol]:list-decimal [&_ol]:pl-5 [&_p]:my-0 [&_p+p]:mt-3 [&_pre]:my-2.5 [&_pre]:max-w-full [&_pre]:overflow-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:border-app-line [&_pre]:bg-app-bg/25 [&_pre]:p-2.5 [&_pre_code]:bg-transparent [&_pre_code]:p-0",
         "[&_table]:my-2.5 [&_table]:w-full [&_table]:border-collapse [&_td]:border [&_td]:border-app-line [&_td]:px-2 [&_td]:py-1 [&_th]:border [&_th]:border-app-line [&_th]:px-2 [&_th]:py-1 [&_th]:text-left",
         "[&_ul]:my-2.5 [&_ul]:list-disc [&_ul]:pl-5",
         tone === "assistant"
-          ? "leading-[1.54] text-zinc-100/95"
-          : "leading-[1.4] text-zinc-100"
+          ? "leading-[1.54] text-app-text/95"
+          : "leading-[1.4] text-app-text"
       )}
       controls={{
         code: { copy: false, download: false },
@@ -583,7 +602,7 @@ function MarkdownLink({
   if (filePath && onOpenFile) {
     return (
       <TooltipButton
-        className="inline text-left text-app-blue underline-offset-4 hover:underline"
+        className={cn("inline text-left underline-offset-4 hover:underline", appAccentText)}
         tooltip="Open file"
         type="button"
         onClick={() => onOpenFile(filePath)}
@@ -817,24 +836,24 @@ export function ToolActivityGroup({
   return (
     <div className="grid gap-2.5" data-tool-activity-group>
       <TooltipButton
-        className="grid w-fit max-w-full grid-cols-[18px_minmax(0,1fr)_18px] items-center gap-2 text-left text-[13.5px] text-zinc-500 transition-colors hover:text-app-muted"
+        className="grid w-fit max-w-full grid-cols-[18px_minmax(0,1fr)_18px] items-center gap-2 text-left text-[13.5px] text-app-dim transition-colors hover:text-app-muted"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         tooltip={open ? "Collapse tool activity" : "Expand tool activity"}
       >
-        <TerminalSquare size={13} className="text-zinc-500" />
+        <TerminalSquare size={13} className={dimIcon} />
         <span className="truncate">{item.summary}</span>
         <ChevronDown
           size={16}
           className={cn(
-            "text-zinc-500 transition-transform",
+            "text-app-dim transition-transform",
             !open && "-rotate-90"
           )}
         />
       </TooltipButton>
 
       {open && (
-        <div className="grid gap-2 text-[13px] text-zinc-500">
+        <div className="grid gap-2 text-[13px] text-app-dim">
           {item.details.map((detail, index) => (
             <ToolDetailRow
               key={detail.id}
@@ -878,7 +897,7 @@ function ToolDetailRow({
     return (
       <div className="grid gap-2">
         <TooltipButton
-          className="grid min-w-0 grid-cols-[minmax(0,1fr)_18px] items-center gap-2 text-left text-zinc-400 transition-colors hover:text-zinc-300"
+          className="grid min-w-0 grid-cols-[minmax(0,1fr)_18px] items-center gap-2 text-left text-app-muted transition-colors hover:text-app-text"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
           tooltip={detail.label}
@@ -887,14 +906,14 @@ function ToolDetailRow({
             className={cn(
               "truncate",
               detail.tone === "command" && "font-mono text-[12px]",
-              detail.tone === "output" && "text-zinc-500",
-              detail.action === "edit" && "text-zinc-400"
+              detail.tone === "output" && "text-app-dim",
+              detail.action === "edit" && "text-app-muted"
             )}
           >
             {rowLabel}
           </span>
           <ChevronDown
-            className={cn("text-zinc-500 transition-transform", !open && "-rotate-90")}
+            className={cn("text-app-dim transition-transform", !open && "-rotate-90")}
             size={15}
           />
         </TooltipButton>
@@ -907,9 +926,9 @@ function ToolDetailRow({
     <TooltipButton
       className={cn(
         "min-w-0 truncate text-left",
-        filePath && onOpenFile && "transition-colors hover:text-app-blue",
-        detail.tone === "error" && "text-red-300/80",
-        detail.tone === "summary" && "text-zinc-500"
+        filePath && onOpenFile && `transition-colors ${appAccentHoverText}`,
+        detail.tone === "error" && appDangerSoftText,
+        detail.tone === "summary" && "text-app-dim"
       )}
       type="button"
       disabled={!filePath || !onOpenFile}
@@ -931,14 +950,14 @@ function ToolPayloadCard({ detail }: { detail: ToolDetail }) {
       : formatToolArgs(detail.args);
 
   return (
-    <div className="overflow-hidden rounded-xl bg-white/[0.065] px-4 py-3 text-zinc-300 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-      <div className="mb-3 text-[12px] text-zinc-500">
+    <div className={cn("overflow-hidden px-4 py-3 text-app-muted", cardSurface)}>
+      <div className="mb-3 text-[12px] text-app-dim">
         {isCommand ? "Shell" : isOutput ? "Output" : "Details"}
       </div>
-      <pre className="thin-scrollbar max-h-[260px] overflow-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-zinc-200">
+      <pre className="thin-scrollbar max-h-[260px] overflow-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-app-text">
         {isCommand ? `$ ${payload}` : payload}
       </pre>
-      <div className="mt-3 flex justify-end text-[12px] text-zinc-500">
+      <div className="mt-3 flex justify-end text-[12px] text-app-dim">
         <span>{detail.status === "failed" ? "Failed" : "Success"}</span>
       </div>
     </div>
@@ -990,7 +1009,7 @@ export function RunningToolCard({
   return (
     <div
       className={cn(
-        "grid grid-cols-[22px_minmax(0,1fr)_22px_22px] items-center gap-2.5 border border-app-line bg-app-panel/92 px-3.5 text-[14px] text-zinc-400 shadow-[0_12px_34px_rgba(0,0,0,0.24)]",
+        "grid grid-cols-[22px_minmax(0,1fr)_22px_22px] items-center gap-2.5 border border-app-line bg-app-panel/92 px-3.5 text-[14px] text-app-muted shadow-[0_12px_34px_color-mix(in_srgb,var(--color-app-bg)_24%,transparent)]",
         overlay
           ? "h-[58px] rounded-t-2xl border-b-0 pb-1.5"
           : "h-[50px] rounded-lg"
@@ -999,14 +1018,14 @@ export function RunningToolCard({
       <TerminalSquare size={15} />
       <span className="truncate">{label}</span>
       <TooltipButton
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/[0.06]"
+        className={subtleIconButton}
         aria-label="Stop running tool"
         tooltip="Stop running tool"
       >
         <Square size={10} fill="currentColor" />
       </TooltipButton>
       <TooltipButton
-        className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/[0.06]"
+        className={subtleIconButton}
         aria-label="Expand running tool"
         tooltip="Expand running tool"
       >
@@ -1024,29 +1043,29 @@ export function FileChangeSummaryCard({
   const [open, setOpen] = useState(Boolean(item.defaultOpen));
 
   return (
-    <div className="overflow-hidden rounded-lg border border-app-line bg-app-panel/94 shadow-[0_14px_34px_rgba(0,0,0,0.24)]">
+    <div className="overflow-hidden rounded-lg border border-app-line bg-app-panel/94 shadow-[0_14px_34px_color-mix(in_srgb,var(--color-app-bg)_24%,transparent)]">
       <div className="grid min-h-[46px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-app-line px-3.5">
-        <div className="min-w-0 truncate text-[14px] text-zinc-100">
+        <div className="min-w-0 truncate text-[14px] text-app-text">
           {item.summary}{" "}
-          <span className="text-app-green">+{item.additions}</span>{" "}
-          <span className="text-red-400">-{item.deletions}</span>
+          <span className={appSuccessText}>+{item.additions}</span>{" "}
+          <span className={appDangerText}>-{item.deletions}</span>
         </div>
-        <div className="flex items-center gap-3 text-[13px] text-zinc-500">
+        <div className="flex items-center gap-3 text-[13px] text-app-dim">
           <TooltipButton
-            className="inline-flex items-center gap-1.5 hover:text-zinc-300"
+            className="inline-flex items-center gap-1.5 hover:text-app-muted"
             tooltip="Undo changes"
           >
             <span>Undo</span>
           </TooltipButton>
           <TooltipButton
-            className="inline-flex items-center gap-1.5 hover:text-zinc-300"
+            className="inline-flex items-center gap-1.5 hover:text-app-muted"
             tooltip="Review changes"
           >
             <span>Review</span>
             <ExternalLink size={13} />
           </TooltipButton>
           <TooltipButton
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/[0.06]"
+            className={subtleIconButton}
             aria-label={open ? "Collapse file changes" : "Expand file changes"}
             aria-expanded={open}
             tooltip={open ? "Collapse file changes" : "Expand file changes"}
@@ -1058,7 +1077,7 @@ export function FileChangeSummaryCard({
             />
           </TooltipButton>
           <TooltipButton
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md hover:bg-white/[0.06]"
+            className={subtleIconButton}
             aria-label="Expand review card"
             tooltip="Expand review card"
           >
@@ -1081,22 +1100,22 @@ export function FileChangeSummaryCard({
 function FileChangeRowView({ file }: { file: FileChangeRow }) {
   return (
     <TooltipButton
-      className="grid min-h-[38px] grid-cols-[minmax(0,1fr)_auto_22px] items-center gap-2.5 border-b border-app-line px-3.5 text-left text-[13px] last:border-b-0 hover:bg-white/[0.035]"
+      className="grid min-h-[38px] grid-cols-[minmax(0,1fr)_auto_22px] items-center gap-2.5 border-b border-app-line px-3.5 text-left text-[13px] last:border-b-0 hover:bg-app-text/[0.035]"
       tooltip={`View changes in ${file.path}`}
     >
-      <span className="min-w-0 truncate text-zinc-200">{file.path}</span>
+      <span className="min-w-0 truncate text-app-text">{file.path}</span>
       <span className="whitespace-nowrap">
-        <span className="text-app-green">+{file.additions}</span>{" "}
-        <span className="text-red-400">-{file.deletions}</span>
+        <span className={appSuccessText}>+{file.additions}</span>{" "}
+        <span className={appDangerText}>-{file.deletions}</span>
       </span>
-      <ChevronDown size={14} className="text-zinc-500" />
+      <ChevronDown size={14} className={dimIcon} />
     </TooltipButton>
   );
 }
 
 export function HookEventRow({ label }: { label: string }) {
   return (
-    <div className="inline-flex w-fit items-center gap-2 text-[13px] text-zinc-600">
+    <div className="inline-flex w-fit items-center gap-2 text-[13px] text-app-dim/70">
       <Anchor size={13} />
       <span>{label}</span>
     </div>
@@ -1104,7 +1123,7 @@ export function HookEventRow({ label }: { label: string }) {
 }
 
 function NoticeRow({ label }: { label: string }) {
-  return <div className="text-[13px] text-zinc-600">{label}</div>;
+  return <div className="text-[13px] text-app-dim/70">{label}</div>;
 }
 
 export function JumpToLatestButton({
@@ -1117,7 +1136,10 @@ export function JumpToLatestButton({
   return (
     <div className="grid justify-items-center">
       <TooltipButton
-        className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-app-line bg-app-panel/80 text-zinc-200 shadow-[0_10px_24px_rgba(0,0,0,0.22)]"
+        className={cn(
+          subtleIconButton,
+          "border border-app-line bg-app-panel/80 text-app-text shadow-[0_10px_24px_color-mix(in_srgb,var(--color-app-bg)_22%,transparent)]"
+        )}
         aria-label={label ?? "Jump to latest"}
         tooltip={label ?? "Jump to latest"}
         onClick={onClick}
