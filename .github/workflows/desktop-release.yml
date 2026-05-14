@@ -49,7 +49,6 @@ jobs:
       CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
       GCS_PREFIX: ${{ github.event.inputs.prefix || 'composer/desktop' }}
       GCS_BUCKET: ${{ github.event.inputs.bucket || vars.GCP_UPDATES_BUCKET }}
-      CSC_IDENTITY_AUTO_DISCOVERY: "false"
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -95,7 +94,44 @@ jobs:
       - name: Build renderer and Electron sources
         run: npm --workspace composer run build
 
+      - name: Prepare Apple notarization key
+        if: matrix.target == 'mac'
+        shell: bash
+        env:
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY_BASE64 }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          for required_var in APPLE_API_KEY_BASE64 APPLE_API_KEY_ID APPLE_API_ISSUER CSC_LINK CSC_KEY_PASSWORD; do
+            if [[ -z "${!required_var}" ]]; then
+              echo "${required_var} is required for signed and notarized macOS builds." >&2
+              exit 1
+            fi
+          done
+
+          apple_api_key_path="${RUNNER_TEMP}/AuthKey_${APPLE_API_KEY_ID}.p8"
+          APPLE_API_KEY_PATH="${apple_api_key_path}" node <<'NODE'
+          const fs = require("fs");
+
+          fs.writeFileSync(
+            process.env.APPLE_API_KEY_PATH,
+            Buffer.from(process.env.APPLE_API_KEY_BASE64, "base64"),
+          );
+          NODE
+          chmod 600 "${apple_api_key_path}"
+          echo "APPLE_API_KEY=${apple_api_key_path}" >> "${GITHUB_ENV}"
+
       - name: Package desktop app
+        env:
+          APPLE_API_KEY_ID: ${{ matrix.target == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
+          APPLE_API_ISSUER: ${{ matrix.target == 'mac' && secrets.APPLE_API_ISSUER || '' }}
+          CSC_LINK: ${{ matrix.target == 'mac' && secrets.CSC_LINK || '' }}
+          CSC_KEY_PASSWORD: ${{ matrix.target == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ matrix.target == 'mac' && 'true' || 'false' }}
         run: npm exec --workspace composer -- electron-builder --${{ matrix.target }} --publish never
 
       - name: Upload workflow artifact
