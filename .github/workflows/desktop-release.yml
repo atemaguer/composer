@@ -43,6 +43,7 @@ jobs:
       desktop_version: ${{ steps.release.outputs.desktop_version }}
       release_ref: ${{ steps.release.outputs.release_ref }}
       release_tag: ${{ steps.release.outputs.release_tag }}
+      should_release: ${{ steps.release.outputs.should_release }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -61,28 +62,44 @@ jobs:
         run: |
           set -euo pipefail
 
+          should_release="true"
+
           if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
-            git config user.name "github-actions[bot]"
-            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-            git pull --ff-only origin "${GITHUB_REF_NAME}"
-
-            npm version patch --workspace composer --no-git-tag-version
-            npm install --package-lock-only --ignore-scripts
-
-            desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
-            release_tag="desktop-v${desktop_version}"
-
-            if git rev-parse "${release_tag}" >/dev/null 2>&1; then
-              echo "Release tag ${release_tag} already exists." >&2
-              exit 1
+            before_sha="${{ github.event.before }}"
+            if [[ -z "${before_sha}" || "${before_sha}" =~ ^0+$ ]]; then
+              changed_files="$(git diff-tree --no-commit-id --name-only -r "${GITHUB_SHA}")"
+            else
+              changed_files="$(git diff --name-only "${before_sha}" "${GITHUB_SHA}")"
             fi
 
-            git add apps/desktop/package.json package-lock.json
-            git commit -m "chore(desktop): release v${desktop_version}"
-            git tag "${release_tag}"
-            git push origin "HEAD:${GITHUB_REF_NAME}" "${release_tag}"
+            if ! printf '%s\n' "${changed_files}" | grep -qE '^apps/desktop/'; then
+              desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+              release_ref="${GITHUB_SHA}"
+              release_tag=""
+              should_release="false"
+            else
+              git config user.name "github-actions[bot]"
+              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+              git pull --ff-only origin "${GITHUB_REF_NAME}"
 
-            release_ref="${release_tag}"
+              npm version patch --workspace composer --no-git-tag-version
+              npm install --package-lock-only --ignore-scripts
+
+              desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+              release_tag="desktop-v${desktop_version}"
+
+              if git rev-parse "${release_tag}" >/dev/null 2>&1; then
+                echo "Release tag ${release_tag} already exists." >&2
+                exit 1
+              fi
+
+              git add apps/desktop/package.json package-lock.json
+              git commit -m "chore(desktop): release v${desktop_version}"
+              git tag "${release_tag}"
+              git push origin "HEAD:${GITHUB_REF_NAME}" "${release_tag}"
+
+              release_ref="${release_tag}"
+            fi
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             release_ref="${GITHUB_REF_NAME}"
             release_tag="${GITHUB_REF_NAME}"
@@ -96,10 +113,12 @@ jobs:
           echo "desktop_version=${desktop_version}" >> "$GITHUB_OUTPUT"
           echo "release_ref=${release_ref}" >> "$GITHUB_OUTPUT"
           echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "should_release=${should_release}" >> "$GITHUB_OUTPUT"
 
   build:
     name: Build ${{ matrix.name }}
     needs: prepare
+    if: needs.prepare.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
