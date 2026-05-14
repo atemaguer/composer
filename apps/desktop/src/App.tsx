@@ -168,6 +168,9 @@ export default function App() {
       Boolean(window.composer?.listLocalSessions) ||
       Boolean(window.composer?.getAgentServer)
   );
+  const [autoUpdateState, setAutoUpdateState] = useState<AutoUpdateState>({
+    status: "idle"
+  });
 
   const activeSession = selectedThread ? sessions[selectedThread] : undefined;
   const activeProvider = provider;
@@ -398,6 +401,28 @@ export default function App() {
     };
   }, [agentServer?.wsUrl, applyAgentEvent]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const removeListener = window.composer?.onAutoUpdateState?.((state) => {
+      setAutoUpdateState(state);
+    });
+
+    void window.composer?.getAutoUpdateState?.()
+      .then((state) => {
+        if (!cancelled) {
+          setAutoUpdateState(state);
+        }
+      })
+      .catch((error) => {
+        console.warn("Could not read auto-update state", error);
+      });
+
+    return () => {
+      cancelled = true;
+      removeListener?.();
+    };
+  }, []);
+
   function selectThread(
     threadId: string,
     options: { updateRoute?: boolean } = {}
@@ -437,6 +462,12 @@ export default function App() {
 
   function navigateForward() {
     navigate(1);
+  }
+
+  function installAutoUpdate() {
+    void window.composer?.installAutoUpdate?.().catch((error) => {
+      console.warn("Could not install downloaded update", error);
+    });
   }
 
   useEffect(() => {
@@ -830,6 +861,8 @@ export default function App() {
         setProviderFilter={setProviderFilter}
         runningSessionIds={runningSessionIds}
         sessionsLoading={sessionsLoading}
+        autoUpdateState={autoUpdateState}
+        onInstallAutoUpdate={installAutoUpdate}
         onThreadSelect={selectThread}
         onThreadArchive={(threadId) => void updateThreadVisibility(threadId, "archive")}
         onThreadDelete={(threadId) => void updateThreadVisibility(threadId, "delete")}

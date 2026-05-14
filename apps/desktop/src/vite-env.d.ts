@@ -5,6 +5,14 @@ import type { FilePreview, SessionSnapshot } from "./types";
 declare global {
   const __APP_VERSION__: string;
 
+  type AutoUpdateState =
+    | { status: "idle" }
+    | { status: "checking" }
+    | { status: "available"; version: string }
+    | { status: "downloading"; version?: string; percent: number }
+    | { status: "downloaded"; version: string }
+    | { status: "error"; message: string };
+
   interface Window {
     composer?: {
       platform: string;
@@ -27,6 +35,11 @@ declare global {
         workspaceName: string;
       }>;
       readTextFile?: (filePath: string) => Promise<FilePreview>;
+      getAutoUpdateState?: () => Promise<AutoUpdateState>;
+      installAutoUpdate?: () => Promise<AutoUpdateState>;
+      onAutoUpdateState?: (
+        listener: (state: AutoUpdateState) => void
+      ) => () => void;
       setNativeAppearance?: (request: {
         themeSource: "light" | "dark" | "system";
         backgroundColor: string;

@@ -57,6 +57,8 @@ type SidebarProps = {
   setProviderFilter: (value: ProviderFilter) => void;
   runningSessionIds: ReadonlySet<string>;
   sessionsLoading?: boolean;
+  autoUpdateState?: AutoUpdateState;
+  onInstallAutoUpdate?: () => void;
   onThreadSelect?: (value: string) => void;
   onThreadArchive?: (value: string) => void;
   onThreadDelete?: (value: string) => void;
@@ -98,6 +100,8 @@ export function Sidebar({
   setProviderFilter,
   runningSessionIds,
   sessionsLoading = false,
+  autoUpdateState,
+  onInstallAutoUpdate,
   onThreadSelect,
   onThreadArchive,
   onThreadDelete,
@@ -234,6 +238,7 @@ export function Sidebar({
     !sessionsLoading && providerFilter === "all" && visibleProjects.length === 0;
   const showEmptyFilter =
     !sessionsLoading && providerFilter !== "all" && visibleProjects.length === 0;
+  const updateDownloaded = autoUpdateState?.status === "downloaded";
 
   return (
     <aside
@@ -592,21 +597,36 @@ export function Sidebar({
           </div>
         </div>
 
-        <TooltipButton
-          className={cn(
-            "grid min-h-8 w-full shrink-0 grid-cols-[20px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors",
-            appHoverSurfaceSubtle,
-            focusRing
+        <div className="grid min-h-8 shrink-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+          <TooltipButton
+            className={cn(
+              "flex min-h-8 min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors",
+              appHoverSurfaceSubtle,
+              focusRing
+            )}
+            tooltip="Settings"
+            onClick={onSettings}
+          >
+            <Settings className={mutedIcon} size={15} />
+            <span className="truncate">Settings</span>
+          </TooltipButton>
+          {updateDownloaded && (
+            <TooltipButton
+              className={cn(
+                "flex min-h-8 items-center gap-2 rounded-md bg-app-accent px-3 py-1 text-[13px] font-medium text-white transition-colors hover:bg-app-accent/90",
+                focusRing
+              )}
+              tooltip={`Install Composer ${autoUpdateState.version}`}
+              onClick={onInstallAutoUpdate}
+            >
+              <ArrowRight size={14} />
+              <span>Update</span>
+            </TooltipButton>
           )}
-          tooltip="Settings"
-          onClick={onSettings}
-        >
-          <Settings className={mutedIcon} size={15} />
-          <span>Settings</span>
-          <span className="justify-self-end text-[11px] tabular-nums text-app-dim">
+          <span className="text-[11px] tabular-nums text-app-dim">
             v{__APP_VERSION__}
           </span>
-        </TooltipButton>
+        </div>
       </div>
     </aside>
   );
