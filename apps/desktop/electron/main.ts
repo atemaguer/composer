@@ -10,6 +10,7 @@ import {
   updateLocalSessionVisibility
 } from "./session-loader.js";
 import { configureAutoUpdates } from "./auto-updater.js";
+import { desktopCliEnvironment } from "./cli-env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FILE_PREVIEW_BYTES = 1_000_000;
@@ -206,11 +207,11 @@ function ensureAgentServer() {
   agentServerReady = new Promise((resolve, reject) => {
     const serverEntry = path.join(__dirname, "../dist-server/server/index.js");
     const child = spawn(process.execPath, [serverEntry], {
-      env: {
+      env: desktopCliEnvironment({
         ...process.env,
         COMPOSER_AGENT_SERVER_PORT: "0",
         ELECTRON_RUN_AS_NODE: "1"
-      },
+      }),
       cwd: workspaceCwd(),
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"]

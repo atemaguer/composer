@@ -6,6 +6,10 @@ import {
   patchReviewLabel,
   reviewFileFromCodexChange
 } from "../../electron/patch-review.js";
+import {
+  desktopCliEnvironment,
+  resolveDesktopExecutable
+} from "../../electron/cli-env.js";
 import type { AgentProvider, EventSink } from "../runtime.js";
 import { defaultCwd, providerSessionId } from "../runtime.js";
 import type {
@@ -261,7 +265,20 @@ export class CodexProvider implements AgentProvider {
     }
 
     this.initialized = new Promise((resolve, reject) => {
-      const child = spawn("codex", ["app-server"], {
+      const env = desktopCliEnvironment();
+      const codexCommand = resolveDesktopExecutable("codex", env);
+
+      if (!codexCommand) {
+        reject(
+          new Error(
+            "Codex CLI was not found. Install Codex or set COMPOSER_CODEX_PATH to the codex executable."
+          )
+        );
+        return;
+      }
+
+      const child = spawn(codexCommand, ["app-server"], {
+        env,
         stdio: ["pipe", "pipe", "pipe"]
       });
 
