@@ -40,7 +40,6 @@ import {
   appActiveSurface,
   appHoverSurface,
   cardSurface,
-  pillButton,
   secondaryButton,
 } from "./style-tokens";
 import { NumberField } from "./ui/number-field";
@@ -93,10 +92,7 @@ export function SettingsPage({ className, onBack }: SettingsPageProps) {
       <aside className="min-h-0 border-r border-app-line bg-app-sidebar/88 max-[780px]:hidden">
         <div className="thin-scrollbar flex h-full flex-col overflow-y-auto px-2.5 pb-5 pt-[58px]">
           <TooltipButton
-            className={cn(
-              "mb-5 h-9 w-fit gap-2 px-2.5 text-[15px] text-app-dim hover:text-app-muted",
-              pillButton
-            )}
+            className="mb-5 h-9 w-fit gap-2 px-2 text-[15px] text-app-dim transition-colors hover:text-app-muted"
             tooltip="Back to app"
             onClick={onBack}
           >
@@ -119,18 +115,6 @@ export function SettingsPage({ className, onBack }: SettingsPageProps) {
 
       <div className="thin-scrollbar min-h-0 overflow-y-auto">
         <div className="mx-auto grid w-full max-w-[760px] gap-10 px-8 pb-20 pt-[82px] max-[780px]:px-5 max-[780px]:pt-6">
-          <TooltipButton
-            className={cn(
-              "hidden h-9 w-fit gap-2 px-2.5 text-[15px] text-app-muted max-[780px]:inline-flex",
-              pillButton
-            )}
-            tooltip="Back to app"
-            onClick={onBack}
-          >
-            <ArrowLeft size={14} />
-            <span>Back to app</span>
-          </TooltipButton>
-
           <h1 className="text-[24px] font-semibold leading-none text-app-text">
             {activeSection}
           </h1>
