@@ -608,10 +608,65 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
     return;
   }
 
+  if (event.type === "error") {
+    session.runtimeStatus = "error";
+    session.pendingItems = [];
+    appendErrorNotice(session, event.message);
+    return;
+  }
+
   if (event.type === "turn.completed") {
     session.runtimeStatus = event.status;
     session.pendingItems = [];
   }
+}
+
+function appendErrorNotice(session: SessionContent, message: string) {
+  const label = `${providerLabel(session.lastProvider ?? session.provider)} failed: ${formatErrorMessage(message)}`;
+  const lastItem = session.items.at(-1);
+
+  if (lastItem?.type === "notice" && lastItem.label === label) {
+    return;
+  }
+
+  session.items.push({
+    id: `${session.id}-error-${Date.now()}`,
+    type: "notice",
+    label
+  });
+}
+
+function formatErrorMessage(message: string) {
+  const trimmed = message.trim();
+
+  if (!trimmed) {
+    return "The agent stopped before returning a response.";
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (typeof parsed === "string") {
+      return parsed;
+    }
+
+    if (parsed && typeof parsed === "object") {
+      const record = parsed as Record<string, unknown>;
+      const nestedMessage =
+        typeof record.message === "string"
+          ? record.message
+          : typeof record.error === "string"
+            ? record.error
+            : undefined;
+
+      if (nestedMessage) {
+        return nestedMessage;
+      }
+    }
+  } catch {
+    // Plain-text errors are expected from several provider CLIs.
+  }
+
+  return trimmed;
 }
 
 function toolDetail(
@@ -979,7 +1034,7 @@ function isRuntimeProvider(
 
 function providerLabel(provider: SessionProvider) {
   if (provider === "meta") {
-    return "Meta agent";
+    return "Hybrid agent";
   }
 
   return provider === "codex" ? "Codex" : "Claude";
@@ -995,7 +1050,7 @@ function providerModel(provider: SessionProvider, model?: string) {
   }
 
   if (provider === "meta") {
-    return "Meta supervisor";
+    return "Hybrid supervisor";
   }
 
   return provider === "codex" ? "Codex" : "Claude Code";

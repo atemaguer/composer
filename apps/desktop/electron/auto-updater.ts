@@ -1,5 +1,5 @@
 import { app, BrowserWindow, ipcMain } from "electron";
-import { existsSync } from "node:fs";
+import { accessSync, constants, existsSync, mkdirSync, renameSync } from "node:fs";
 import { createRequire } from "node:module";
 import { join } from "node:path";
 import type { AppUpdater } from "electron-updater";
@@ -10,6 +10,7 @@ const { autoUpdater } = require("electron-updater") as {
 };
 
 const UPDATE_CHECK_INTERVAL_MS = 30 * 1000;
+const MAC_SHIPIT_CACHE_DIR = "com.composer.desktop.ShipIt";
 
 let configured = false;
 let updateCheckInterval: NodeJS.Timeout | null = null;
@@ -152,6 +153,7 @@ async function installDownloadedUpdate(
   }
 
   try {
+    prepareNativeInstallStaging();
     console.info("[auto-update] installing downloaded update", version);
     autoUpdater.quitAndInstall(false, true);
   } catch (error) {
@@ -161,6 +163,44 @@ async function installDownloadedUpdate(
       version,
       message: error instanceof Error ? error.message : String(error)
     });
+  }
+}
+
+function prepareNativeInstallStaging() {
+  if (process.platform !== "darwin") {
+    return;
+  }
+
+  const shipItPath = join(app.getPath("home"), "Library", "Caches", MAC_SHIPIT_CACHE_DIR);
+
+  if (!existsSync(shipItPath)) {
+    mkdirSync(shipItPath, { mode: 0o700, recursive: true });
+    return;
+  }
+
+  try {
+    accessSync(
+      shipItPath,
+      constants.R_OK | constants.W_OK | constants.X_OK
+    );
+    return;
+  } catch {
+    const stalePath = `${shipItPath}.stale-${Date.now()}`;
+
+    try {
+      renameSync(shipItPath, stalePath);
+      console.warn(
+        "[auto-update] moved unwritable Squirrel.Mac staging directory",
+        stalePath
+      );
+      mkdirSync(shipItPath, { mode: 0o700, recursive: true });
+    } catch (error) {
+      throw new Error(
+        `Composer cannot write to its macOS updater staging directory at ${shipItPath}. Remove that directory and retry the update. ${
+          error instanceof Error ? error.message : String(error)
+        }`
+      );
+    }
   }
 }
 

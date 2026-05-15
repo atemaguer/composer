@@ -64,7 +64,7 @@ export class MetaProvider implements AgentProvider {
       type: "turn.started",
       sessionId: request.sessionId,
       turnId,
-      label: "Meta supervisor is coordinating"
+      label: "Hybrid supervisor is coordinating"
     });
     emitSupervisorMessage(
       request,
@@ -299,7 +299,7 @@ function delegateSession(
 
 function planningPrompt(prompt: string) {
   return [
-    "You are the planning delegate in a Composer meta-agent run.",
+    "You are the planning delegate in a Composer hybrid-agent run.",
     "Use read-only exploration to produce an execution-ready plan for a different provider.",
     "Do not edit files, do not run mutating commands, and do not implement the change.",
     "If the request is ambiguous or unsafe to execute, state the blocker clearly instead of inventing details.",
@@ -318,7 +318,7 @@ function planningPrompt(prompt: string) {
 
 function executionPrompt(prompt: string, plan: string) {
   return [
-    "You are the execution delegate in a Composer meta-agent run.",
+    "You are the execution delegate in a Composer hybrid-agent run.",
     "Implement the captured plan below. Treat it as the execution contract, but re-read relevant files before editing because the workspace is the source of truth.",
     "Keep changes tightly scoped to the user request and the plan. If the plan is stale, unsafe, or blocked, stop and explain the blocker instead of improvising broad changes.",
     "After implementing, run focused verification and report changed files, commands run, results, and remaining risks.",
@@ -449,7 +449,7 @@ function emitSupervisorMessage(
     type: "message.delta",
     sessionId: request.sessionId,
     messageId,
-    delta: `**Meta supervisor**\n\n${body}\n`
+    delta: `**Hybrid supervisor**\n\n${body}\n`
   });
   request.emit({
     id: randomUUID(),

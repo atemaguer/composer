@@ -335,7 +335,14 @@ export class ClaudeProvider implements AgentProvider {
         }
 
         if (message.type === "result") {
-          if (message.subtype === "success" && !receivedDelta && message.result) {
+          if (message.subtype !== "success") {
+            request.emit({
+              id: randomUUID(),
+              type: "error",
+              sessionId: request.sessionId,
+              message: claudeResultErrorMessage(message)
+            });
+          } else if (!receivedDelta && message.result) {
             request.emit({
               id: randomUUID(),
               type: "message.delta",
@@ -393,6 +400,19 @@ export class ClaudeProvider implements AgentProvider {
 
     this.active.clear();
   }
+}
+
+function claudeResultErrorMessage(message: Extract<SDKMessage, { type: "result" }>) {
+  const errors =
+    "errors" in message && Array.isArray(message.errors)
+      ? message.errors.filter((item): item is string => typeof item === "string")
+      : [];
+
+  if (errors.length) {
+    return errors.join("\n");
+  }
+
+  return "Claude stopped before returning a response.";
 }
 
 function claudeApproval({

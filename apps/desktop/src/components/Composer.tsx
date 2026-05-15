@@ -660,7 +660,7 @@ function ProviderToggle({
   const providers = [
     { value: "codex", label: "Codex" },
     { value: "claude", label: "Claude" },
-    { value: "meta", label: "Meta" }
+    { value: "meta", label: "Hybrid" }
   ] satisfies Array<{ value: ComposerProvider; label: string }>;
   const visibleProvider: ComposerProvider = provider;
 
@@ -1279,7 +1279,7 @@ function ModelSettingsMenu({
   const selectedModel = modelOption(provider, model);
   const efforts = selectedModel.efforts;
   const providerLabel =
-    provider === "meta" ? "Meta" : provider === "codex" ? "Codex" : "Claude";
+    provider === "meta" ? "Hybrid" : provider === "codex" ? "Codex" : "Claude";
   const effortLabel =
     provider === "meta"
       ? "Planner and executor"

@@ -46,47 +46,67 @@ export class CodexProvider implements AgentProvider {
   private lineBuffer = "";
 
   async run(request: Parameters<AgentProvider["run"]>[0]) {
-    await this.ensureStarted();
-    this.sinks.set(request.sessionId, request.emit);
-    this.approvalHandlers.set(request.sessionId, request.askApproval);
+    try {
+      await this.ensureStarted();
+      this.sinks.set(request.sessionId, request.emit);
+      this.approvalHandlers.set(request.sessionId, request.askApproval);
 
-    const cwd = defaultCwd(request.session);
-    const threadId = await this.ensureThread(request.session, request.settings.permissionMode);
-    const turnParams: JsonRecord = {
-      threadId,
-      input: codexInput(request.prompt, request.imageAttachments),
-      cwd,
-      model: request.settings.model,
-      effort: mapCodexEffort(request.settings.intelligence),
-      ...codexTurnPermissionParams(request.settings.permissionMode, cwd, request.phase)
-    };
-
-    if (request.phase === "plan") {
-      turnParams.collaborationMode = {
-        mode: "plan",
-        settings: {
-          model: request.settings.model ?? "gpt-5.5",
-          reasoning_effort: mapCodexEffort(request.settings.intelligence),
-          developer_instructions: null
-        }
+      const cwd = defaultCwd(request.session);
+      const threadId = await this.ensureThread(
+        request.session,
+        request.settings.permissionMode
+      );
+      const turnParams: JsonRecord = {
+        threadId,
+        input: codexInput(request.prompt, request.imageAttachments),
+        cwd,
+        model: request.settings.model,
+        effort: mapCodexEffort(request.settings.intelligence),
+        ...codexTurnPermissionParams(request.settings.permissionMode, cwd, request.phase)
       };
-    }
 
-    const turn = await this.request("turn/start", turnParams);
-    const turnId = stringAt(turn, "turn", "id") ?? randomUUID();
+      if (request.phase === "plan") {
+        turnParams.collaborationMode = {
+          mode: "plan",
+          settings: {
+            model: request.settings.model ?? "gpt-5.5",
+            reasoning_effort: mapCodexEffort(request.settings.intelligence),
+            developer_instructions: null
+          }
+        };
+      }
 
-    this.activeTurns.set(request.sessionId, { threadId, turnId });
-    if (this.cancelledSessions.delete(request.sessionId)) {
-      await this.request("turn/interrupt", { threadId, turnId }).catch(() => undefined);
-      return;
+      const turn = await this.request("turn/start", turnParams);
+      const turnId = stringAt(turn, "turn", "id") ?? randomUUID();
+
+      this.activeTurns.set(request.sessionId, { threadId, turnId });
+      if (this.cancelledSessions.delete(request.sessionId)) {
+        await this.request("turn/interrupt", { threadId, turnId }).catch(
+          () => undefined
+        );
+        return;
+      }
+      request.emit({
+        id: randomUUID(),
+        type: "turn.started",
+        sessionId: request.sessionId,
+        turnId,
+        label: "Codex is working"
+      });
+    } catch (error) {
+      request.emit({
+        id: randomUUID(),
+        type: "error",
+        sessionId: request.sessionId,
+        message: error instanceof Error ? error.message : String(error)
+      });
+      request.emit({
+        id: randomUUID(),
+        type: "turn.completed",
+        sessionId: request.sessionId,
+        status: "error"
+      });
     }
-    request.emit({
-      id: randomUUID(),
-      type: "turn.started",
-      sessionId: request.sessionId,
-      turnId,
-      label: "Codex is working"
-    });
   }
 
   async interrupt(sessionId: string) {
@@ -500,12 +520,24 @@ export class CodexProvider implements AgentProvider {
     }
 
     if (method === "turn/completed") {
+      const status = codexTurnCompletionStatus(params);
+      const errorMessage = codexTurnErrorMessage(params);
+
+      if (status === "error" && errorMessage) {
+        session.emit({
+          id: randomUUID(),
+          type: "error",
+          sessionId: session.id,
+          message: errorMessage
+        });
+      }
+
       session.emit({
         id: randomUUID(),
         type: "turn.completed",
         sessionId: session.id,
         turnId: stringAt(params, "turn", "id"),
-        status: "idle"
+        status
       });
       const compactWaiter = this.compactWaiters.get(session.id);
 
@@ -513,6 +545,24 @@ export class CodexProvider implements AgentProvider {
         this.compactWaiters.delete(session.id);
         compactWaiter();
       }
+      return;
+    }
+
+    if (method.includes("error") || method.includes("failed")) {
+      session.emit({
+        id: randomUUID(),
+        type: "error",
+        sessionId: session.id,
+        message: codexTurnErrorMessage(params) ?? `Codex reported ${method}`
+      });
+      session.emit({
+        id: randomUUID(),
+        type: "turn.completed",
+        sessionId: session.id,
+        turnId: stringAt(params, "turn", "id"),
+        status: "error"
+      });
+      return;
     }
   }
 
@@ -546,6 +596,49 @@ function normalizeFileChanges(value: unknown) {
     ...asRecord(change),
     path: filePath
   }));
+}
+
+function codexTurnCompletionStatus(params: JsonRecord) {
+  const status =
+    asString(params.status) ??
+    stringAt(params, "turn", "status") ??
+    stringAt(params, "turn", "outcome") ??
+    stringAt(params, "turn", "result");
+
+  if (!status) {
+    return "idle";
+  }
+
+  const normalized = status.toLowerCase();
+  return normalized.includes("error") ||
+    normalized.includes("fail") ||
+    normalized.includes("cancel")
+    ? "error"
+    : "idle";
+}
+
+function codexTurnErrorMessage(params: JsonRecord) {
+  return (
+    asString(params.error) ??
+    asString(params.message) ??
+    stringAt(params, "turn", "error") ??
+    stringAt(params, "turn", "message") ??
+    stringifyErrorRecord(asRecord(params.error)) ??
+    stringifyErrorRecord(asRecord(params.turn))
+  );
+}
+
+function stringifyErrorRecord(record: JsonRecord) {
+  const message =
+    asString(record.message) ??
+    asString(record.error) ??
+    asString(record.reason);
+
+  if (message) {
+    return message;
+  }
+
+  return Object.keys(record).length ? JSON.stringify(record) : undefined;
 }
 
 function codexApproval(

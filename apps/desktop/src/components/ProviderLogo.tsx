@@ -16,7 +16,7 @@ export function ProviderLogo({ provider, className }: ProviderLogoProps) {
     provider === "claude"
       ? "Claude"
       : provider === "meta"
-        ? "Meta"
+        ? "Hybrid"
         : "OpenAI";
 
   if (provider === "meta") {

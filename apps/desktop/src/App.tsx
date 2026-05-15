@@ -1428,7 +1428,7 @@ async function archiveThreadViaServer(
 
 function providerLabel(provider: SessionProvider) {
   if (provider === "meta") {
-    return "Meta agent";
+    return "Hybrid agent";
   }
 
   return provider === "claude" ? "Claude" : "Codex";

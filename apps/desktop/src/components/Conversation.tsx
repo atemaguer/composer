@@ -1372,7 +1372,20 @@ export function HookEventRow({ label }: { label: string }) {
 }
 
 function NoticeRow({ label }: { label: string }) {
-  return <div className="text-[13px] text-app-dim/70">{label}</div>;
+  const isError = /\b(failed|error|stopped)\b/i.test(label);
+
+  return (
+    <div
+      className={cn(
+        "rounded-[12px] px-3 py-2 text-[13px]",
+        isError
+          ? "border border-destructive/20 bg-destructive/10 text-destructive"
+          : "text-app-dim/70"
+      )}
+    >
+      {label}
+    </div>
+  );
 }
 
 export function JumpToLatestButton({
