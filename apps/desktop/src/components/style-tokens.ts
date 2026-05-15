@@ -54,7 +54,7 @@ export const subtleIconButton =
   `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
 
 export const titlebarControlRow =
-  "flex min-w-0 translate-y-[3px] items-center gap-1.5 py-0 pl-[96px]";
+  "flex min-w-0 translate-y-[3px] items-center gap-1.5 py-0 pl-[var(--app-titlebar-control-left-inset)] transition-[padding-left] duration-[180ms] ease-out motion-reduce:transition-none";
 
 export const primaryIconButton =
   `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-app-text text-app-bg transition-colors hover:bg-app-text/95 disabled:cursor-not-allowed disabled:opacity-45 ${focusRing}`;

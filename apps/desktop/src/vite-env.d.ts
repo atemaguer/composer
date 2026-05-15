@@ -15,6 +15,12 @@ declare global {
     | { status: "install-error"; version: string; message: string }
     | { status: "error"; message: string };
 
+  type WindowFrameState = {
+    fullScreen: boolean;
+    maximized: boolean;
+    titlebarControlsVisible: boolean;
+  };
+
   interface Window {
     composer?: {
       platform: string;
@@ -41,6 +47,10 @@ declare global {
       installAutoUpdate?: () => Promise<AutoUpdateState>;
       onAutoUpdateState?: (
         listener: (state: AutoUpdateState) => void
+      ) => () => void;
+      getWindowFrameState?: () => Promise<WindowFrameState>;
+      onWindowFrameState?: (
+        listener: (state: WindowFrameState) => void
       ) => () => void;
       setNativeAppearance?: (request: {
         themeSource: "light" | "dark" | "system";

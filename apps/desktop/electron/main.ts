@@ -48,6 +48,9 @@ ipcMain.handle("composer:get-agent-server", async () => {
     workspaceName: path.basename(cwd)
   };
 });
+ipcMain.handle("composer:get-window-frame-state", (event) =>
+  windowFrameState(BrowserWindow.fromWebContents(event.sender))
+);
 ipcMain.handle("composer:set-native-appearance", (_event, request: unknown) => {
   const value = isRecord(request) ? request : {};
   const themeSource =
@@ -131,6 +134,7 @@ async function createWindow() {
 
   window.once("ready-to-show", showWindow);
   window.webContents.once("did-finish-load", showWindow);
+  bindWindowFrameStateEvents(window);
 
   if (!app.isPackaged && await canReachDevServer()) {
     await window.loadURL("http://127.0.0.1:5173");
@@ -138,6 +142,38 @@ async function createWindow() {
   }
 
   await window.loadFile(path.join(__dirname, "../dist/index.html"));
+}
+
+function bindWindowFrameStateEvents(window: BrowserWindow) {
+  const sendState = () => {
+    if (window.isDestroyed()) {
+      return;
+    }
+
+    window.webContents.send(
+      "composer:window-frame-state",
+      windowFrameState(window)
+    );
+  };
+
+  window.on("maximize", sendState);
+  window.on("unmaximize", sendState);
+  window.on("enter-full-screen", sendState);
+  window.on("leave-full-screen", sendState);
+  window.on("restore", sendState);
+  window.on("show", sendState);
+  window.webContents.on("did-finish-load", sendState);
+}
+
+function windowFrameState(window: BrowserWindow | null) {
+  const fullScreen = window?.isFullScreen() ?? false;
+  const maximized = window?.isMaximized() ?? false;
+
+  return {
+    fullScreen,
+    maximized,
+    titlebarControlsVisible: process.platform === "darwin" && !fullScreen && !maximized
+  };
 }
 
 app.whenReady().then(() => {

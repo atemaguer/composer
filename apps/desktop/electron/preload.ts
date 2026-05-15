@@ -10,6 +10,12 @@ type AutoUpdateState =
   | { status: "install-error"; version: string; message: string }
   | { status: "error"; message: string };
 
+type WindowFrameState = {
+  fullScreen: boolean;
+  maximized: boolean;
+  titlebarControlsVisible: boolean;
+};
+
 contextBridge.exposeInMainWorld("composer", {
   platform: process.platform,
   getAgentServer: () => ipcRenderer.invoke("composer:get-agent-server"),
@@ -35,6 +41,19 @@ contextBridge.exposeInMainWorld("composer", {
 
     return () => {
       ipcRenderer.removeListener("composer:auto-update-state", handler);
+    };
+  },
+  getWindowFrameState: () =>
+    ipcRenderer.invoke("composer:get-window-frame-state") as Promise<WindowFrameState>,
+  onWindowFrameState: (listener: (state: WindowFrameState) => void) => {
+    const handler = (_event: IpcRendererEvent, state: WindowFrameState) => {
+      listener(state);
+    };
+
+    ipcRenderer.on("composer:window-frame-state", handler);
+
+    return () => {
+      ipcRenderer.removeListener("composer:window-frame-state", handler);
     };
   },
   setNativeAppearance: (request: {
