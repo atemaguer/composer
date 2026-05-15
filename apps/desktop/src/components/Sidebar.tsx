@@ -578,44 +578,51 @@ export function Sidebar({
           </div>
         </div>
 
-        <div className="grid min-h-8 shrink-0 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
-          <TooltipButton
-            className={cn(
-              "flex min-h-8 min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors",
-              appHoverSurfaceSubtle,
-              focusRing
-            )}
-            tooltip="Settings"
-            onClick={onSettings}
-          >
-            <Settings className={mutedIcon} size={15} />
-            <span className="truncate">Settings</span>
-          </TooltipButton>
-          {updateDownloaded && (
+        <div className="grid shrink-0 gap-1">
+          <div className="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
             <TooltipButton
               className={cn(
-                "flex min-h-8 items-center gap-2 rounded-md bg-app-accent px-3 py-1 text-[13px] font-medium text-white transition-colors hover:bg-app-accent/90",
-                updateInstalling && "cursor-default opacity-80 hover:bg-app-accent",
-                updateInstallError && "bg-red-500/90 hover:bg-red-500",
+                "flex min-h-8 min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors",
+                appHoverSurfaceSubtle,
                 focusRing
               )}
-              tooltip={
-                updateInstallError
-                  ? `Update failed: ${autoUpdateState.message}`
-                  : `Install Composer ${autoUpdateState.version}`
-              }
-              disabled={updateInstalling}
-              onClick={onInstallAutoUpdate}
+              tooltip="Settings"
+              onClick={onSettings}
             >
-              <ArrowRight size={14} />
-              <span>
-                {updateInstalling ? "Installing" : updateInstallError ? "Retry" : "Update"}
-              </span>
+              <Settings className={mutedIcon} size={15} />
+              <span className="truncate">Settings</span>
             </TooltipButton>
+            {updateDownloaded && (
+              <TooltipButton
+                className={cn(
+                  "flex min-h-8 items-center gap-2 rounded-md bg-app-accent px-3 py-1 text-[13px] font-medium text-white transition-colors hover:bg-app-accent/90",
+                  updateInstalling && "cursor-default opacity-80 hover:bg-app-accent",
+                  updateInstallError && "bg-red-500/90 hover:bg-red-500",
+                  focusRing
+                )}
+                tooltip={
+                  updateInstallError
+                    ? `Update failed: ${autoUpdateState.message}`
+                    : `Install Composer ${autoUpdateState.version}`
+                }
+                disabled={updateInstalling}
+                onClick={onInstallAutoUpdate}
+              >
+                <ArrowRight size={14} />
+                <span>
+                  {updateInstalling ? "Installing" : updateInstallError ? "Retry" : "Update"}
+                </span>
+              </TooltipButton>
+            )}
+            <span className="text-[11px] tabular-nums text-app-dim">
+              v{__APP_VERSION__}
+            </span>
+          </div>
+          {updateInstallError && (
+            <div className="max-h-8 overflow-hidden px-2 text-[11px] leading-4 text-red-300/90">
+              {autoUpdateState.message}
+            </div>
           )}
-          <span className="text-[11px] tabular-nums text-app-dim">
-            v{__APP_VERSION__}
-          </span>
         </div>
       </div>
     </aside>

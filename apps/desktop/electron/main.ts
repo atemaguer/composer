@@ -143,7 +143,9 @@ async function createWindow() {
 app.whenReady().then(() => {
   void ensureAgentServer();
   void createWindow();
-  configureAutoUpdates();
+  configureAutoUpdates({
+    beforeInstall: () => stopAgentServer({ wait: true, timeoutMs: 3000 })
+  });
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -157,7 +159,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  stopAgentServer();
+  void stopAgentServer();
 });
 
 function ensureAgentServer() {
@@ -293,7 +295,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function stopAgentServer() {
+function stopAgentServer(options: { wait?: boolean; timeoutMs?: number } = {}) {
   const child = agentServerProcess;
 
   agentServerProcess = null;
@@ -301,15 +303,50 @@ function stopAgentServer() {
   agentServerReady = null;
 
   if (!child?.pid) {
-    return;
+    return Promise.resolve();
   }
+
+  const waitForExit = options.wait
+    ? new Promise<void>((resolve) => {
+        let resolved = false;
+        const finish = () => {
+          if (resolved) {
+            return;
+          }
+
+          resolved = true;
+          resolve();
+        };
+        let timeout: NodeJS.Timeout | null = setTimeout(() => {
+          timeout = null;
+          try {
+            process.kill(process.platform === "win32" ? child.pid! : -child.pid!, "SIGKILL");
+          } catch {
+            child.kill("SIGKILL");
+          }
+
+          setTimeout(finish, 250).unref();
+        }, options.timeoutMs ?? 3000);
+
+        timeout.unref();
+
+        child.once("exit", () => {
+          if (timeout) {
+            clearTimeout(timeout);
+            timeout = null;
+          }
+
+          finish();
+        });
+      })
+    : Promise.resolve();
 
   if (process.platform === "win32") {
     spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"], {
       stdio: "ignore",
       windowsHide: true
     });
-    return;
+    return waitForExit;
   }
 
   try {
@@ -317,6 +354,8 @@ function stopAgentServer() {
   } catch {
     child.kill("SIGTERM");
   }
+
+  return waitForExit;
 }
 
 function canReachDevServer() {

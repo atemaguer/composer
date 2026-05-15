@@ -10,10 +10,8 @@ const { autoUpdater } = require("electron-updater") as {
 };
 
 const UPDATE_CHECK_INTERVAL_MS = 30 * 1000;
-const INSTALL_QUIT_FALLBACK_MS = 4000;
 
 let configured = false;
-let installQuitFallback: NodeJS.Timeout | null = null;
 let updateCheckInterval: NodeJS.Timeout | null = null;
 let updateState: AutoUpdateState = { status: "idle" };
 
@@ -27,7 +25,9 @@ export type AutoUpdateState =
   | { status: "install-error"; version: string; message: string }
   | { status: "error"; message: string };
 
-export function configureAutoUpdates() {
+export function configureAutoUpdates(options: {
+  beforeInstall?: () => Promise<void> | void;
+} = {}) {
   if (configured) {
     return;
   }
@@ -55,26 +55,7 @@ export function configureAutoUpdates() {
     setUpdateState({ status: "installing", version });
 
     setImmediate(() => {
-      try {
-        console.info("[auto-update] installing downloaded update", version);
-        autoUpdater.quitAndInstall(false, true);
-
-        if (updateState.status === "installing") {
-          installQuitFallback = setTimeout(() => {
-            console.info("[auto-update] forcing app quit for installer handoff");
-            app.quit();
-          }, INSTALL_QUIT_FALLBACK_MS);
-          installQuitFallback.unref();
-        }
-      } catch (error) {
-        clearInstallQuitFallback();
-        console.error("[auto-update] update install failed", error);
-        setUpdateState({
-          status: "install-error",
-          version,
-          message: error instanceof Error ? error.message : String(error)
-        });
-      }
+      void installDownloadedUpdate(version, options.beforeInstall);
     });
 
     return updateState;
@@ -123,10 +104,10 @@ export function configureAutoUpdates() {
   });
   autoUpdater.on("update-downloaded", (info) => {
     console.info("[auto-update] update downloaded", info.version);
+    clearUpdateCheckInterval();
     setUpdateState({ status: "downloaded", version: info.version });
   });
   autoUpdater.on("error", (error) => {
-    clearInstallQuitFallback();
     console.error("[auto-update] update check failed", error);
     const message = error instanceof Error ? error.message : String(error);
 
@@ -147,27 +128,53 @@ export function configureAutoUpdates() {
 
   void checkForUpdates();
   updateCheckInterval = setInterval(() => {
-    void checkForUpdates();
+    if (canCheckForUpdates()) {
+      void checkForUpdates();
+    }
   }, UPDATE_CHECK_INTERVAL_MS);
   updateCheckInterval.unref();
 
   app.once("before-quit", () => {
-    clearInstallQuitFallback();
-
-    if (updateCheckInterval) {
-      clearInterval(updateCheckInterval);
-      updateCheckInterval = null;
-    }
+    clearUpdateCheckInterval();
   });
 }
 
-function clearInstallQuitFallback() {
-  if (!installQuitFallback) {
+async function installDownloadedUpdate(
+  version: string,
+  beforeInstall: (() => Promise<void> | void) | undefined
+) {
+  clearUpdateCheckInterval();
+
+  try {
+    await beforeInstall?.();
+  } catch (error) {
+    console.warn("[auto-update] pre-install shutdown did not finish cleanly", error);
+  }
+
+  try {
+    console.info("[auto-update] installing downloaded update", version);
+    autoUpdater.quitAndInstall(false, true);
+  } catch (error) {
+    console.error("[auto-update] update install failed", error);
+    setUpdateState({
+      status: "install-error",
+      version,
+      message: error instanceof Error ? error.message : String(error)
+    });
+  }
+}
+
+function canCheckForUpdates() {
+  return updateState.status === "idle" || updateState.status === "error";
+}
+
+function clearUpdateCheckInterval() {
+  if (!updateCheckInterval) {
     return;
   }
 
-  clearTimeout(installQuitFallback);
-  installQuitFallback = null;
+  clearInterval(updateCheckInterval);
+  updateCheckInterval = null;
 }
 
 function setUpdateState(nextState: AutoUpdateState) {
@@ -179,6 +186,10 @@ function setUpdateState(nextState: AutoUpdateState) {
 }
 
 async function checkForUpdates() {
+  if (!canCheckForUpdates() && updateState.status !== "checking") {
+    return;
+  }
+
   try {
     await autoUpdater.checkForUpdates();
   } catch (error) {
