@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Archive,
   PanelTop,
-  Trash2,
   X
 } from "lucide-react";
 
@@ -37,7 +36,6 @@ type ThreadTabsProps = {
   onThreadSelect: (threadId: string) => void;
   onThreadClose: () => void;
   onThreadArchive: (threadId: string) => void;
-  onThreadDelete: (threadId: string) => void;
 };
 
 export function ThreadTabs({
@@ -48,8 +46,7 @@ export function ThreadTabs({
   variant = "bar",
   onThreadSelect,
   onThreadClose,
-  onThreadArchive,
-  onThreadDelete
+  onThreadArchive
 }: ThreadTabsProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [scrollEdges, setScrollEdges] = useState({
@@ -147,7 +144,6 @@ export function ThreadTabs({
                 onSelect={() => onThreadSelect(thread.id)}
                 onClose={onThreadClose}
                 onArchive={() => onThreadArchive(thread.id)}
-                onDelete={() => onThreadDelete(thread.id)}
               />
             ))
           ) : (
@@ -167,20 +163,21 @@ function ThreadTab({
   active,
   onSelect,
   onClose,
-  onArchive,
-  onDelete
+  onArchive
 }: {
   thread: ThreadTabItem;
   active: boolean;
   onSelect: () => void;
   onClose: () => void;
   onArchive: () => void;
-  onDelete: () => void;
 }) {
   return (
     <div
       className={cn(
-        "group/tab grid h-8 max-w-[260px] shrink-0 grid-cols-[minmax(86px,1fr)_auto_auto] items-center gap-1 rounded-xl border px-1.5 transition-colors",
+        "group/tab grid h-8 max-w-[260px] shrink-0 items-center gap-1 rounded-xl border px-1.5 transition-colors",
+        active
+          ? "grid-cols-[minmax(86px,1fr)_auto_auto]"
+          : "grid-cols-[minmax(86px,1fr)_auto]",
         active
           ? `border-app-line-bright ${appActiveSurface} text-app-text`
           : `border-transparent bg-transparent text-app-muted/75 hover:border-app-text/[0.08] ${appHoverSurface}`
@@ -216,20 +213,19 @@ function ThreadTab({
       >
         <Archive size={12} />
       </TooltipButton>
-      <TooltipButton
-        className={cn(
-          subtleIconButton,
-          "transition-all focus-visible:opacity-100",
-          active
-            ? `text-app-muted opacity-100 ${appHoverSurface}`
-            : `text-app-dim opacity-0 ${appHoverSurface} hover:text-destructive/80 group-hover/tab:opacity-100`
-        )}
-        aria-label={active ? `Close ${thread.name}` : `Delete ${thread.name}`}
-        tooltip={active ? `Close ${thread.name}` : `Delete ${thread.name}`}
-        onClick={active ? onClose : onDelete}
-      >
-        {active ? <X size={12} /> : <Trash2 size={12} />}
-      </TooltipButton>
+      {active && (
+        <TooltipButton
+          className={cn(
+            subtleIconButton,
+            `text-app-muted opacity-100 transition-all focus-visible:opacity-100 ${appHoverSurface}`
+          )}
+          aria-label={`Close ${thread.name}`}
+          tooltip={`Close ${thread.name}`}
+          onClick={onClose}
+        >
+          <X size={12} />
+        </TooltipButton>
+      )}
     </div>
   );
 }

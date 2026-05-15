@@ -4,7 +4,6 @@ import {
   Archive,
   ArrowLeft,
   ArrowRight,
-  Blocks,
   Check,
   Edit3,
   Folder,
@@ -15,8 +14,7 @@ import {
   MoreHorizontal,
   PanelRight,
   Search,
-  Settings,
-  Trash2
+  Settings
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -27,8 +25,6 @@ import {
   appAccentText,
   appActiveSurface,
   appActiveSurfaceStrong,
-  appDangerSoftText,
-  appDangerText,
   appHoverSurface,
   appHoverSurfaceSubtle,
   appPanelShadow,
@@ -61,14 +57,12 @@ type SidebarProps = {
   onInstallAutoUpdate?: () => void;
   onThreadSelect?: (value: string) => void;
   onThreadArchive?: (value: string) => void;
-  onThreadDelete?: (value: string) => void;
   onNewSession?: (project?: Project) => void;
   canNavigateBack?: boolean;
   canNavigateForward?: boolean;
   onNavigateBack?: () => void;
   onNavigateForward?: () => void;
   onSearch?: () => void;
-  onPlugins?: () => void;
   onSettings?: () => void;
 };
 
@@ -104,14 +98,12 @@ export function Sidebar({
   onInstallAutoUpdate,
   onThreadSelect,
   onThreadArchive,
-  onThreadDelete,
   onNewSession,
   canNavigateBack = false,
   canNavigateForward = false,
   onNavigateBack,
   onNavigateForward,
   onSearch,
-  onPlugins,
   onSettings
 }: SidebarProps) {
   const [workspacesOpen, setWorkspacesOpen] = useState(true);
@@ -308,15 +300,6 @@ export function Sidebar({
             }}
           />
           <SidebarButton icon={Search} label="Search" onClick={onSearch} />
-          <SidebarButton
-            icon={Blocks}
-            label="Plugins"
-            active={activeNav === "Plugins"}
-            onClick={() => {
-              setActiveNav("Plugins");
-              onPlugins?.();
-            }}
-          />
         </nav>
 
         <div className="relative flex min-h-0 flex-1 flex-col gap-1">
@@ -551,13 +534,6 @@ export function Sidebar({
                           >
                             <Archive size={12} />
                           </ThreadActionButton>
-                          <ThreadActionButton
-                            label={`Delete ${thread.name}`}
-                            destructive
-                            onClick={() => onThreadDelete?.(thread.id)}
-                          >
-                            <Trash2 size={12} />
-                          </ThreadActionButton>
                         </div>
                       ))}
                       {hiddenThreadCount > 0 && (
@@ -648,12 +624,10 @@ export function Sidebar({
 
 function ThreadActionButton({
   children,
-  destructive,
   label,
   onClick
 }: {
   children: ReactNode;
-  destructive?: boolean;
   label: string;
   onClick: () => void;
 }) {
@@ -663,9 +637,7 @@ function ThreadActionButton({
       className={cn(
         subtleIconButton,
         "opacity-0 transition-opacity focus-visible:opacity-100 group-hover/thread:opacity-100",
-        destructive
-          ? `${appDangerSoftText} hover:text-destructive`
-          : "text-app-muted"
+        "text-app-muted"
       )}
       tooltip={label}
       onClick={(event) => {

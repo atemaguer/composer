@@ -16,7 +16,7 @@ contextBridge.exposeInMainWorld("composer", {
   listLocalSessions: () => ipcRenderer.invoke("composer:list-local-sessions"),
   updateSessionVisibility: (request: {
     sessionId: string;
-    action: "archive" | "delete";
+    action: "archive";
   }) => ipcRenderer.invoke("composer:update-session-visibility", request),
   createProject: (request: { name?: string; baseCwd?: string }) =>
     ipcRenderer.invoke("composer:create-project", request),

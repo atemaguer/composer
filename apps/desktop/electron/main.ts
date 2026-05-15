@@ -21,9 +21,7 @@ ipcMain.handle("composer:list-local-sessions", () => loadLocalSessions());
 ipcMain.handle("composer:update-session-visibility", (_event, request: unknown) => {
   const value = isRecord(request) ? request : {};
   const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
-  const action = value.action === "archive" || value.action === "delete"
-    ? value.action
-    : null;
+  const action = value.action === "archive" ? value.action : null;
 
   if (!sessionId || !action) {
     throw new Error("Expected sessionId and action");

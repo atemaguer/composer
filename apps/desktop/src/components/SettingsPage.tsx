@@ -7,26 +7,11 @@ import {
   type ReactNode
 } from "react";
 import {
-  Archive,
   ArrowLeft,
-  BriefcaseBusiness,
-  Check,
-  ChevronDown,
-  CircleGauge,
-  Code2,
-  FileTerminal,
-  FolderGit2,
-  GitBranch,
-  Laptop,
   Monitor,
   Moon,
-  MousePointer2,
-  PanelTop,
   Settings,
-  ShieldCheck,
   Sun,
-  UserRound,
-  Workflow
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -55,10 +40,8 @@ import {
   appActiveSurface,
   appHoverSurface,
   cardSurface,
-  focusRing,
   pillButton,
   secondaryButton,
-  subtleCardSurface
 } from "./style-tokens";
 import { NumberField } from "./ui/number-field";
 import { Select } from "./ui/select";
@@ -73,17 +56,7 @@ type SettingsPageProps = {
 
 type SettingsSectionKey =
   | "General"
-  | "Appearance"
-  | "Configuration"
-  | "Personalization"
-  | "MCP servers"
-  | "Git"
-  | "Environments"
-  | "Worktrees"
-  | "Browser use"
-  | "Computer use"
-  | "Archived chats"
-  | "Usage";
+  | "Appearance";
 
 type SettingsNavItem = {
   icon: ElementType;
@@ -92,17 +65,7 @@ type SettingsNavItem = {
 
 const settingsNav: SettingsNavItem[] = [
   { icon: Settings, label: "General" },
-  { icon: Sun, label: "Appearance" },
-  { icon: ShieldCheck, label: "Configuration" },
-  { icon: UserRound, label: "Personalization" },
-  { icon: Workflow, label: "MCP servers" },
-  { icon: GitBranch, label: "Git" },
-  { icon: Laptop, label: "Environments" },
-  { icon: FolderGit2, label: "Worktrees" },
-  { icon: PanelTop, label: "Browser use" },
-  { icon: MousePointer2, label: "Computer use" },
-  { icon: Archive, label: "Archived chats" },
-  { icon: CircleGauge, label: "Usage" }
+  { icon: Sun, label: "Appearance" }
 ];
 
 const themeModeOptions: Array<{
@@ -174,10 +137,8 @@ export function SettingsPage({ className, onBack }: SettingsPageProps) {
 
           {activeSection === "General" ? (
             <GeneralSettings />
-          ) : activeSection === "Appearance" ? (
-            <AppearanceSettingsPanel />
           ) : (
-            <PlaceholderSettings title={activeSection} />
+            <AppearanceSettingsPanel />
           )}
         </div>
       </div>
@@ -213,110 +174,20 @@ function SettingsNavButton({
 
 function GeneralSettings() {
   return (
-    <>
-      <section className="grid gap-4" aria-labelledby="work-mode-heading">
-        <div className="grid gap-2">
-          <h2
-            id="work-mode-heading"
-            className="text-[15px] font-semibold text-app-muted"
-          >
-            Work mode
-          </h2>
-          <p className="text-[15px] text-app-dim">
-            Choose how much technical detail Composer shows
-          </p>
-        </div>
-        <div className="grid grid-cols-2 gap-3.5 max-[640px]:grid-cols-1">
-          <WorkModeCard
-            active
-            icon={FileTerminal}
-            title="For coding"
-            description="More technical responses and control"
-          />
-          <WorkModeCard
-            icon={BriefcaseBusiness}
-            title="For everyday work"
-            description="Same power, less technical detail"
-          />
-        </div>
-      </section>
-
-      <SettingsSection title="Permissions">
-        <SettingsRow
-          title="Default permissions"
-          description="By default, Composer can read and edit files in its workspace. It can ask for additional access when needed"
-          trailing={<ReadOnlySwitch enabled muted />}
-        />
-        <SettingsRow
-          title="Auto-review"
-          description={
-            <>
-              Composer can read and edit files in its workspace. Composer
-              automatically reviews requests for additional access.
-              Auto-review can make mistakes.{" "}
-              <span className="text-app-accent">Learn more</span> about
-              elevated risks.
-            </>
-          }
-          trailing={<ReadOnlySwitch enabled />}
-        />
-        <SettingsRow
-          title="Full access"
-          description={
-            <>
-              When Composer runs with full access, it can edit any file on your
-              computer and run commands with network, without your approval.
-              This significantly increases the risk of data loss, leaks, or
-              unexpected behavior.{" "}
-              <span className="text-app-accent">Learn more</span> about
-              elevated risks.
-            </>
-          }
-          trailing={<ReadOnlySwitch enabled />}
-        />
-      </SettingsSection>
-
-      <SettingsSection title="General">
-        <SettingsRow
-          title="Default open destination"
-          description="Where files and folders open by default"
-          trailing={
-            <SelectValue
-              icon={Code2}
-              value="Windsurf"
-              tooltip="Change default open destination"
-            />
-          }
-        />
-        <SettingsRow
-          title="Language"
-          description="Language for the app UI"
-          trailing={
-            <SelectValue value="Auto Detect" tooltip="Change language" />
-          }
-        />
-        <SettingsRow
-          title="Show in menu bar"
-          description="Keep Composer in the macOS menu bar when the main window is closed"
-          trailing={<ReadOnlySwitch enabled />}
-        />
-        <SettingsRow
-          title="Popout Window hotkey"
-          description="Set a global shortcut for Popout Window. Leave unset to keep it off."
-          trailing={<HotkeyValue />}
-        />
-        <SettingsRow
-          title="Prevent sleep while running"
-          description="Keep your computer awake while Composer is running a chat"
-          trailing={<ReadOnlySwitch />}
-        />
-        <SettingsRow
-          title="Require Command + enter to send long prompts"
-          description="When enabled, multiline prompts require Command + enter to send"
-          trailing={<ReadOnlySwitch />}
-        />
-      </SettingsSection>
-    </>
+    <div className={cn("overflow-hidden", cardSurface)}>
+      <SettingsRow
+        title="App name"
+        trailing={<span className="text-[14px] text-app-muted">Composer</span>}
+      />
+      <SettingsRow
+        title="Version"
+        trailing={
+          <span className="text-[14px] tabular-nums text-app-muted">
+            v{__APP_VERSION__}
+          </span>
+        }
+      />
+    </div>
   );
 }
 
@@ -776,57 +647,6 @@ function PreviewCode({ tone }: { tone: "add" | "remove" }) {
   );
 }
 
-function PlaceholderSettings({ title }: { title: string }) {
-  return (
-    <div className={cn("grid min-h-[220px] place-items-center p-6", cardSurface)}>
-      <div className="text-center text-[14px] text-app-dim">
-        {title} settings are not configured in this preview.
-      </div>
-    </div>
-  );
-}
-
-function WorkModeCard({
-  icon: Icon,
-  title,
-  description,
-  active
-}: {
-  icon: ElementType;
-  title: string;
-  description: string;
-  active?: boolean;
-}) {
-  return (
-    <TooltipButton
-      className={cn(
-        "grid min-h-[74px] grid-cols-[24px_minmax(0,1fr)_22px] items-center gap-3 px-4 text-left transition-colors",
-        focusRing,
-        subtleCardSurface,
-        active ? "border-app-line-bright bg-app-text/[0.08]" : appHoverSurface
-      )}
-      aria-pressed={active}
-      tooltip={title}
-    >
-      <Icon size={15} className="text-app-muted" />
-      <span className="grid gap-1">
-        <span className="text-[14px] font-medium text-app-text">{title}</span>
-        <span className="text-[13px] leading-5 text-app-dim">
-          {description}
-        </span>
-      </span>
-      <span
-        className={cn(
-          "flex h-[19px] w-[19px] items-center justify-center rounded-full border",
-          active ? "border-app-accent bg-app-accent" : "border-app-line-strong"
-        )}
-      >
-        {active && <Check size={11} className="text-app-bg" />}
-      </span>
-    </TooltipButton>
-  );
-}
-
 function SettingsSection({
   title,
   children
@@ -870,76 +690,6 @@ function SettingsRow({
         {trailing}
       </span>
     </div>
-  );
-}
-
-function SelectValue({
-  icon: Icon,
-  value,
-  tooltip
-}: {
-  icon?: ElementType;
-  value: string;
-  tooltip: string;
-}) {
-  return (
-    <TooltipButton
-      className={cn(
-        "h-8 min-w-[190px] justify-between gap-2 px-3 text-[14px]",
-        pillButton
-      )}
-      tooltip={tooltip}
-    >
-      <span className="inline-flex min-w-0 items-center gap-2">
-        {Icon && <Icon size={14} className="shrink-0 text-app-text" />}
-        <span className="truncate">{value}</span>
-      </span>
-      <ChevronDown size={13} className="shrink-0 text-app-dim" />
-    </TooltipButton>
-  );
-}
-
-function HotkeyValue() {
-  return (
-    <span className="inline-flex items-center gap-2">
-      <span className="text-[14px] text-app-dim">Off</span>
-      <TooltipButton
-        className={cn("h-8 px-3 text-[14px]", secondaryButton)}
-        tooltip="Set popout window hotkey"
-      >
-        Set
-      </TooltipButton>
-    </span>
-  );
-}
-
-function ReadOnlySwitch({
-  enabled,
-  muted
-}: {
-  enabled?: boolean;
-  muted?: boolean;
-}) {
-  return (
-    <span
-      role="switch"
-      aria-checked={Boolean(enabled)}
-      className={cn(
-        "relative inline-flex h-[22px] w-[38px] shrink-0 rounded-full transition-colors",
-        enabled
-          ? muted
-            ? "bg-app-accent/70"
-            : "bg-app-accent"
-          : "bg-app-text/[0.12]"
-      )}
-    >
-      <span
-        className={cn(
-          "absolute top-1/2 h-[18px] w-[18px] -translate-y-1/2 rounded-full bg-app-text shadow-[0_2px_8px_color-mix(in_srgb,var(--color-app-bg)_40%,transparent)] transition-transform",
-          enabled ? "translate-x-[18px]" : "translate-x-[2px]"
-        )}
-      />
-    </span>
   );
 }
 

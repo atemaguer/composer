@@ -27,7 +27,7 @@ declare global {
       listLocalSessions?: () => Promise<SessionSnapshot>;
       updateSessionVisibility?: (request: {
         sessionId: string;
-        action: "archive" | "delete";
+        action: "archive";
       }) => Promise<SessionSnapshot>;
       createProject?: (request: {
         name?: string;

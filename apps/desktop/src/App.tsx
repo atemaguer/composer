@@ -15,7 +15,6 @@ import { AppChrome } from "./components/AppChrome";
 import { Composer } from "./components/Composer";
 import { Conversation } from "./components/Conversation";
 import { NewSessionPage } from "./components/NewSessionPage";
-import { PluginsPage } from "./components/PluginsPage";
 import { ReviewPanel } from "./components/ReviewPanel";
 import { SearchModal } from "./components/SearchModal";
 import { SettingsPage } from "./components/SettingsPage";
@@ -248,8 +247,7 @@ export default function App() {
     : false;
   const submitMode: "send" | "stop" =
     activeSessionRunning || pendingNewRequestId ? "stop" : "send";
-  const contentMode = activeNav === "Plugins" ? "plugins" : "session";
-  const shouldShowConversation = contentMode === "session" && Boolean(activeSession);
+  const shouldShowConversation = Boolean(activeSession);
   const showThreadTabs = shouldShowConversation && threadViewMode === "tabs";
 
   useEffect(() => {
@@ -496,12 +494,6 @@ export default function App() {
       return;
     }
 
-    if (route.kind === "plugins") {
-      setSelectedThread("");
-      setActiveNav("Plugins");
-      return;
-    }
-
     if (route.kind === "session") {
       selectThread(route.sessionId, { updateRoute: false });
       return;
@@ -638,27 +630,20 @@ export default function App() {
     }
   }
 
-  async function updateThreadVisibility(
-    sessionId: string,
-    action: "archive" | "delete"
-  ) {
+  async function archiveThread(sessionId: string) {
     const session = sessions[sessionId];
 
     if (!session) {
       return;
     }
 
-    if (
-      action === "delete" &&
-      !window.confirm(`Delete "${session.title}"? This removes the local session file when available.`)
-    ) {
-      return;
-    }
-
     try {
       const snapshot = agentServer?.httpUrl
-        ? await updateThreadVisibilityViaServer(agentServer.httpUrl, sessionId, action)
-        : await window.composer?.updateSessionVisibility?.({ sessionId, action });
+        ? await archiveThreadViaServer(agentServer.httpUrl, sessionId)
+        : await window.composer?.updateSessionVisibility?.({
+            sessionId,
+            action: "archive"
+          });
 
       if (snapshot) {
         setSessionSnapshot(snapshot);
@@ -672,7 +657,7 @@ export default function App() {
         navigateAppRoute("/new", { replace: true });
       }
     } catch (error) {
-      console.warn(`Could not ${action} session`, error);
+      console.warn("Could not archive session", error);
     }
   }
 
@@ -864,19 +849,13 @@ export default function App() {
         autoUpdateState={autoUpdateState}
         onInstallAutoUpdate={installAutoUpdate}
         onThreadSelect={selectThread}
-        onThreadArchive={(threadId) => void updateThreadVisibility(threadId, "archive")}
-        onThreadDelete={(threadId) => void updateThreadVisibility(threadId, "delete")}
+        onThreadArchive={(threadId) => void archiveThread(threadId)}
         onNewSession={startNewSession}
         canNavigateBack={navigationAvailability.canGoBack}
         canNavigateForward={navigationAvailability.canGoForward}
         onNavigateBack={navigateBack}
         onNavigateForward={navigateForward}
         onSearch={() => setSearchOpen(true)}
-        onPlugins={() => {
-          setActiveNav("Plugins");
-          setSelectedThread("");
-          navigateAppRoute("/plugins");
-        }}
         onSettings={() => setSettingsOpen(true)}
       />
 
@@ -910,14 +889,12 @@ export default function App() {
             onNavigateForward={navigateForward}
             threadViewMode={threadViewMode}
             onThreadViewModeChange={setThreadViewMode}
-            centerSlot={contentMode === "plugins" || shouldShowConversation ? (
+            centerSlot={shouldShowConversation ? (
               <div className="flex h-full min-w-0 flex-1 items-center gap-3">
                 {!showThreadTabs && (
                   <div className="flex min-w-0 shrink-0 items-center gap-2">
                     <span className="max-w-[220px] truncate">
-                      {contentMode === "plugins"
-                        ? "Plugins"
-                        : activeSession?.title ?? workspaceName}
+                      {activeSession?.title ?? workspaceName}
                     </span>
                     <MoreHorizontal size={13} />
                   </div>
@@ -936,10 +913,7 @@ export default function App() {
                       navigateAppRoute("/new");
                     }}
                     onThreadArchive={(threadId) =>
-                      void updateThreadVisibility(threadId, "archive")
-                    }
-                    onThreadDelete={(threadId) =>
-                      void updateThreadVisibility(threadId, "delete")
+                      void archiveThread(threadId)
                     }
                   />
                 )}
@@ -948,9 +922,7 @@ export default function App() {
           />
 
           <div className="h-full min-h-0 min-w-0 overflow-hidden">
-            {contentMode === "plugins" ? (
-              <PluginsPage agentServerUrl={agentServer?.httpUrl} />
-            ) : shouldShowConversation && activeSession ? (
+            {shouldShowConversation && activeSession ? (
               <Conversation
                 cwd={activeSession.cwd ?? currentCwd}
                 inspectorOpen={inspectorOpen}
@@ -1185,12 +1157,7 @@ function sessionRoute(sessionId: string) {
 
 function appRouteFromPathname(pathname: string):
   | { kind: "new" }
-  | { kind: "plugins" }
   | { kind: "session"; sessionId: string } {
-  if (pathname === "/plugins") {
-    return { kind: "plugins" };
-  }
-
   const sessionMatch = pathname.match(/^\/sessions\/(.+)$/);
 
   if (sessionMatch?.[1]) {
@@ -1246,19 +1213,18 @@ async function drainResponse(response: Response) {
   }
 }
 
-async function updateThreadVisibilityViaServer(
+async function archiveThreadViaServer(
   serverUrl: string,
-  sessionId: string,
-  action: "archive" | "delete"
+  sessionId: string
 ) {
   const response = await fetch(`${serverUrl}/api/sessions/visibility`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionId, action })
+    body: JSON.stringify({ sessionId, action: "archive" })
   });
 
   if (!response.ok) {
-    throw new Error(`Session ${action} failed with ${response.status}`);
+    throw new Error(`Session archive failed with ${response.status}`);
   }
 
   const body = await response.json() as { snapshot?: SessionSnapshot };

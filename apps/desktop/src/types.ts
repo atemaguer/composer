@@ -1,7 +1,7 @@
 export type PermissionMode = "Default permissions" | "Auto-review" | "Full access";
 export type IntelligenceMode = "Low" | "Medium" | "High" | "Extra High";
 export type AgentModel = string;
-export type NavKey = "New session" | "Plugins";
+export type NavKey = "New session";
 export type SessionProvider = "codex" | "claude" | "meta";
 export type ProviderFilter = "all" | SessionProvider;
 

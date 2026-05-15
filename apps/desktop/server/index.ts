@@ -259,10 +259,7 @@ async function handleSessionVisibilityRequest(
 ) {
   const body = await readJson(request);
   const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
-  const action =
-    body.action === "archive" || body.action === "delete"
-      ? body.action
-      : undefined;
+  const action = body.action === "archive" ? body.action : undefined;
 
   if (!sessionId || !action) {
     writeJson(response, 400, { error: "Expected sessionId and action" });

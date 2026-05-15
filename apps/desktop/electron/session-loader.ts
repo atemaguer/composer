@@ -119,7 +119,7 @@ export type SessionSnapshot = {
 };
 
 type JsonRecord = Record<string, unknown>;
-export type LocalSessionAction = "archive" | "delete";
+export type LocalSessionAction = "archive";
 
 const MAX_SESSIONS_PER_PROVIDER = 50;
 const MAX_ITEMS_PER_SESSION = 140;
@@ -178,11 +178,6 @@ export function updateLocalSessionVisibility(
 
   if (!filePath) {
     return { ok: true, changed: false, reason: "No local session file found" };
-  }
-
-  if (action === "delete") {
-    fs.rmSync(filePath, { force: true });
-    return { ok: true, changed: true, filePath };
   }
 
   const archivePath = archivePathForSessionFile(filePath, session.provider);
