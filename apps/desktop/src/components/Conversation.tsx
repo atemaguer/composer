@@ -34,6 +34,7 @@ import type {
   ConversationItem,
   FileChangeRow,
   PendingConversationItem,
+  ReviewDiffFile,
   ToolDetail
 } from "../types";
 import { Composer, type ComposerProps } from "./Composer";
@@ -61,6 +62,12 @@ type ConversationProps = {
   pendingItems: PendingConversationItem[];
   composer: ComposerProps;
   onOpenFile?: (filePath: string) => void;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
+};
+
+type ReviewChangeRequest = {
+  filePath?: string;
+  files?: ReviewDiffFile[];
 };
 
 export function Conversation({
@@ -69,7 +76,8 @@ export function Conversation({
   items,
   pendingItems,
   composer,
-  onOpenFile
+  onOpenFile,
+  onReviewChanges
 }: ConversationProps) {
   const timelineItems = useMemo(
     () =>
@@ -134,6 +142,7 @@ export function Conversation({
             items={timelineItems}
             cwd={cwd}
             onOpenFile={onOpenFile}
+            onReviewChanges={onReviewChanges}
           />
         </div>
       </div>
@@ -262,11 +271,13 @@ function capitalizeFirst(value: string) {
 export function ConversationTimeline({
   items,
   cwd,
-  onOpenFile
+  onOpenFile,
+  onReviewChanges
 }: {
   items: ConversationItem[];
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   return (
     <div data-conversation-content className="mx-auto w-full max-w-[820px]">
@@ -277,6 +288,7 @@ export function ConversationTimeline({
             item={item}
             cwd={cwd}
             onOpenFile={onOpenFile}
+            onReviewChanges={onReviewChanges}
           />
         ))}
       </div>
@@ -287,14 +299,22 @@ export function ConversationTimeline({
 function ConversationItemView({
   item,
   cwd,
-  onOpenFile
+  onOpenFile,
+  onReviewChanges
 }: {
   item: ConversationItem;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   if (item.type === "assistant_message") {
-    return <AssistantMessageBlock item={item} onOpenFile={onOpenFile} />;
+    return (
+      <AssistantMessageBlock
+        item={item}
+        onOpenFile={onOpenFile}
+        onReviewChanges={onReviewChanges}
+      />
+    );
   }
 
   if (item.type === "user_message") {
@@ -314,7 +334,12 @@ function ConversationItemView({
 
   if (item.type === "tool_group") {
     return (
-      <ToolActivityGroup item={item} cwd={cwd} onOpenFile={onOpenFile} />
+      <ToolActivityGroup
+        item={item}
+        cwd={cwd}
+        onOpenFile={onOpenFile}
+        onReviewChanges={onReviewChanges}
+      />
     );
   }
 
@@ -327,7 +352,7 @@ function ConversationItemView({
   }
 
   if (item.type === "file_change_summary") {
-    return <FileChangeSummaryCard item={item} />;
+    return <FileChangeSummaryCard item={item} onReviewChanges={onReviewChanges} />;
   }
 
   if (item.type === "hook_event") {
@@ -390,10 +415,12 @@ export function UserMessageBubble({
 
 export function AssistantMessageBlock({
   item,
-  onOpenFile
+  onOpenFile,
+  onReviewChanges
 }: {
   item: Extract<ConversationItem, { type: "assistant_message" }>;
   onOpenFile?: (filePath: string) => void;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   return (
     <div className="grid gap-3">
@@ -401,7 +428,11 @@ export function AssistantMessageBlock({
         {item.body}
       </ChatMessageMarkdown>
       {item.attachments?.map((attachment) => (
-        <FileChangeSummaryCard key={attachment.id} item={attachment} />
+        <FileChangeSummaryCard
+          key={attachment.id}
+          item={attachment}
+          onReviewChanges={onReviewChanges}
+        />
       ))}
     </div>
   );
@@ -822,11 +853,13 @@ function extractTextContent(value: ReactNode): string {
 export function ToolActivityGroup({
   item,
   cwd,
-  onOpenFile
+  onOpenFile,
+  onReviewChanges
 }: {
   item: Extract<ConversationItem, { type: "tool_group" }>;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   const [open, setOpen] = useState(Boolean(item.defaultOpen));
   const defaultExpandedCommandIndex = item.details.findIndex(
@@ -860,6 +893,7 @@ export function ToolActivityGroup({
               detail={detail}
               cwd={cwd}
               onOpenFile={onOpenFile}
+              onReviewChanges={onReviewChanges}
               defaultOpen={
                 Boolean(item.defaultOpen) &&
                 index === defaultExpandedCommandIndex
@@ -876,14 +910,18 @@ function ToolDetailRow({
   detail,
   cwd,
   onOpenFile,
+  onReviewChanges,
   defaultOpen = false
 }: {
   detail: ToolDetail;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
   defaultOpen?: boolean;
 }) {
+  const reviewFiles = detail.reviewFiles ?? [];
   const expandable =
+    reviewFiles.length > 0 ||
     detail.tone === "command" ||
     detail.tone === "output" ||
     (detail.kind === "call" &&
@@ -892,6 +930,17 @@ function ToolDetailRow({
   const [open, setOpen] = useState(defaultOpen);
   const rowLabel = formatToolDetailLabel(detail);
   const filePath = resolveToolDetailFilePath(detail, cwd);
+
+  if (reviewFiles.length > 0) {
+    return (
+      <ToolReviewDetail
+        detail={detail}
+        files={reviewFiles}
+        defaultOpen={defaultOpen}
+        onReviewChanges={onReviewChanges}
+      />
+    );
+  }
 
   if (expandable) {
     return (
@@ -938,6 +987,174 @@ function ToolDetailRow({
       {rowLabel}
     </TooltipButton>
   );
+}
+
+function ToolReviewDetail({
+  files,
+  defaultOpen,
+  onReviewChanges
+}: {
+  detail: ToolDetail;
+  files: ReviewDiffFile[];
+  defaultOpen: boolean;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="grid gap-2">
+      <div className="grid gap-1">
+        {files.map((file) => (
+          <ToolReviewFileLink
+            key={file.path}
+            file={file}
+            allFiles={files}
+            onReviewChanges={onReviewChanges}
+          />
+        ))}
+      </div>
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_18px] items-center gap-2">
+        <TooltipButton
+          className="min-w-0 truncate text-left text-app-muted transition-colors hover:text-app-text"
+          type="button"
+          tooltip={open ? "Collapse edit diff" : "Expand edit diff"}
+          onClick={() => setOpen(!open)}
+        >
+          <span className="truncate">Edited file</span>
+        </TooltipButton>
+        <TooltipButton
+          className={subtleIconButton}
+          aria-label={open ? "Collapse edit diff" : "Expand edit diff"}
+          aria-expanded={open}
+          tooltip={open ? "Collapse edit diff" : "Expand edit diff"}
+          onClick={() => setOpen(!open)}
+        >
+          <ChevronDown
+            className={cn("text-app-dim transition-transform", !open && "-rotate-90")}
+            size={15}
+          />
+        </TooltipButton>
+      </div>
+      {open && (
+        <div className="grid gap-2">
+          {files.map((file) => (
+            <ToolReviewFileCard
+              key={file.path}
+              file={file}
+              allFiles={files}
+              onReviewChanges={onReviewChanges}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ToolReviewFileLink({
+  file,
+  allFiles,
+  onReviewChanges
+}: {
+  file: ReviewDiffFile;
+  allFiles: ReviewDiffFile[];
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
+}) {
+  return (
+    <div className="min-w-0 text-app-muted">
+      <span>Edited </span>
+      <TooltipButton
+        className={cn("max-w-[320px] truncate align-bottom text-left", appAccentHoverText)}
+        tooltip={`Open ${file.path} in review`}
+        onClick={() =>
+          onReviewChanges?.({
+            filePath: file.path,
+            files: allFiles
+          })
+        }
+        type="button"
+      >
+        {displayPath(file.path)}
+      </TooltipButton>{" "}
+      <span className={appSuccessText}>+{file.additions}</span>{" "}
+      <span className={appDangerText}>-{file.deletions}</span>
+    </div>
+  );
+}
+
+function ToolReviewFileCard({
+  file,
+  allFiles,
+  onReviewChanges
+}: {
+  file: ReviewDiffFile;
+  allFiles: ReviewDiffFile[];
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
+}) {
+  const previewLines = file.hunks.flatMap((hunk) => hunk.lines).slice(0, 16);
+
+  return (
+    <div className={cn("overflow-hidden", cardSurface)}>
+      <div className="grid min-h-[34px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-app-line px-3 text-[13px]">
+        <TooltipButton
+          className={cn("min-w-0 truncate text-left", appAccentHoverText)}
+          tooltip={`Open ${file.path} in review`}
+          onClick={() =>
+            onReviewChanges?.({
+              filePath: file.path,
+              files: allFiles
+            })
+          }
+        >
+          <span className="truncate">{file.path}</span>
+        </TooltipButton>
+        <span className="whitespace-nowrap">
+          <span className={appSuccessText}>+{file.additions}</span>{" "}
+          <span className={appDangerText}>-{file.deletions}</span>
+        </span>
+      </div>
+      {previewLines.length > 0 && (
+        <div className="thin-scrollbar max-h-[220px] overflow-auto font-mono text-[12px] leading-5">
+          {previewLines.map((line, index) => (
+            <div
+              key={`${file.path}-${index}-${line.content}`}
+              className={cn(
+                "grid min-w-max grid-cols-[48px_18px_minmax(0,1fr)] border-l-4 px-2",
+                line.kind === "add"
+                  ? "border-app-green bg-app-green/15"
+                  : line.kind === "delete"
+                    ? "border-destructive bg-destructive/14"
+                    : "border-transparent"
+              )}
+            >
+              <span
+                className={cn(
+                  "select-none text-right",
+                  line.kind === "add"
+                    ? "text-app-green"
+                    : line.kind === "delete"
+                      ? "text-destructive"
+                      : "text-app-dim"
+                )}
+              >
+                {line.newLine ?? line.oldLine ?? ""}
+              </span>
+              <span className="select-none text-app-dim">
+                {line.kind === "add" ? "+" : line.kind === "delete" ? "-" : " "}
+              </span>
+              <code className="whitespace-pre pr-4 text-app-muted">
+                {line.content}
+              </code>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function displayPath(filePath: string) {
+  const normalized = filePath.replace(/\\/g, "/");
+  return normalized.split("/").filter(Boolean).at(-1) ?? filePath;
 }
 
 function ToolPayloadCard({ detail }: { detail: ToolDetail }) {
@@ -1036,9 +1253,11 @@ export function RunningToolCard({
 }
 
 export function FileChangeSummaryCard({
-  item
+  item,
+  onReviewChanges
 }: {
   item: Extract<ConversationItem, { type: "file_change_summary" }>;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   const [open, setOpen] = useState(Boolean(item.defaultOpen));
 
@@ -1060,6 +1279,11 @@ export function FileChangeSummaryCard({
           <TooltipButton
             className="inline-flex items-center gap-1.5 hover:text-app-muted"
             tooltip="Review changes"
+            onClick={() =>
+              onReviewChanges?.({
+                files: item.files.map((file) => fileChangeRowToReviewFile(file))
+              })
+            }
           >
             <span>Review</span>
             <ExternalLink size={13} />
@@ -1089,7 +1313,11 @@ export function FileChangeSummaryCard({
       {open && (
         <div className="grid">
           {item.files.map((file) => (
-            <FileChangeRowView key={file.path} file={file} />
+            <FileChangeRowView
+              key={file.path}
+              file={file}
+              onReviewChanges={onReviewChanges}
+            />
           ))}
         </div>
       )}
@@ -1097,11 +1325,23 @@ export function FileChangeSummaryCard({
   );
 }
 
-function FileChangeRowView({ file }: { file: FileChangeRow }) {
+function FileChangeRowView({
+  file,
+  onReviewChanges
+}: {
+  file: FileChangeRow;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
+}) {
   return (
     <TooltipButton
       className="grid min-h-[38px] grid-cols-[minmax(0,1fr)_auto_22px] items-center gap-2.5 border-b border-app-line px-3.5 text-left text-[13px] last:border-b-0 hover:bg-app-text/[0.035]"
       tooltip={`View changes in ${file.path}`}
+      onClick={() =>
+        onReviewChanges?.({
+          filePath: file.path,
+          files: [fileChangeRowToReviewFile(file)]
+        })
+      }
     >
       <span className="min-w-0 truncate text-app-text">{file.path}</span>
       <span className="whitespace-nowrap">
@@ -1111,6 +1351,15 @@ function FileChangeRowView({ file }: { file: FileChangeRow }) {
       <ChevronDown size={14} className={dimIcon} />
     </TooltipButton>
   );
+}
+
+function fileChangeRowToReviewFile(file: FileChangeRow): ReviewDiffFile {
+  return {
+    path: file.path,
+    additions: file.additions,
+    deletions: file.deletions,
+    hunks: []
+  };
 }
 
 export function HookEventRow({ label }: { label: string }) {

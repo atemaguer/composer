@@ -3,6 +3,7 @@ import { create } from "zustand";
 import type {
   AgentModel,
   ComposerImageAttachment,
+  ComposerReviewCommentAttachment,
   IntelligenceMode,
   PermissionMode,
   SessionProvider
@@ -33,6 +34,7 @@ type ComposerStore = {
   permissionOpen: boolean;
   intelligenceOpen: boolean;
   imageAttachments: ComposerImageAttachment[];
+  reviewCommentAttachments: ComposerReviewCommentAttachment[];
   setPrompt: (value: StateUpdater<string>) => void;
   setPermission: (value: PermissionMode) => void;
   setProvider: (value: SessionProvider) => void;
@@ -50,6 +52,8 @@ type ComposerStore = {
   ) => void;
   addImageAttachments: (attachments: ComposerImageAttachment[]) => void;
   removeImageAttachment: (id: string) => void;
+  addReviewCommentAttachment: (attachment: ComposerReviewCommentAttachment) => void;
+  removeReviewCommentAttachment: (id: string) => void;
   clearComposer: () => void;
 };
 
@@ -62,6 +66,7 @@ export const useComposerStore = create<ComposerStore>((set) => ({
   permissionOpen: false,
   intelligenceOpen: false,
   imageAttachments: [],
+  reviewCommentAttachments: [],
   setPrompt: (value) =>
     set((state) => ({ prompt: resolveState(value, state.prompt) })),
   setPermission: (permission) => set({ permission }),
@@ -132,5 +137,19 @@ export const useComposerStore = create<ComposerStore>((set) => ({
         (attachment) => attachment.id !== id
       )
     })),
-  clearComposer: () => set({ prompt: "", imageAttachments: [] })
+  addReviewCommentAttachment: (attachment) =>
+    set((state) => ({
+      reviewCommentAttachments: [
+        ...state.reviewCommentAttachments,
+        attachment
+      ]
+    })),
+  removeReviewCommentAttachment: (id) =>
+    set((state) => ({
+      reviewCommentAttachments: state.reviewCommentAttachments.filter(
+        (attachment) => attachment.id !== id
+      )
+    })),
+  clearComposer: () =>
+    set({ prompt: "", imageAttachments: [], reviewCommentAttachments: [] })
 }));

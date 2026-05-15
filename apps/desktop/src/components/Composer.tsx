@@ -24,6 +24,7 @@ import {
   GitPullRequestCreateArrow,
   Laptop,
   ListChecks,
+  MessageSquare,
   Mic,
   Plus,
   Search,
@@ -39,6 +40,7 @@ import type {
   ApprovalRequest,
   AgentModel,
   ComposerImageAttachment,
+  ComposerReviewCommentAttachment,
   IntelligenceMode,
   PendingConversationItem,
   PermissionMode,
@@ -147,8 +149,10 @@ export type ComposerProps = {
   submitMode?: "send" | "stop";
   submitDisabled?: boolean;
   imageAttachments?: ComposerImageAttachment[];
+  reviewCommentAttachments?: ComposerReviewCommentAttachment[];
   onAddImageAttachments?: (files: File[]) => void;
   onRemoveImageAttachment?: (id: string) => void;
+  onRemoveReviewCommentAttachment?: (id: string) => void;
   pendingItems?: PendingConversationItem[];
   approvals?: ApprovalRequest[];
   onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => void;
@@ -275,8 +279,10 @@ export function PromptComposer({
   onStop,
   submitDisabled = false,
   imageAttachments = [],
+  reviewCommentAttachments = [],
   onAddImageAttachments,
   onRemoveImageAttachment,
+  onRemoveReviewCommentAttachment,
   footerItems = [
     {
       icon: Laptop,
@@ -396,13 +402,20 @@ export function PromptComposer({
         onDragOver={handleDragOver}
         onDrop={handleDrop}
       >
-        {showAttachmentPill && imageAttachments.length > 0 && (
+        {showAttachmentPill && (imageAttachments.length > 0 || reviewCommentAttachments.length > 0) && (
           <div className="mb-1 flex max-w-full flex-wrap gap-1.5">
             {imageAttachments.map((attachment) => (
               <ImageAttachmentPill
                 key={attachment.id}
                 attachment={attachment}
                 onRemove={() => onRemoveImageAttachment?.(attachment.id)}
+              />
+            ))}
+            {reviewCommentAttachments.map((attachment) => (
+              <ReviewCommentAttachmentPill
+                key={attachment.id}
+                attachment={attachment}
+                onRemove={() => onRemoveReviewCommentAttachment?.(attachment.id)}
               />
             ))}
           </div>
@@ -574,6 +587,42 @@ function ImageAttachmentPill({
         aria-label={`Remove ${attachment.name}`}
         onClick={onRemove}
         tooltip={`Remove ${attachment.name}`}
+        type="button"
+      >
+        ×
+      </TooltipButton>
+    </div>
+  );
+}
+
+function ReviewCommentAttachmentPill({
+  attachment,
+  onRemove
+}: {
+  attachment: ComposerReviewCommentAttachment;
+  onRemove: () => void;
+}) {
+  return (
+    <div className={cn("grid max-w-[360px] grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 py-1.5 pl-2 pr-1.5 text-[13px] text-app-text", pillButton)}>
+      <MessageSquare className="mt-0.5 shrink-0 text-app-muted" size={15} />
+      <div className="min-w-0">
+        <div className="flex min-w-0 items-center gap-2 text-[12px] text-app-muted">
+          <span className="min-w-0 truncate font-medium text-app-text">
+            {attachment.filePath}
+          </span>
+          <span className="shrink-0">
+            {attachment.side} {attachment.lineNumber}
+          </span>
+        </div>
+        <div className="truncate text-[12.5px] leading-5 text-app-text">
+          {attachment.body}
+        </div>
+      </div>
+      <TooltipButton
+        className={cn(subtleIconButton, "ml-0.5")}
+        aria-label={`Remove comment on ${attachment.filePath}`}
+        onClick={onRemove}
+        tooltip={`Remove comment on ${attachment.filePath}`}
         type="button"
       >
         ×

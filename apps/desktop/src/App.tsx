@@ -20,7 +20,6 @@ import { SearchModal } from "./components/SearchModal";
 import { SettingsPage } from "./components/SettingsPage";
 import { Sidebar } from "./components/Sidebar";
 import { ThreadTabs, type ThreadTabItem } from "./components/ThreadTabs";
-import { diffRows, reviewFilePath } from "./data/mock-data";
 import { cn } from "./lib/cn";
 import { useComposerStore } from "./state/composer-store";
 import { useFilePreviewStore } from "./state/file-preview-store";
@@ -35,10 +34,13 @@ import {
 import type {
   ApprovalDecision,
   ComposerImageAttachment,
+  ComposerReviewCommentAttachment,
   LiveAgentEvent,
   ProviderFilter,
   Project,
   ProjectThread,
+  ReviewDiff,
+  ReviewDiffFile,
   SessionContent,
   SessionProvider,
   SessionSnapshot,
@@ -119,11 +121,20 @@ export default function App() {
     (state) => state.setIntelligenceOpen
   );
   const imageAttachments = useComposerStore((state) => state.imageAttachments);
+  const reviewCommentAttachments = useComposerStore(
+    (state) => state.reviewCommentAttachments
+  );
   const addComposerImageAttachments = useComposerStore(
     (state) => state.addImageAttachments
   );
   const removeComposerImageAttachment = useComposerStore(
     (state) => state.removeImageAttachment
+  );
+  const addComposerReviewCommentAttachment = useComposerStore(
+    (state) => state.addReviewCommentAttachment
+  );
+  const removeComposerReviewCommentAttachment = useComposerStore(
+    (state) => state.removeReviewCommentAttachment
   );
   const clearComposer = useComposerStore((state) => state.clearComposer);
   const setActiveModel = useComposerStore((state) => state.setActiveModel);
@@ -170,6 +181,13 @@ export default function App() {
   const [autoUpdateState, setAutoUpdateState] = useState<AutoUpdateState>({
     status: "idle"
   });
+  const [reviewDiff, setReviewDiff] = useState<ReviewDiff | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
+  const [selectedReviewPath, setSelectedReviewPath] = useState<string | null>(
+    null
+  );
+  const reviewRequestIdRef = useRef(0);
 
   const activeSession = selectedThread ? sessions[selectedThread] : undefined;
   const activeProvider = provider;
@@ -542,8 +560,12 @@ export default function App() {
 
   async function submitPrompt() {
     const body = prompt.trim();
+    const promptWithComments = formatPromptWithReviewComments(
+      body,
+      reviewCommentAttachments
+    );
 
-    if (!body || submitMode === "stop") {
+    if (!promptWithComments || submitMode === "stop") {
       return;
     }
 
@@ -552,7 +574,7 @@ export default function App() {
     const requestProvider = activeProvider;
 
     if (!agentServer?.httpUrl) {
-      createOfflineSession(body, requestProvider);
+      createOfflineSession(promptWithComments, requestProvider);
       return;
     }
 
@@ -571,7 +593,7 @@ export default function App() {
           requestId,
           sessionId,
           provider: requestProvider,
-          prompt: body,
+          prompt: promptWithComments,
           cwd: currentCwd,
           permissionMode: permission,
           intelligence: activeIntelligence,
@@ -598,7 +620,7 @@ export default function App() {
 
       const message = error instanceof Error ? error.message : String(error);
       setSessions((current) =>
-        appendErrorMessage(current, sessionId, body, requestProvider, message)
+        appendErrorMessage(current, sessionId, promptWithComments, requestProvider, message)
       );
     }
   }
@@ -718,6 +740,19 @@ export default function App() {
     removeComposerImageAttachment(id);
   }
 
+  function addReviewCommentAttachment(
+    attachment: Omit<ComposerReviewCommentAttachment, "id">
+  ) {
+    addComposerReviewCommentAttachment({
+      ...attachment,
+      id: createId()
+    });
+  }
+
+  function removeReviewCommentAttachment(id: string) {
+    removeComposerReviewCommentAttachment(id);
+  }
+
   async function createWorkspace(query: string) {
     const response = await window.composer?.createProject?.({
       name: query,
@@ -741,6 +776,111 @@ export default function App() {
     setSelectedThread("");
     setActiveNav("New session");
     navigateAppRoute("/new");
+  }
+
+  async function openReview(request: {
+    filePath?: string;
+    files?: ReviewDiffFile[];
+  } = {}) {
+    const { filePath, files } = request;
+    setInspectorOpen(true);
+    setFilePreview(null);
+    setFilePreviewError(null);
+    setFilePreviewLoading(false);
+
+    if (files) {
+      setReviewDiff(reviewDiffFromFiles(files, currentCwd));
+    }
+
+    if (filePath) {
+      setSelectedReviewPath(filePath);
+    }
+
+    await loadReviewDiff(filePath, files);
+  }
+
+  async function loadReviewDiff(
+    filePath?: string,
+    fallbackFiles?: ReviewDiffFile[]
+  ) {
+    const cwd = currentCwd;
+    const requestId = reviewRequestIdRef.current + 1;
+    reviewRequestIdRef.current = requestId;
+
+    if (!agentServer?.httpUrl || !cwd) {
+      setReviewDiff(fallbackFiles ? reviewDiffFromFiles(fallbackFiles, cwd) : null);
+      setReviewError(
+        fallbackFiles
+          ? null
+          : "Review is available after the agent server connects."
+      );
+      setReviewLoading(false);
+      return;
+    }
+
+    setReviewLoading(true);
+    setReviewError(null);
+
+    try {
+      const response = await fetch(`${agentServer.httpUrl}/api/review/diff`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          cwd,
+          filePath,
+          filePaths: fallbackFiles?.map((file) => file.path)
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Review request failed with ${response.status}`);
+      }
+
+      const nextDiff = (await response.json()) as ReviewDiff;
+
+      if (reviewRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      const resolvedDiff =
+        nextDiff.files.length > 0 || !fallbackFiles
+          ? nextDiff
+          : reviewDiffFromFiles(fallbackFiles, cwd);
+      setReviewDiff(resolvedDiff);
+      setSelectedReviewPath((current) => {
+        if (filePath) {
+          return resolvedDiff.files.find((file) => file.path === filePath)?.path ??
+            resolvedDiff.files[0]?.path ??
+            filePath;
+        }
+
+        if (current && resolvedDiff.files.some((file) => file.path === current)) {
+          return current;
+        }
+
+        return resolvedDiff.files[0]?.path ?? null;
+      });
+    } catch (error) {
+      if (reviewRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setReviewError(error instanceof Error ? error.message : String(error));
+      setReviewDiff(fallbackFiles ? reviewDiffFromFiles(fallbackFiles, cwd) : null);
+    } finally {
+      if (reviewRequestIdRef.current === requestId) {
+        setReviewLoading(false);
+      }
+    }
+  }
+
+  function showInspector(next: boolean) {
+    if (!next) {
+      setInspectorOpen(false);
+      return;
+    }
+
+    void openReview();
   }
 
   async function openFile(filePath: string) {
@@ -780,10 +920,15 @@ export default function App() {
     onSubmit: submitPrompt,
     onStop: stopActiveRun,
     submitMode,
-    submitDisabled: submitMode === "send" && !prompt.trim(),
+    submitDisabled:
+      submitMode === "send" &&
+      !prompt.trim() &&
+      reviewCommentAttachments.length === 0,
     imageAttachments,
+    reviewCommentAttachments,
     onAddImageAttachments: addImageAttachments,
     onRemoveImageAttachment: removeImageAttachment,
+    onRemoveReviewCommentAttachment: removeReviewCommentAttachment,
     approvals: approvals.filter((approval) =>
       activeSession ? approval.sessionId === activeSession.id : true
     ),
@@ -880,7 +1025,7 @@ export default function App() {
             sidebarOpen={sidebarOpen}
             setSidebarOpen={setSidebarOpen}
             inspectorOpen={inspectorOpen}
-            setInspectorOpen={setInspectorOpen}
+            setInspectorOpen={showInspector}
             selectedThread={activeSession?.title ?? ""}
             onNewSession={() => startNewSession()}
             canNavigateBack={navigationAvailability.canGoBack}
@@ -930,6 +1075,7 @@ export default function App() {
                 pendingItems={activePendingItems}
                 composer={composerControls}
                 onOpenFile={openFile}
+                onReviewChanges={(request) => void openReview(request)}
               />
             ) : (
               <NewSessionPage
@@ -974,11 +1120,16 @@ export default function App() {
         <ReviewPanel
           open={inspectorOpen}
           present={inspectorOpen}
-          filePath={filePreview?.path ?? reviewFilePath}
-          diffRows={diffRows}
+          review={reviewDiff}
+          reviewLoading={reviewLoading}
+          reviewError={reviewError}
+          selectedReviewPath={selectedReviewPath}
           filePreview={filePreview}
           filePreviewError={filePreviewError}
           filePreviewLoading={filePreviewLoading}
+          onSelectReviewFile={(filePath) => setSelectedReviewPath(filePath)}
+          onAddReviewComment={addReviewCommentAttachment}
+          onRefreshReview={() => void loadReviewDiff(selectedReviewPath ?? undefined)}
           onClose={() => setInspectorOpen(false)}
         />
       </main>
@@ -1000,6 +1151,20 @@ function composerProviderForSession(
   fallback: SessionProvider
 ): SessionProvider {
   return session.lastProvider ?? session.provider ?? fallback;
+}
+
+function reviewDiffFromFiles(
+  files: ReviewDiffFile[],
+  cwd = ""
+): ReviewDiff {
+  return {
+    cwd,
+    generatedAt: new Date().toISOString(),
+    files,
+    additions: files.reduce((sum, file) => sum + file.additions, 0),
+    deletions: files.reduce((sum, file) => sum + file.deletions, 0),
+    raw: ""
+  };
 }
 
 function appendErrorMessage(
@@ -1194,6 +1359,36 @@ function fileToAttachment(file: File): Promise<ComposerImageAttachment> {
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
+}
+
+function formatPromptWithReviewComments(
+  prompt: string,
+  comments: ComposerReviewCommentAttachment[]
+) {
+  if (comments.length === 0) {
+    return prompt;
+  }
+
+  const commentLines = comments.map((comment, index) => {
+    const quotedLine = comment.lineContent
+      ? `\n  Code: ${comment.lineContent}`
+      : "";
+
+    return [
+      `${index + 1}. ${comment.filePath} ${comment.side}${comment.lineNumber}:`,
+      `  Comment: ${comment.body}${quotedLine}`
+    ].join("\n");
+  });
+  const reviewSection = [
+    "Review comments:",
+    ...commentLines
+  ].join("\n\n");
+
+  if (!prompt) {
+    return `Please address these review comments.\n\n${reviewSection}`;
+  }
+
+  return `${prompt}\n\n${reviewSection}`;
 }
 
 async function drainResponse(response: Response) {

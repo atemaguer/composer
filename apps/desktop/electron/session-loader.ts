@@ -2,6 +2,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import {
+  extractPatchReviewFiles,
+  patchReviewLabel,
+  reviewFileFromCodexChange,
+  type PatchReviewFile
+} from "./patch-review.js";
+
 type SessionProvider = "codex" | "claude" | "meta";
 type ToolStatus = "running" | "completed" | "failed" | "cancelled";
 
@@ -17,6 +24,7 @@ type ToolDetail = {
   output?: string;
   path?: string;
   status?: ToolStatus;
+  reviewFiles?: PatchReviewFile[];
 };
 
 type ConversationAttachment = {
@@ -198,6 +206,10 @@ function parseCodexSession(
   let updatedAt = latestTimestamp(rows) ?? isoFromMtime(filePath);
   let title = "";
   const items: ConversationItem[] = [];
+  const toolGroupsByCallId = new Map<
+    string,
+    { itemIndex: number; detailIndex: number }
+  >();
   let toolIndex = 0;
   let firstRawUserText = "";
   let firstUserText = "";
@@ -258,6 +270,67 @@ function parseCodexSession(
         }
       }
 
+      if (eventType === "patch_apply_end") {
+        const callId = asString(payload.call_id);
+        const changes = asRecord(payload.changes);
+        const reviewFiles = Object.entries(changes)
+          .map(([filePath, change]) => {
+            const record = asRecord(change);
+
+            return reviewFileFromCodexChange(filePath, {
+              type: asString(record.type),
+              kind: asString(record.kind),
+              unified_diff: asString(record.unified_diff),
+              diff: asString(record.diff),
+              content: asString(record.content),
+              move_path: asString(record.move_path)
+            });
+          });
+
+        if (reviewFiles.length > 0) {
+          const label = patchReviewLabel(reviewFiles);
+          const existing = callId ? toolGroupsByCallId.get(callId) : undefined;
+
+          if (existing) {
+            const item = items[existing.itemIndex];
+
+            if (item?.type === "tool_group") {
+              const detail = item.details[existing.detailIndex];
+              item.summary = label;
+              detail.label = label;
+              detail.tone = "default";
+              detail.toolName = "Apply Patch";
+              detail.action = "edit";
+              detail.command = undefined;
+              detail.path = reviewFiles[0]?.path;
+              detail.reviewFiles = reviewFiles;
+            }
+
+            continue;
+          }
+
+          toolIndex += 1;
+          const detail: ToolDetail = {
+            id: `${id}-tool-${toolIndex}-patch`,
+            kind: "call",
+            label,
+            tone: "default",
+            toolName: "Apply Patch",
+            action: "edit",
+            path: reviewFiles[0]?.path,
+            reviewFiles
+          };
+
+          items.push({
+            id: `${id}-tool-${toolIndex}`,
+            type: "tool_group",
+            summary: detail.label,
+            details: [detail],
+            defaultOpen: false
+          });
+        }
+      }
+
       continue;
     }
 
@@ -313,6 +386,14 @@ function parseCodexSession(
         details: [detail],
         defaultOpen: false
       });
+      const callId = asString(payload.call_id);
+
+      if (callId) {
+        toolGroupsByCallId.set(callId, {
+          itemIndex: items.length - 1,
+          detailIndex: 0
+        });
+      }
       continue;
     }
 
@@ -858,10 +939,16 @@ function createToolCallDetail(
   forcedAction?: ToolDetail["action"]
 ): ToolDetail {
   const action = forcedAction ?? inferToolAction(toolName, input);
-  const command = extractToolCommand(input);
+  const toolInputText = extractToolCommand(input) ?? asString(input.input);
+  const reviewFiles = action === "edit" ? extractPatchReviewFiles(toolInputText) : [];
+  const command = action === "edit" && reviewFiles.length > 0
+    ? undefined
+    : extractToolCommand(input);
   const pathValue = extractToolPath(input);
   const args = summarizeToolArguments(input, action);
-  const label = buildToolCallLabel(toolName, action, input, command, pathValue);
+  const label = reviewFiles.length > 0
+    ? patchReviewLabel(reviewFiles)
+    : buildToolCallLabel(toolName, action, input, command, pathValue);
 
   return {
     id,
@@ -872,7 +959,8 @@ function createToolCallDetail(
     action,
     args,
     command,
-    path: pathValue
+    path: pathValue ?? reviewFiles[0]?.path,
+    reviewFiles: reviewFiles.length > 0 ? reviewFiles : undefined
   };
 }
 

@@ -85,6 +85,16 @@ export type ComposerImageAttachment = {
   path?: string;
 };
 
+export type ComposerReviewCommentAttachment = {
+  id: string;
+  filePath: string;
+  lineNumber: number;
+  side: "L" | "R";
+  body: string;
+  lineContent?: string;
+  lineKind?: ReviewDiffLine["kind"];
+};
+
 export type AgentImageAttachment = {
   name: string;
   mediaType: string;
@@ -93,6 +103,41 @@ export type AgentImageAttachment = {
 };
 
 export type DiffRowData = [line: string, tone: string, code: string];
+
+export type ReviewDiffLine = {
+  kind: "context" | "add" | "delete";
+  oldLine: number | null;
+  newLine: number | null;
+  content: string;
+};
+
+export type ReviewDiffHunk = {
+  header: string;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: ReviewDiffLine[];
+};
+
+export type ReviewDiffFile = {
+  path: string;
+  oldPath?: string;
+  status?: "added" | "deleted" | "modified" | "renamed" | "binary";
+  additions: number;
+  deletions: number;
+  hunks: ReviewDiffHunk[];
+  isBinary?: boolean;
+};
+
+export type ReviewDiff = {
+  cwd: string;
+  generatedAt: string;
+  files: ReviewDiffFile[];
+  additions: number;
+  deletions: number;
+  raw: string;
+};
 
 export type ProjectThread = {
   id: string;
@@ -128,6 +173,7 @@ export type ToolDetail = {
   output?: string;
   path?: string;
   status?: ToolStatus;
+  reviewFiles?: ReviewDiffFile[];
 };
 
 export type FileChangeRow = {

@@ -10,6 +10,7 @@ import {
 
 import { loadLocalSessions } from "../electron/session-loader.js";
 import { loadCapabilityCatalog, readCapabilityContent } from "./capabilities.js";
+import { loadReviewDiff } from "./review-diff.js";
 import { AgentRuntime } from "./runtime.js";
 import type {
   AgentSettings,
@@ -65,6 +66,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/interrupt") {
       await handleInterruptRequest(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/review/diff") {
+      await handleReviewDiffRequest(request, response);
       return;
     }
 
@@ -268,6 +274,21 @@ async function handleSessionVisibilityRequest(
 
   const snapshot: SessionSnapshot = runtime.updateSessionVisibility(sessionId, action);
   writeJson(response, 200, { ok: true, snapshot });
+}
+
+async function handleReviewDiffRequest(
+  request: IncomingMessage,
+  response: ServerResponse
+) {
+  const body = await readJson(request);
+  const cwd = parseCwd(body.cwd);
+  const filePath = typeof body.filePath === "string" ? body.filePath : undefined;
+  const filePaths = Array.isArray(body.filePaths)
+    ? body.filePaths.filter((value: unknown): value is string => typeof value === "string")
+    : undefined;
+  const diff = await loadReviewDiff(cwd, filePath ?? filePaths);
+
+  writeJson(response, 200, diff);
 }
 
 async function interruptRuntime(sessionId?: string, requestId?: string) {

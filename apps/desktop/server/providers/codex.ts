@@ -1,6 +1,11 @@
 import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
+import {
+  extractPatchReviewFiles,
+  patchReviewLabel,
+  reviewFileFromCodexChange
+} from "../../electron/patch-review.js";
 import type { AgentProvider, EventSink } from "../runtime.js";
 import { defaultCwd, providerSessionId } from "../runtime.js";
 import type {
@@ -432,6 +437,23 @@ export class CodexProvider implements AgentProvider {
       return;
     }
 
+    if (method === "item/fileChange/patchUpdated") {
+      const itemId = asString(params.itemId) ?? randomUUID();
+      const detail = toolDetail(`${itemId}-patch`, "Edited file", {
+        type: "file_change",
+        changes: normalizeFileChanges(params.changes)
+      });
+
+      session.emit({
+        id: randomUUID(),
+        type: "tool.completed",
+        sessionId: session.id,
+        toolId: itemId,
+        detail
+      });
+      return;
+    }
+
     if (method === "item/started") {
       const item = asRecord(params.item);
       const itemId = asString(item.id) ?? randomUUID();
@@ -513,6 +535,19 @@ export class CodexProvider implements AgentProvider {
   }
 }
 
+function normalizeFileChanges(value: unknown) {
+  if (Array.isArray(value)) {
+    return value;
+  }
+
+  const record = asRecord(value);
+
+  return Object.entries(record).map(([filePath, change]) => ({
+    ...asRecord(change),
+    path: filePath
+  }));
+}
+
 function codexApproval(
   method: string,
   params: JsonRecord,
@@ -562,6 +597,11 @@ function itemLabel(item: JsonRecord) {
   const type = asString(item.type) ?? "tool";
   const command = asString(item.command);
   const tool = asString(item.tool) ?? asString(item.name);
+  const reviewFiles = reviewFilesFromItem(item);
+
+  if (reviewFiles.length > 0) {
+    return patchReviewLabel(reviewFiles);
+  }
 
   if (command) {
     return `Run ${command}`;
@@ -576,16 +616,65 @@ function itemLabel(item: JsonRecord) {
 
 function toolDetail(id: string, label: string, item: JsonRecord): ToolDetail {
   const command = asString(item.command);
+  const reviewFiles = reviewFilesFromItem(item);
+  const hasReviewFiles = reviewFiles.length > 0;
 
   return {
     id,
-    label,
+    label: hasReviewFiles ? patchReviewLabel(reviewFiles) : label,
     kind: "call",
-    tone: command ? "command" : "default",
-    action: command ? "command" : "other",
-    command,
-    args: stringifyDetails(item)
+    tone: command && !hasReviewFiles ? "command" : "default",
+    action: hasReviewFiles ? "edit" : command ? "command" : "other",
+    command: hasReviewFiles ? undefined : command,
+    args: stringifyDetails(item),
+    path: reviewFiles[0]?.path,
+    reviewFiles: hasReviewFiles ? reviewFiles : undefined
   };
+}
+
+function reviewFilesFromItem(item: JsonRecord) {
+  const type = asString(item.type);
+  const rawPatch =
+    asString(item.input) ??
+    asString(item.patch) ??
+    asString(item.command) ??
+    asString(item.arguments);
+  const patchFiles = extractPatchReviewFiles(rawPatch);
+
+  if (patchFiles.length > 0) {
+    return patchFiles;
+  }
+
+  if (type !== "file_change" || !Array.isArray(item.changes)) {
+    return [];
+  }
+
+  return item.changes
+    .map((change) => asRecord(change))
+    .map((change) => {
+      const diff = asString(change.diff);
+      const files = extractPatchReviewFiles(diff);
+
+      if (files.length > 0) {
+        return files[0];
+      }
+
+      const filePath = asString(change.path) ?? asString(change.file_path);
+
+      if (!filePath) {
+        return null;
+      }
+
+      return reviewFileFromCodexChange(filePath, {
+        type: asString(change.type),
+        kind: asString(change.kind),
+        unified_diff: asString(change.unified_diff),
+        diff,
+        content: asString(change.content),
+        move_path: asString(change.move_path)
+      });
+    })
+    .filter((file): file is NonNullable<typeof file> => Boolean(file));
 }
 
 function stringifyDetails(record: JsonRecord) {
