@@ -35,9 +35,11 @@ import type {
   FileChangeRow,
   PendingConversationItem,
   ReviewDiffFile,
+  SessionProvider,
   ToolDetail
 } from "../types";
 import { Composer, type ComposerProps } from "./Composer";
+import { ProviderLogo } from "./ProviderLogo";
 import {
   appAccentHoverText,
   appAccentScope,
@@ -201,8 +203,22 @@ function mergeToolActivityBatch(batch: ToolGroupItem[]): ToolGroupItem {
         }))
       )
       .filter(isInformativeToolDetail),
+    provider: toolActivityBatchProvider(batch),
     defaultOpen: batch.some((tool) => tool.defaultOpen)
   };
+}
+
+function toolActivityBatchProvider(batch: ToolGroupItem[]): SessionProvider | undefined {
+  const providers = batch
+    .map((tool) => tool.provider)
+    .filter((provider): provider is SessionProvider => Boolean(provider));
+  const uniqueProviders = new Set(providers);
+
+  if (uniqueProviders.size === 1) {
+    return providers[0];
+  }
+
+  return uniqueProviders.size > 1 ? "meta" : undefined;
 }
 
 function summarizeToolActivityBatch(batch: ToolGroupItem[]) {
@@ -869,11 +885,19 @@ export function ToolActivityGroup({
   return (
     <div className="grid gap-2.5" data-tool-activity-group>
       <TooltipButton
-        className="grid w-fit max-w-full grid-cols-[18px_minmax(0,1fr)_18px] items-center gap-2 text-left text-[13.5px] text-app-dim transition-colors hover:text-app-muted"
+        className={cn(
+          "grid w-fit max-w-full items-center gap-2 text-left text-[13.5px] text-app-dim transition-colors hover:text-app-muted",
+          item.provider
+            ? "grid-cols-[16px_18px_minmax(0,1fr)_18px]"
+            : "grid-cols-[18px_minmax(0,1fr)_18px]"
+        )}
         onClick={() => setOpen(!open)}
         aria-expanded={open}
         tooltip={open ? "Collapse tool activity" : "Expand tool activity"}
       >
+        {item.provider && (
+          <ProviderLogo provider={item.provider} className="h-3.5 w-3.5 text-app-muted" />
+        )}
         <TerminalSquare size={13} className={dimIcon} />
         <span className="truncate">{item.summary}</span>
         <ChevronDown

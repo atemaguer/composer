@@ -225,6 +225,7 @@ export type ConversationItem =
       type: "tool_group";
       summary: string;
       details: ToolDetail[];
+      provider?: SessionProvider;
       defaultOpen?: boolean;
     }
   | {
@@ -335,6 +336,7 @@ export type LiveAgentEvent =
       sessionId: string;
       toolId: string;
       label: string;
+      provider?: SessionProvider;
       detail?: ToolDetail;
     }
   | {
@@ -342,6 +344,7 @@ export type LiveAgentEvent =
       type: "tool.delta";
       sessionId: string;
       toolId: string;
+      provider?: SessionProvider;
       delta: string;
     }
   | {
@@ -349,6 +352,7 @@ export type LiveAgentEvent =
       type: "tool.completed";
       sessionId: string;
       toolId: string;
+      provider?: SessionProvider;
       detail?: ToolDetail;
     }
   | { id: string; type: "approval.requested"; approval: ApprovalRequest }

@@ -306,10 +306,11 @@ export class AgentRuntime {
       }
 
       await this.providers[provider].run({
-          ...request,
-          prompt,
-          session: providerSession
-        });
+        ...request,
+        prompt,
+        session: providerSession,
+        emit: (event) => request.emit(stampToolEventProvider(event, provider))
+      });
 
       syncProviderState(parentSession, provider, providerSession);
       this.apply({
@@ -388,11 +389,11 @@ export class AgentRuntime {
         session: providerSession,
         settings: request.settings,
         reason: `handoff from ${providerLabel(previousProvider)} to ${providerLabel(nextProvider)}`,
-        emit: request.emit
+        emit: (event) => request.emit(stampToolEventProvider(event, previousProvider))
       });
     } catch (error) {
       const toolId = `${request.sessionId}-handoff-compact-skipped-${Date.now()}`;
-      request.emit({
+      request.emit(stampToolEventProvider({
         id: randomUUID(),
         type: "tool.started",
         sessionId: request.sessionId,
@@ -409,13 +410,13 @@ export class AgentRuntime {
             error: error instanceof Error ? error.message : String(error)
           }
         }
-      });
-      request.emit({
+      }, previousProvider));
+      request.emit(stampToolEventProvider({
         id: randomUUID(),
         type: "tool.completed",
         sessionId: request.sessionId,
         toolId
-      });
+      }, previousProvider));
     }
 
     syncProviderState(session, previousProvider, providerSession);
@@ -557,6 +558,7 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
       type: "tool_group",
       summary: event.label,
       details: event.detail ? [event.detail] : [toolDetail(event.toolId, event.label)],
+      provider: event.provider,
       defaultOpen: false
     });
     return;
@@ -1038,6 +1040,21 @@ function providerLabel(provider: SessionProvider) {
   }
 
   return provider === "codex" ? "Codex" : "Claude";
+}
+
+function stampToolEventProvider(
+  event: LiveAgentEvent,
+  provider: RuntimeSessionProvider
+): LiveAgentEvent {
+  if (
+    event.type === "tool.started" ||
+    event.type === "tool.delta" ||
+    event.type === "tool.completed"
+  ) {
+    return { ...event, provider };
+  }
+
+  return event;
 }
 
 function providerModel(provider: SessionProvider, model?: string) {
