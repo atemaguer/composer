@@ -33,15 +33,23 @@ export default function Home() {
           codebase context for easier handoff between agents.
         </p>
 
-        <Image
-          src="/composer-session.png"
-          alt="Composer desktop thread session"
-          width={3104}
-          height={2024}
-          className="mt-12 h-auto w-full"
-          priority
-          unoptimized
-        />
+        <a
+          className="mt-12 block w-full cursor-zoom-in"
+          href="/composer-session.png"
+          target="_blank"
+          rel="noreferrer"
+          aria-label="Open Composer screenshot full size"
+        >
+          <Image
+            src="/composer-session.png"
+            alt="Composer desktop thread session"
+            width={3104}
+            height={2024}
+            className="h-auto w-full"
+            priority
+            unoptimized
+          />
+        </a>
       </section>
 
       <section
