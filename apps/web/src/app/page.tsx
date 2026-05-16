@@ -55,24 +55,24 @@ export default function Home() {
           <div className="mt-8 grid gap-8 sm:grid-cols-2">
             {[
               {
-                question: "What is Composer?",
+                question: "What does shared context mean?",
                 answer:
-                  "Composer is a desktop workspace for running coding agents, reviewing their changes, and keeping project context in one place."
+                  "Composer keeps the active codebase, session history, tool results, diffs, and review notes together so Codex and Claude can work from the same picture."
               },
               {
-                question: "Which agents does it support?",
+                question: "Why compose Codex and Claude?",
                 answer:
-                  "Composer supports Codex, Claude, and a hybrid mode that plans with one agent and executes with another."
+                  "Different agents are useful at different parts of the work. Composer makes it easier to use one for planning, another for implementation, and either one for review."
               },
               {
-                question: "Does Composer work with local projects?",
+                question: "How does handoff work?",
                 answer:
-                  "Yes. Composer is built around local workspaces, so agents can work against files on your machine."
+                  "Handoffs happen through shared sessions and thread context instead of copy-pasting summaries between separate chats. The next agent can pick up the task with the relevant state already nearby."
               },
               {
-                question: "How do updates work?",
+                question: "What carries across threads?",
                 answer:
-                  "Desktop builds check for updates automatically and prompt you once an update is downloaded and ready to install."
+                  "Composer keeps track of the workspace, previous turns, changed files, review comments, and agent outputs so follow-up work can stay grounded in the actual project."
               }
             ].map((item) => (
               <div key={item.question}>
