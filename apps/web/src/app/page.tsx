@@ -35,10 +35,8 @@ export default function Home() {
 
         <a
           className="mt-12 block w-full cursor-zoom-in"
-          href="/composer-session.png"
-          target="_blank"
-          rel="noreferrer"
-          aria-label="Open Composer screenshot full size"
+          href="#composer-screenshot"
+          aria-label="Open Composer screenshot in full view"
         >
           <Image
             src="/composer-session.png"
@@ -51,6 +49,35 @@ export default function Home() {
           />
         </a>
       </section>
+
+      <div
+        id="composer-screenshot"
+        className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#101010]/0 px-3 py-5 opacity-0 transition duration-200 target:pointer-events-auto target:bg-[#101010]/92 target:opacity-100 sm:px-8"
+        aria-label="Composer screenshot full view"
+      >
+        <a
+          className="absolute inset-0 cursor-zoom-out"
+          href="#"
+          aria-label="Close full view"
+        />
+        <div className="relative max-h-full w-full max-w-[min(96vw,1600px)]">
+          <a
+            className="absolute right-3 top-3 z-10 inline-flex size-9 items-center justify-center rounded-full bg-black/70 text-xl leading-none text-white transition hover:bg-black"
+            href="#"
+            aria-label="Close full view"
+          >
+            ×
+          </a>
+          <Image
+            src="/composer-session.png"
+            alt="Composer desktop thread session"
+            width={3104}
+            height={2024}
+            className="max-h-[92vh] w-full rounded-xl object-contain shadow-2xl"
+            unoptimized
+          />
+        </div>
+      </div>
 
       <section
         id="faq"
