@@ -92,7 +92,7 @@ export function SettingsPage({ className, onBack }: SettingsPageProps) {
       <aside className="min-h-0 border-r border-app-line bg-app-sidebar/88 max-[780px]:hidden">
         <div className="thin-scrollbar flex h-full flex-col overflow-y-auto px-2.5 pb-5 pt-[58px]">
           <TooltipButton
-            className="mb-5 h-9 w-fit gap-2 px-2 text-[15px] text-app-dim transition-colors hover:text-app-muted"
+            className="mb-5 inline-flex h-9 w-fit items-center gap-2 px-2 text-[15px] text-app-dim transition-colors hover:text-app-muted"
             tooltip="Back to app"
             onClick={onBack}
           >
