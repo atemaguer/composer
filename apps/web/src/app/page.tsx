@@ -29,8 +29,8 @@ export default function Home() {
           Give Codex and Claude the same working context.
         </h1>
         <p className="mt-5 max-w-2xl text-base leading-7 text-[#657188] sm:text-lg">
-          Compose Codex and Claude across shared sessions, threads, and codebase
-          context for easier handoff between agents.
+          Compose teams of Codex and Claude around shared sessions, threads, and
+          codebase context for easier handoff between agents.
         </p>
 
         <Image
