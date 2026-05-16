@@ -9,6 +9,10 @@ import {
   type SDKUserMessage
 } from "@anthropic-ai/claude-agent-sdk";
 
+import {
+  desktopCliEnvironment,
+  resolveDesktopExecutable
+} from "../../electron/cli-env.js";
 import type { AgentProvider } from "../runtime.js";
 import { defaultCwd, providerSessionId } from "../runtime.js";
 import type {
@@ -48,13 +52,14 @@ export class ClaudeProvider implements AgentProvider {
 
     const resumeSessionId = request.session.providerSessionId
       ?? providerSessionId(request.session);
+    const env = claudeEnvironment();
     const options: Options = {
       cwd: defaultCwd(request.session),
       abortController,
       permissionMode: mapPermissionMode(request.settings.permissionMode),
       allowDangerouslySkipPermissions: request.settings.permissionMode === "Full access",
       effort: mapEffort(request.settings.intelligence),
-      model: request.settings.model,
+      model: claudeModel(request.settings.model),
       hooks: {
         PostCompact: [
           {
@@ -76,10 +81,8 @@ export class ClaudeProvider implements AgentProvider {
           }
         ]
       },
-      env: {
-        ...process.env,
-        CLAUDE_AGENT_SDK_CLIENT_APP: "composer/0.1.0"
-      }
+      pathToClaudeCodeExecutable: resolveDesktopExecutable("claude", env) ?? undefined,
+      env
     };
 
     if (resumeSessionId) {
@@ -181,6 +184,7 @@ export class ClaudeProvider implements AgentProvider {
       ?? (request.session.id.startsWith("claude-live-")
         ? undefined
         : providerSessionId(request.session));
+    const env = claudeEnvironment();
     const options: Options = {
       cwd: defaultCwd(request.session),
       includePartialMessages: true,
@@ -216,12 +220,10 @@ export class ClaudeProvider implements AgentProvider {
           : mapPermissionMode(request.settings.permissionMode),
       allowDangerouslySkipPermissions: request.settings.permissionMode === "Full access",
       effort: mapEffort(request.settings.intelligence),
-      model: request.settings.model,
+      model: claudeModel(request.settings.model),
       abortController,
-      env: {
-        ...process.env,
-        CLAUDE_AGENT_SDK_CLIENT_APP: "composer/0.1.0"
-      }
+      pathToClaudeCodeExecutable: resolveDesktopExecutable("claude", env) ?? undefined,
+      env
     };
 
     if (resumeSessionId) {
@@ -413,6 +415,17 @@ function claudeResultErrorMessage(message: Extract<SDKMessage, { type: "result" 
   }
 
   return "Claude stopped before returning a response.";
+}
+
+function claudeEnvironment() {
+  return desktopCliEnvironment({
+    ...process.env,
+    CLAUDE_AGENT_SDK_CLIENT_APP: "composer/0.1.0"
+  });
+}
+
+function claudeModel(model: string | undefined) {
+  return model?.startsWith("claude-") ? model : "claude-sonnet-4-6";
 }
 
 function claudeApproval({

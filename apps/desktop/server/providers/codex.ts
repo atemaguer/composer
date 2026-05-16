@@ -413,6 +413,13 @@ export class CodexProvider implements AgentProvider {
 
     if (method === "thread/compacted") {
       const itemId = `${session.id}-codex-compact-${Date.now()}`;
+      const compactWaiter = this.compactWaiters.get(session.id);
+
+      if (compactWaiter) {
+        this.compactWaiters.delete(session.id);
+        compactWaiter();
+      }
+
       session.emit({
         id: randomUUID(),
         type: "tool.started",
