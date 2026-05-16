@@ -579,10 +579,10 @@ export function Sidebar({
         </div>
 
         <div className="grid shrink-0 gap-1">
-          <div className="grid min-h-8 grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+          <div className="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
             <TooltipButton
               className={cn(
-                "flex min-h-8 min-w-0 items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors",
+                "flex size-8 items-center justify-center rounded-md text-app-muted/85 transition-colors",
                 appHoverSurfaceSubtle,
                 focusRing
               )}
@@ -590,12 +590,11 @@ export function Sidebar({
               onClick={onSettings}
             >
               <Settings className={mutedIcon} size={15} />
-              <span className="truncate">Settings</span>
             </TooltipButton>
             {updateDownloaded && (
               <TooltipButton
                 className={cn(
-                  "flex min-h-8 items-center gap-2 rounded-md bg-app-accent px-3 py-1 text-[13px] font-medium text-white transition-colors hover:bg-app-accent/90",
+                  "justify-self-end rounded-full bg-app-accent px-4 py-1.5 text-[13px] font-medium text-white transition-colors hover:bg-app-accent/90",
                   updateInstalling && "cursor-default opacity-80 hover:bg-app-accent",
                   updateInstallError && "bg-red-500/90 hover:bg-red-500",
                   focusRing
@@ -608,7 +607,6 @@ export function Sidebar({
                 disabled={updateInstalling}
                 onClick={onInstallAutoUpdate}
               >
-                <ArrowRight size={14} />
                 <span>
                   {updateInstalling ? "Installing" : updateInstallError ? "Retry" : "Update"}
                 </span>
