@@ -79,7 +79,7 @@ export default function Home() {
               {
                 question: "Why compose Codex and Claude?",
                 answer:
-                  "Different agents are useful at different parts of the work. Composer makes it easier to use one for planning, another for implementation, and either one for review."
+                  "Different agents are useful as independent passes on the same work. Use one to plan, another to implement, and either one to challenge the result without rebuilding context from pasted summaries."
               },
               {
                 question: "How does handoff work?",
@@ -90,6 +90,11 @@ export default function Home() {
                 question: "What carries across threads?",
                 answer:
                   "Composer keeps track of the workspace, previous turns, changed files, review comments, and agent outputs so follow-up work can stay grounded in the actual project."
+              },
+              {
+                question: "What workflows does this unlock?",
+                answer:
+                  "Planning with Claude and reviewing with Codex, implementing with Codex and asking Claude to critique the design, or running parallel approaches while keeping the diffs, notes, and tool output comparable."
               }
             ].map((item) => (
               <div key={item.question}>
