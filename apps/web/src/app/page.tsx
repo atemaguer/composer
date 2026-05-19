@@ -1,28 +1,10 @@
 import Image from "next/image";
+import Link from "next/link";
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-[#f5f7fb] text-[#172033]">
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
-        <a className="flex items-center gap-3" href="/" aria-label="Composer home">
-          <Image
-            src="/composer-icon.png"
-            alt=""
-            width={32}
-            height={32}
-            className="size-8 rounded-md"
-            priority
-          />
-          <span className="text-base font-semibold tracking-tight">Composer</span>
-        </a>
-        <a
-          className="inline-flex h-10 items-center justify-center rounded-full bg-[#172033] px-5 text-sm font-medium text-white transition hover:bg-[#2a354c]"
-          href="/api/download"
-          aria-label="Download Composer for your current platform"
-        >
-          Download
-        </a>
-      </header>
+      <LandingHeader />
 
       <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-8 sm:pb-24 sm:pt-24">
         <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
@@ -62,7 +44,7 @@ export default function Home() {
         />
         <div className="relative max-h-full w-full max-w-[min(96vw,1600px)]">
           <a
-            className="absolute right-3 top-3 z-10 inline-flex size-9 items-center justify-center rounded-full bg-black/70 text-xl leading-none text-white transition hover:bg-black"
+            className="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-full bg-black/70 text-lg leading-none text-white transition hover:bg-black"
             href="#"
             aria-label="Close full view"
           >
@@ -129,7 +111,8 @@ export default function Home() {
             title="[Resources]"
             links={[
               { label: "FAQ", href: "#faq" },
-              { label: "Updates", href: "/api/download" }
+              { label: "Blog", href: "/blog" },
+              { label: "Changelog", href: "/changelog" }
             ]}
           />
           <FooterColumn
@@ -142,6 +125,105 @@ export default function Home() {
         </div>
       </footer>
     </main>
+  );
+}
+
+function LandingHeader() {
+  return (
+    <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-5 px-5 py-5 text-sm sm:px-8">
+      <Link
+        className="flex shrink-0 items-center gap-3"
+        href="/"
+        aria-label="Composer home"
+      >
+        <Image
+          src="/composer-icon.png"
+          alt=""
+          width={32}
+          height={32}
+          className="size-8 rounded-md"
+          priority
+        />
+        <span className="text-base font-semibold tracking-tight">Composer</span>
+      </Link>
+
+      <nav
+        className="hidden flex-1 items-center justify-center gap-1 font-medium text-[#4c586d] md:flex"
+        aria-label="Primary navigation"
+      >
+        <a
+          className="rounded-full px-2.5 py-1 leading-none transition hover:bg-white hover:text-[#172033]"
+          href="#faq"
+        >
+          FAQ
+        </a>
+        <HeaderMenu
+          label="Resources"
+          links={[
+            { label: "Changelog", href: "/changelog" },
+            { label: "Blog", href: "/blog" },
+            { label: "Contact", href: "mailto:atemjohn@stanford.edu" }
+          ]}
+        />
+      </nav>
+
+      <div className="flex shrink-0 items-center gap-2 font-medium">
+        <a
+          className="inline-flex h-8 items-center justify-center rounded-full bg-[#172033] px-3.5 leading-none text-white transition hover:bg-[#2a354c]"
+          href="/api/download"
+          aria-label="Download Composer for your current platform"
+        >
+          Download
+        </a>
+      </div>
+    </header>
+  );
+}
+
+type HeaderMenuProps = {
+  label: string;
+  links: Array<{
+    label: string;
+    href: string;
+  }>;
+};
+
+function HeaderMenu({ label, links }: HeaderMenuProps) {
+  return (
+    <div className="group relative">
+      <button
+        className="flex items-center gap-1 rounded-full px-2.5 py-1 leading-none transition hover:bg-white hover:text-[#172033]"
+        type="button"
+      >
+        {label}
+        <span className="text-xs text-[#8b95a5]" aria-hidden="true">
+          ↓
+        </span>
+      </button>
+      <div className="invisible absolute left-0 top-full z-20 min-w-44 pt-2 opacity-0 transition group-hover:visible group-hover:opacity-100">
+        <div className="grid gap-1 rounded-xl border border-[#d8dee8] bg-white p-2 shadow-xl shadow-[#172033]/10">
+          {links.map((link) =>
+            link.href.startsWith("/") && !link.href.startsWith("/api/") ? (
+              <Link
+                key={`${label}-${link.href}`}
+                className="rounded-lg px-2.5 py-1 leading-none text-[#4c586d] transition hover:bg-[#f5f7fb] hover:text-[#172033]"
+                href={link.href}
+              >
+                {link.label}
+              </Link>
+            ) : (
+              <a
+                key={`${label}-${link.href}`}
+                className="rounded-lg px-2.5 py-1 leading-none text-[#4c586d] transition hover:bg-[#f5f7fb] hover:text-[#172033]"
+                href={link.href}
+              >
+                {link.label}
+              </a>
+            )
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
