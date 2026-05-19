@@ -25,21 +25,10 @@ export default function BlogPage() {
           ))}
         </div>
 
-        <aside className="border-t border-[#d8dee8] pt-7 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0">
-          <h2 className="text-lg font-semibold tracking-tight">
-            Subscribe to our newsletter
-          </h2>
-          <p className="mt-3 text-sm leading-6 text-[#657188]">
-            Get Composer notes on agent work, product updates, and original
-            writing when new posts publish.
-          </p>
-          <a
-            className="mt-5 inline-flex items-center gap-2 font-mono text-sm text-[#172033]"
-            href="mailto:atemjohn@stanford.edu?subject=Subscribe%20to%20Composer%20blog"
-          >
-            Subscribe <ArrowRight className="size-4" aria-hidden="true" />
-          </a>
-        </aside>
+        <aside
+          className="min-h-32 border-t border-[#d8dee8] pt-7 lg:border-l lg:border-t-0 lg:pl-8 lg:pt-0"
+          aria-label="Newsletter"
+        />
       </section>
 
       <section className="mx-auto w-full max-w-6xl px-5 pb-20 sm:px-8 sm:pb-28">
@@ -98,34 +87,10 @@ export default function BlogPage() {
           ))}
         </div>
 
-        <div className="mt-16 grid gap-12 border-t border-[#d8dee8] pt-12 lg:grid-cols-[1fr_1fr]">
-          <blockquote className="text-2xl font-semibold leading-tight tracking-tight text-balance sm:text-3xl">
-            “The workspace becomes the memory for agent-native software work.”
-            <footer className="mt-5 font-mono text-sm font-normal text-[#657188]">
-              From “Shared context is the interface for agent work”
-            </footer>
-          </blockquote>
-
-          <section>
-            <h2 className="font-mono text-sm text-[#657188]">Changelog</h2>
-            <div className="mt-5 grid gap-4">
-              {[
-                "Shared context, cleaner handoffs",
-                "Agent workspace foundations",
-                "Composer preview"
-              ].map((item) => (
-                <Link
-                  key={item}
-                  className="flex items-center justify-between border-b border-[#d8dee8] pb-4 text-sm font-medium transition hover:border-[#aab4c3]"
-                  href="/changelog"
-                >
-                  {item}
-                  <ArrowRight className="size-4" aria-hidden="true" />
-                </Link>
-              ))}
-            </div>
-          </section>
-        </div>
+        <div
+          className="mt-16 grid min-h-32 gap-12 border-t border-[#d8dee8] pt-12 lg:grid-cols-[1fr_1fr]"
+          aria-label="Supporting blog content"
+        />
       </section>
 
       <BlogFooter />

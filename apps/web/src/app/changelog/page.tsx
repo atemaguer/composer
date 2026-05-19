@@ -2,75 +2,18 @@ import type { Metadata } from "next";
 import Image from "next/image";
 import Link from "next/link";
 
-const changelogEntries = [
-  {
-    version: "0.3.0",
-    date: "2026-05-19",
-    title: "Shared context, cleaner handoffs",
-    sections: [
-      {
-        heading: "Shared session context",
-        body:
-          "Composer now keeps active codebase state, session history, tool output, diffs, and review notes closer together so Codex and Claude can work from the same picture.",
-        items: [
-          "Agent handoffs preserve the relevant workspace state instead of relying on manual summaries.",
-          "Changed files and review notes stay attached to the active thread for easier follow-up work.",
-          "Thread context is organized around the project so returning to a task requires less reconstruction."
-        ]
-      },
-      {
-        heading: "Review workflow",
-        items: [
-          "Review notes are easier to keep grounded in the file changes that produced them.",
-          "Follow-up sessions can reference prior diffs and agent outputs with less copy-pasting.",
-          "Composer keeps implementation and review context near the conversation that created it."
-        ]
-      }
-    ]
-  },
-  {
-    version: "0.2.0",
-    date: "2026-05-12",
-    title: "Agent workspace foundations",
-    sections: [
-      {
-        heading: "Workspace navigation",
-        body:
-          "This release focused on making Composer feel like a durable desktop workspace for agent-driven software work.",
-        items: [
-          "Sessions are grouped around the current project and workspace.",
-          "Thread state is preserved so work can continue after switching between active tasks.",
-          "The app shell is tuned for scanning active sessions, files, and agent activity."
-        ]
-      },
-      {
-        heading: "Improvements",
-        items: [
-          "Improved the handoff flow between planning, implementation, and review sessions.",
-          "Tightened the desktop layout for repeated agent steering workflows.",
-          "Added clearer workspace state around active threads."
-        ]
-      }
-    ]
-  },
-  {
-    version: "0.1.0",
-    date: "2026-05-05",
-    title: "Composer preview",
-    sections: [
-      {
-        heading: "Initial preview",
-        body:
-          "The first Composer preview introduced the core model: a focused desktop workspace for steering coding agents through real project work.",
-        items: [
-          "Codex and Claude sessions can live around the same project context.",
-          "The workspace keeps conversation, file, and review state in one place.",
-          "Composer establishes a foundation for agent-native handoffs and review loops."
-        ]
-      }
-    ]
-  }
-];
+type ChangelogEntry = {
+  version: string;
+  date: string;
+  title: string;
+  sections: Array<{
+    heading: string;
+    body?: string;
+    items: string[];
+  }>;
+};
+
+const changelogEntries: ChangelogEntry[] = [];
 
 export const metadata: Metadata = {
   title: "Changelog | Composer",
@@ -113,10 +56,6 @@ export default function ChangelogPage() {
           <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
             Product updates for Composer.
           </h1>
-          <p className="mt-5 text-base leading-7 text-[#657188] sm:text-lg">
-            Release notes and notable changes as Composer evolves into a
-            focused workspace for agent-native development.
-          </p>
         </div>
 
         <div className="mt-14 border-t border-[#d8dee8]">
