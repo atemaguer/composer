@@ -35,6 +35,7 @@ import type {
   ApprovalDecision,
   ComposerImageAttachment,
   ComposerReviewCommentAttachment,
+  DelegateSessionProvider,
   LiveAgentEvent,
   ProviderFilter,
   Project,
@@ -193,6 +194,8 @@ export default function App() {
   const activeProvider = provider;
   const activeModel = modelByProvider[activeProvider];
   const activeIntelligence = intelligenceByProvider[activeProvider];
+  const activeSessionNeedsParallelAdoption =
+    activeSession ? needsParallelAdoption(activeSession) : false;
 
   const allWorkspaceOptions = useMemo(
     () =>
@@ -683,6 +686,37 @@ export default function App() {
     }
   }
 
+  async function adoptParallelThread(provider: DelegateSessionProvider) {
+    if (!activeSession || !agentServer?.httpUrl) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${agentServer.httpUrl}/api/sessions/adopt-parallel`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          sessionId: activeSession.id,
+          provider
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Parallel thread adoption failed with ${response.status}`);
+      }
+
+      const data = await response.json() as { snapshot?: SessionSnapshot };
+
+      if (data.snapshot) {
+        setSessionSnapshot(data.snapshot);
+      }
+
+      setProvider(provider);
+    } catch (error) {
+      console.warn("Could not adopt parallel thread", error);
+    }
+  }
+
   function resolveApproval(approvalId: string, decision: ApprovalDecision) {
     socketRef.current?.send(
       JSON.stringify({
@@ -922,8 +956,8 @@ export default function App() {
     submitMode,
     submitDisabled:
       submitMode === "send" &&
-      !prompt.trim() &&
-      reviewCommentAttachments.length === 0,
+      (activeSessionNeedsParallelAdoption ||
+        (!prompt.trim() && reviewCommentAttachments.length === 0)),
     imageAttachments,
     reviewCommentAttachments,
     onAddImageAttachments: addImageAttachments,
@@ -1074,6 +1108,11 @@ export default function App() {
                 items={activeSession.items}
                 pendingItems={activePendingItems}
                 composer={composerControls}
+                parallelAdoption={{
+                  required: activeSessionNeedsParallelAdoption,
+                  selectedProvider: activeSession.parallelAdoptedProvider,
+                  onAdopt: adoptParallelThread
+                }}
                 onOpenFile={openFile}
                 onReviewChanges={(request) => void openReview(request)}
               />
@@ -1151,6 +1190,17 @@ function composerProviderForSession(
   fallback: SessionProvider
 ): SessionProvider {
   return session.lastProvider ?? session.provider ?? fallback;
+}
+
+function needsParallelAdoption(session: SessionContent) {
+  return (
+    session.provider === "meta" &&
+    session.renderMode === "hybrid" &&
+    session.model === "Codex + Claude parallel" &&
+    Boolean(session.providerSessions?.codex?.sessionId) &&
+    Boolean(session.providerSessions?.claude?.sessionId) &&
+    !session.parallelAdoptedProvider
+  );
 }
 
 function reviewDiffFromFiles(

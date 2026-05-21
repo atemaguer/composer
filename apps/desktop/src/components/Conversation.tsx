@@ -11,6 +11,7 @@ import {
   Anchor,
   ArrowDown,
   ChevronDown,
+  Check,
   Copy,
   ExternalLink,
   History,
@@ -32,6 +33,7 @@ import { MessageResponse } from "@/components/ai-elements/message";
 import type {
   ConversationAttachment,
   ConversationItem,
+  DelegateSessionProvider,
   FileChangeRow,
   PendingConversationItem,
   ReviewDiffFile,
@@ -63,8 +65,15 @@ type ConversationProps = {
   items: ConversationItem[];
   pendingItems: PendingConversationItem[];
   composer: ComposerProps;
+  parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
+};
+
+type ParallelAdoptionControls = {
+  required: boolean;
+  selectedProvider?: DelegateSessionProvider;
+  onAdopt: (provider: DelegateSessionProvider) => void;
 };
 
 type ReviewChangeRequest = {
@@ -78,6 +87,7 @@ export function Conversation({
   items,
   pendingItems,
   composer,
+  parallelAdoption,
   onOpenFile,
   onReviewChanges
 }: ConversationProps) {
@@ -145,6 +155,7 @@ export function Conversation({
           <ConversationTimeline
             items={timelineItems}
             cwd={cwd}
+            parallelAdoption={parallelAdoption}
             onOpenFile={onOpenFile}
             onReviewChanges={onReviewChanges}
           />
@@ -582,11 +593,13 @@ function providerLabel(provider: SessionProvider) {
 export function ConversationTimeline({
   items,
   cwd,
+  parallelAdoption,
   onOpenFile,
   onReviewChanges
 }: {
   items: ConversationItem[];
   cwd?: string;
+  parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
@@ -598,6 +611,7 @@ export function ConversationTimeline({
             key={item.id}
             item={item}
             cwd={cwd}
+            parallelAdoption={parallelAdoption}
             onOpenFile={onOpenFile}
             onReviewChanges={onReviewChanges}
           />
@@ -610,11 +624,13 @@ export function ConversationTimeline({
 function ConversationItemView({
   item,
   cwd,
+  parallelAdoption,
   onOpenFile,
   onReviewChanges
 }: {
   item: ConversationItem;
   cwd?: string;
+  parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
@@ -691,11 +707,13 @@ function ConversationItemView({
 function ParallelThreadGroup({
   item,
   cwd,
+  parallelAdoption,
   onOpenFile,
   onReviewChanges
 }: {
   item: ParallelThreadGroupItem;
   cwd?: string;
+  parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
@@ -720,7 +738,19 @@ function ParallelThreadGroup({
               )}
             />
             <span className="truncate">{column.title}</span>
+            {parallelAdoption && isDelegateProvider(column.provider) && (
+              <ParallelAdoptButton
+                provider={column.provider}
+                selectedProvider={parallelAdoption.selectedProvider}
+                onAdopt={parallelAdoption.onAdopt}
+              />
+            )}
           </div>
+          {parallelAdoption?.required && (
+            <div className="mb-3 rounded-md border border-app-line bg-app-overlay/30 px-3 py-2 text-[12px] text-app-muted">
+              Pick the thread to continue before sending another message.
+            </div>
+          )}
           <div className="grid min-w-0 gap-4">
             {item.prompt && (
               <ParallelThreadUserPrompt
@@ -733,6 +763,7 @@ function ParallelThreadGroup({
                 key={columnItem.id}
                 item={columnItem}
                 cwd={cwd}
+                parallelAdoption={parallelAdoption}
                 onOpenFile={onOpenFile}
                 onReviewChanges={onReviewChanges}
               />
@@ -742,6 +773,39 @@ function ParallelThreadGroup({
       ))}
     </div>
   );
+}
+
+function ParallelAdoptButton({
+  provider,
+  selectedProvider,
+  onAdopt
+}: {
+  provider: DelegateSessionProvider;
+  selectedProvider?: DelegateSessionProvider;
+  onAdopt: (provider: DelegateSessionProvider) => void;
+}) {
+  const selected = selectedProvider === provider;
+
+  return (
+    <button
+      type="button"
+      className={cn(
+        "ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
+        selected
+          ? "border-app-line bg-app-hover text-app-text"
+          : "border-app-line/80 bg-app-panel/50 text-app-muted hover:bg-app-hover hover:text-app-text"
+      )}
+      onClick={() => onAdopt(provider)}
+      aria-pressed={selected}
+    >
+      {selected && <Check size={13} />}
+      {selected ? "Adopted" : "Adopt"}
+    </button>
+  );
+}
+
+function isDelegateProvider(provider: SessionProvider): provider is DelegateSessionProvider {
+  return provider === "codex" || provider === "claude";
 }
 
 function parallelColumnItems(items: ConversationItem[]) {

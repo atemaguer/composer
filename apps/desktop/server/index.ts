@@ -79,6 +79,11 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "POST" && url.pathname === "/api/sessions/adopt-parallel") {
+      await handleParallelAdoptionRequest(request, response);
+      return;
+    }
+
     writeJson(response, 404, { error: "Not found" });
   } catch (error) {
     writeJson(response, 500, {
@@ -273,6 +278,25 @@ async function handleSessionVisibilityRequest(
   }
 
   const snapshot: SessionSnapshot = runtime.updateSessionVisibility(sessionId, action);
+  writeJson(response, 200, { ok: true, snapshot });
+}
+
+async function handleParallelAdoptionRequest(
+  request: IncomingMessage,
+  response: ServerResponse
+) {
+  const body = await readJson(request);
+  const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+  const provider = body.provider === "codex" || body.provider === "claude"
+    ? body.provider
+    : undefined;
+
+  if (!sessionId || !provider) {
+    writeJson(response, 400, { error: "Expected sessionId and provider" });
+    return;
+  }
+
+  const snapshot: SessionSnapshot = runtime.adoptParallelThread(sessionId, provider);
   writeJson(response, 200, { ok: true, snapshot });
 }
 

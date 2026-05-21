@@ -4,6 +4,7 @@ export type AgentModel = string;
 export type NavKey = "New session";
 export type SessionProvider = "codex" | "claude" | "meta";
 export type ProviderFilter = "all" | SessionProvider;
+export type DelegateSessionProvider = Extract<SessionProvider, "codex" | "claude">;
 
 export type CapabilityProvider = Extract<SessionProvider, "codex" | "claude">;
 export type ComposerCapabilityKind = "plugin" | "skill";
@@ -48,6 +49,7 @@ export type ComposerCapabilityCatalog = {
 
 export type ProviderSessionState = {
   sessionId?: string;
+  cwd?: string;
   lastContextVersion?: number;
 };
 export type SessionRenderMode = "single" | "hybrid";
@@ -288,6 +290,7 @@ export type SessionContent = {
   parentSessionId?: string;
   contextVersion?: number;
   lastProvider?: SessionProvider;
+  parallelAdoptedProvider?: DelegateSessionProvider;
   handoffSummaries?: SessionHandoffSummary[];
   compactionSummaries?: SessionCompactionSummary[];
   runtimeStatus?: AgentSessionRuntimeStatus;

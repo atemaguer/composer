@@ -15,6 +15,7 @@ import type {
   AgentImageAttachment,
   ApprovalDecision,
   ApprovalRequest,
+  DelegateSessionProvider,
   LiveAgentEvent,
   Project,
   SessionContent,
@@ -162,7 +163,15 @@ export class AgentRuntime {
       throw new Error(`Unknown session ${request.sessionId}`);
     }
 
-    const provider = request.provider ?? session.lastProvider ?? session.provider;
+    if (requiresParallelAdoption(session) && !session.parallelAdoptedProvider) {
+      throw new Error("Choose the Codex or Claude parallel thread to adopt before sending another message.");
+    }
+
+    const requestedProvider = request.provider ?? session.lastProvider ?? session.provider;
+    const provider =
+      session.parallelAdoptedProvider && requestedProvider === "meta"
+        ? session.parallelAdoptedProvider
+        : requestedProvider;
 
     if (!isRuntimeProvider(provider)) {
       throw new Error(`Unsupported live provider: ${provider}`);
@@ -256,6 +265,40 @@ export class AgentRuntime {
     return snapshot;
   }
 
+  adoptParallelThread(sessionId: string, provider: DelegateSessionProvider) {
+    const session = this.sessions[sessionId];
+
+    if (!session) {
+      throw new Error(`Unknown session ${sessionId}`);
+    }
+
+    const providerSessionId = parallelProviderSessionId(session, provider);
+
+    if (!providerSessionId) {
+      throw new Error(`${providerLabel(provider)} is not available to adopt for this session.`);
+    }
+
+    session.parallelAdoptedProvider = provider;
+    session.lastProvider = provider;
+    session.updatedAt = new Date().toISOString();
+
+    const providerSessions = { ...(session.providerSessions ?? {}) };
+    providerSessions[provider] = {
+      ...(providerSessions[provider] ?? {}),
+      sessionId: providerSessionId
+    };
+    session.providerSessions = providerSessions;
+    session.cwd = providerSessions[provider]?.cwd ?? session.cwd;
+
+    this.broadcast({
+      id: randomUUID(),
+      type: "session.updated",
+      session
+    });
+
+    return this.snapshot();
+  }
+
   resolveApproval(id: string, decision: ApprovalDecision) {
     const resolver = this.approvals.get(id);
 
@@ -287,6 +330,8 @@ export class AgentRuntime {
         provider,
         request
       );
+
+      adoptWorktreeForProviderRun(parentSession, previousProvider, provider);
 
       const providerSession = sessionForProvider(parentSession, provider);
       const contextVersion = (parentSession.contextVersion ?? 0) + 1;
@@ -713,9 +758,79 @@ function sessionForProvider(
     renderMode: "single",
     parentSessionId: session.id,
     providerSessionId: providerState?.sessionId ?? legacySessionId,
+    cwd: providerState?.cwd ?? session.cwd,
     model: providerModel(provider),
     pendingItems: []
   };
+}
+
+function requiresParallelAdoption(session: SessionContent) {
+  return (
+    session.provider === "meta" &&
+    session.renderMode === "hybrid" &&
+    session.model === "Codex + Claude parallel" &&
+    Boolean(parallelProviderSessionId(session, "codex")) &&
+    Boolean(parallelProviderSessionId(session, "claude"))
+  );
+}
+
+function adoptWorktreeForProviderRun(
+  session: SessionContent,
+  previousProvider: SessionProvider | undefined,
+  nextProvider: RuntimeSessionProvider
+) {
+  if (nextProvider === "meta") {
+    return;
+  }
+
+  const providerSessions = { ...(session.providerSessions ?? {}) };
+  const nextState = providerSessions[nextProvider] ?? {};
+
+  if (
+    previousProvider &&
+    previousProvider !== nextProvider &&
+    isRuntimeProvider(previousProvider)
+  ) {
+    const activeCwd = providerSessions[previousProvider]?.cwd ?? session.cwd;
+
+    if (activeCwd) {
+      providerSessions[nextProvider] = {
+        ...nextState,
+        cwd: activeCwd
+      };
+      session.providerSessions = providerSessions;
+      session.cwd = activeCwd;
+    }
+
+    return;
+  }
+
+  if (nextState.cwd) {
+    session.cwd = nextState.cwd;
+  }
+}
+
+function parallelProviderSessionId(
+  session: SessionContent,
+  provider: DelegateSessionProvider
+) {
+  const providerSessionId = session.providerSessions?.[provider]?.sessionId;
+
+  if (providerSessionId) {
+    return providerSessionId;
+  }
+
+  if (!session.providerSessionId) {
+    return undefined;
+  }
+
+  try {
+    const record = JSON.parse(session.providerSessionId) as Record<string, unknown>;
+    const value = record[provider];
+    return typeof value === "string" ? value : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function syncProviderState(
@@ -731,7 +846,8 @@ function syncProviderState(
 
   providerSessions[provider] = {
     ...current,
-    sessionId: providerSession.providerSessionId ?? current.sessionId
+    sessionId: providerSession.providerSessionId ?? current.sessionId,
+    cwd: providerSession.cwd ?? current.cwd
   };
 
   if (
@@ -758,6 +874,10 @@ function syncProviderState(
 
   if (session.provider === provider && providerSession.providerSessionId) {
     session.providerSessionId = providerSession.providerSessionId;
+  }
+
+  if (providerSession.parallelAdoptedProvider) {
+    session.parallelAdoptedProvider = providerSession.parallelAdoptedProvider;
   }
 }
 

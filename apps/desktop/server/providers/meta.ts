@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import type { AgentProvider } from "../runtime.js";
+import { defaultCwd, type AgentProvider } from "../runtime.js";
 import { upsertHybridDelegateSessions } from "../../electron/hybrid-session-metadata.js";
+import { createParallelDelegateWorktrees } from "../parallel-worktrees.js";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
 import type {
@@ -19,6 +20,8 @@ type MetaStrategy = "planner-review" | "parallel-initial";
 type MetaProviderState = {
   codex?: string;
   claude?: string;
+  codexCwd?: string;
+  claudeCwd?: string;
 };
 
 type DelegateRun = {
@@ -65,9 +68,24 @@ export class MetaProvider implements AgentProvider {
   async run(request: Parameters<AgentProvider["run"]>[0]) {
     const turnId = randomUUID();
     const state = readMetaState(request.session.providerSessionId);
+    const strategy = metaStrategy(request.settings.model);
+    const delegateCwds = strategy === "parallel-initial"
+      ? createParallelDelegateWorktrees({
+          baseCwd: defaultCwd(request.session),
+          parentSessionId: request.session.id,
+          existing: {
+            codex: state.codexCwd,
+            claude: state.claudeCwd
+          }
+        })
+      : undefined;
+
+    state.codexCwd = delegateCwds?.codex.cwd ?? state.codexCwd;
+    state.claudeCwd = delegateCwds?.claude.cwd ?? state.claudeCwd;
+
     const delegateSessions = {
-      codex: delegateSession(request.session, "codex", state.codex),
-      claude: delegateSession(request.session, "claude", state.claude)
+      codex: delegateSession(request.session, "codex", state.codex, state.codexCwd),
+      claude: delegateSession(request.session, "claude", state.claude, state.claudeCwd)
     };
 
     this.activeDelegates.set(request.sessionId, {
@@ -82,7 +100,6 @@ export class MetaProvider implements AgentProvider {
       turnId,
       label: "Hybrid supervisor is coordinating"
     });
-    const strategy = metaStrategy(request.settings.model);
     request.session.renderMode = "hybrid";
     emitSupervisorMessage(request, turnId, strategyDescription(strategy));
 
@@ -123,6 +140,7 @@ export class MetaProvider implements AgentProvider {
         state.codex = delegateSessions.codex.providerSessionId;
         state.claude = delegateSessions.claude.providerSessionId;
         writeMetaState(request.session, state);
+        writeParallelProviderSessions(request.session, state);
         writeHybridDelegateMetadata(request.session.id, strategy, state);
 
         const failures = results
@@ -138,7 +156,7 @@ export class MetaProvider implements AgentProvider {
         emitSupervisorMessage(
           request,
           turnId,
-          "Parallel run complete. Codex and Claude both received the initial message in separate provider threads."
+          "Parallel run complete. Codex and Claude both received the initial message in separate provider threads and isolated git worktrees."
         );
         request.emit({
           id: randomUUID(),
@@ -379,7 +397,8 @@ export class MetaProvider implements AgentProvider {
 function delegateSession(
   parent: SessionContent,
   provider: DelegateProvider,
-  providerSessionId?: string
+  providerSessionId?: string,
+  cwd?: string
 ): SessionContent {
   return {
     ...parent,
@@ -389,6 +408,7 @@ function delegateSession(
     renderMode: "single",
     parentSessionId: parent.id,
     runtimeStatus: "running",
+    cwd: cwd ?? parent.cwd,
     model: provider === "codex" ? "Codex" : "Claude Code",
     pendingItems: []
   };
@@ -581,7 +601,9 @@ function readMetaState(value?: string): MetaProviderState {
     const record = JSON.parse(value) as Record<string, unknown>;
     return {
       codex: typeof record.codex === "string" ? record.codex : undefined,
-      claude: typeof record.claude === "string" ? record.claude : undefined
+      claude: typeof record.claude === "string" ? record.claude : undefined,
+      codexCwd: typeof record.codexCwd === "string" ? record.codexCwd : undefined,
+      claudeCwd: typeof record.claudeCwd === "string" ? record.claudeCwd : undefined
     };
   } catch {
     return {};
@@ -590,6 +612,33 @@ function readMetaState(value?: string): MetaProviderState {
 
 function writeMetaState(session: SessionContent, state: MetaProviderState) {
   session.providerSessionId = JSON.stringify(state);
+}
+
+function writeParallelProviderSessions(
+  session: SessionContent,
+  state: MetaProviderState
+) {
+  session.providerSessions = {
+    ...(session.providerSessions ?? {}),
+    ...(state.codex
+      ? {
+          codex: {
+            ...(session.providerSessions?.codex ?? {}),
+            sessionId: state.codex,
+            cwd: state.codexCwd
+          }
+        }
+      : {}),
+    ...(state.claude
+      ? {
+          claude: {
+            ...(session.providerSessions?.claude ?? {}),
+            sessionId: state.claude,
+            cwd: state.claudeCwd
+          }
+        }
+      : {})
+  };
 }
 
 function delegateToolId(provider: DelegateProvider, turnId: string) {
