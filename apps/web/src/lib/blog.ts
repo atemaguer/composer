@@ -15,6 +15,61 @@ export type BlogPost = {
 
 export const blogPosts: BlogPost[] = [
   {
+    slug: "usage-limits-codex-claude-code",
+    title: "Usage limits make multi-agent handoff a product problem",
+    description:
+      "Developers are coping with Codex and Claude Code limits by subscribing to both. Composer makes that workaround practical by preserving the working context between agents.",
+    publishedAt: "2026-05-21",
+    readingTime: "6 min read",
+    category: "workflow",
+    author: "Composer",
+    featured: true,
+    content: [
+      {
+        heading: "The limit problem is workflow interruption",
+        paragraphs: [
+          "Usage limits are not just a billing annoyance. They interrupt the exact moment when an agent has accumulated enough context to be useful: midway through a refactor, after reading the codebase, or while reviewing a complicated diff.",
+          "When Claude Code or Codex pauses, the developer usually still has work in flight. The branch exists, the terminal output exists, the partial reasoning exists, and the open questions are still real. The problem is that the next tool often cannot see that state without the user manually reconstructing it."
+        ]
+      },
+      {
+        heading: "The obvious workaround is using both",
+        paragraphs: [
+          "A practical workaround is to keep both Codex and Claude Code available. If Claude Code hits its limit, continue in Codex. If Codex is exhausted, move the next planning or review pass to Claude. Because the usage pools live behind different products, one limit does not necessarily stop all agent work.",
+          "That is a reasonable strategy for serious users. It turns a hard stop into a failover event. The developer still pays for both subscriptions, but the day is less likely to stall because one provider has temporarily run out of capacity."
+        ]
+      },
+      {
+        heading: "The catch is context portability",
+        paragraphs: [
+          "The workaround falls apart when the handoff is just copy and paste. A second agent needs more than a paragraph explaining what happened. It needs the current branch, the relevant files, the diff, the commands that ran, the errors that failed, and the review notes that are still unresolved.",
+          "Without that shared state, the user burns the next agent's usage budget rebuilding context. The failover technically works, but the productivity gain disappears into summaries, repeated file reads, and stale assumptions."
+        ]
+      },
+      {
+        heading: "Composer turns failover into a workflow",
+        paragraphs: [
+          "Composer is designed around this problem. It keeps Codex and Claude work organized around the same project, so switching agents does not mean starting a new disconnected conversation. The workspace, changed files, thread history, tool output, and review notes stay close to the task.",
+          "That makes the dual-subscription workaround much more useful. A developer can use Claude for planning, Codex for implementation, Claude for critique, or Codex for a final review without having to rebuild the working state each time."
+        ]
+      },
+      {
+        heading: "Use the remaining bucket for the right pass",
+        paragraphs: [
+          "The best response to limits is not treating every agent as interchangeable. It is using the available agent for the pass it is best suited to at that moment. If Codex still has capacity, hand it the implementation or debugging pass. If Claude still has capacity, hand it the architecture review or adversarial critique.",
+          "Composer makes that choice operational. Instead of asking which subscription is currently alive and then rebuilding the project context from scratch, the user can move the work to the available agent while keeping the surrounding evidence intact."
+        ]
+      },
+      {
+        heading: "Limits will remain, handoffs can improve",
+        paragraphs: [
+          "Usage limits are unlikely to disappear. The models are expensive, demand is uneven, and each provider will keep tuning capacity. Serious users will continue to maintain more than one agent subscription because downtime is more expensive than redundancy.",
+          "The product opportunity is making that redundancy feel natural. Composer does not remove usage limits, but it reduces the cost of hitting one. When an agent stalls, the work can continue somewhere else without losing the thread."
+        ]
+      }
+    ]
+  },
+  {
     slug: "why-compose-codex-and-claude",
     title: "Why compose Codex and Claude?",
     description:

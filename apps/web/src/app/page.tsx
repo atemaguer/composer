@@ -62,6 +62,106 @@ export default function Home() {
       </div>
 
       <section
+        id="use-cases"
+        className="mx-auto w-full max-w-6xl px-5 pb-16 sm:px-8 sm:pb-24"
+      >
+        <div className="border-y border-[#d8dee8]">
+          <div className="grid lg:grid-cols-[minmax(280px,0.82fr)_minmax(0,1.18fr)]">
+            <div className="flex min-h-[500px] flex-col justify-between border-b border-[#d8dee8] py-12 lg:border-b-0 lg:border-r lg:pr-12">
+              <div>
+                <p className="font-mono text-sm text-[#657188]">Use cases</p>
+                <h2 className="mt-5 max-w-xl text-5xl font-semibold leading-[0.98] tracking-tight text-balance sm:text-6xl">
+                  From hard stops to clean handoffs.
+                </h2>
+                <p className="mt-6 max-w-md text-base leading-7 text-[#657188]">
+                  Composer keeps Codex and Claude attached to the same codebase,
+                  so changing agents feels like continuing the work instead of
+                  starting over.
+                </p>
+              </div>
+              <div className="mt-12 border-t border-[#d8dee8] pt-6">
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 font-mono text-sm text-[#657188]">
+                  <div className="border border-[#d8dee8] px-3 py-2 text-[#172033]">
+                    Codex
+                  </div>
+                  <div aria-hidden="true">↔</div>
+                  <div className="border border-[#d8dee8] px-3 py-2 text-[#172033]">
+                    Claude
+                  </div>
+                </div>
+                <p className="mt-4 max-w-sm font-mono text-sm leading-6 text-[#657188]">
+                  Shared branch, diffs, terminal output, session history, and
+                  review notes.
+                </p>
+              </div>
+            </div>
+
+            <div className="grid">
+              {[
+                {
+                  step: "01",
+                  title: "Switch when usage limits hit",
+                  description:
+                    "Move from Claude Code to Codex, or from Codex to Claude, while keeping the branch, thread history, diffs, and tool output nearby.",
+                  trigger: "One bucket runs out",
+                  outcome: "Continue in the other agent"
+                },
+                {
+                  step: "02",
+                  title: "Plan, implement, review",
+                  description:
+                    "Use one agent for architecture, another for code changes, and either one for critique without rebuilding project context each time.",
+                  trigger: "A task needs multiple passes",
+                  outcome: "Keep each pass grounded"
+                },
+                {
+                  step: "03",
+                  title: "Compare parallel approaches",
+                  description:
+                    "Run different agents against the same problem and compare their diffs, notes, failures, and tradeoffs in one workspace.",
+                  trigger: "There are multiple plausible paths",
+                  outcome: "Compare work, not summaries"
+                }
+              ].map((item) => (
+                <div
+                  key={item.title}
+                  className="group grid gap-6 border-b border-[#d8dee8] py-9 transition last:border-b-0 lg:grid-cols-[72px_1fr] lg:px-12"
+                >
+                  <div className="font-mono text-sm text-[#657188]">
+                    <span className="inline-flex size-10 items-center justify-center border border-[#d8dee8] transition group-hover:border-[#aab4c3] group-hover:text-[#172033]">
+                      {item.step}
+                    </span>
+                  </div>
+                  <div>
+                    <div className="grid gap-6 xl:grid-cols-[1fr_220px]">
+                      <div>
+                        <h3 className="text-3xl font-semibold tracking-tight text-balance">
+                          {item.title}
+                        </h3>
+                        <p className="mt-4 max-w-xl text-sm leading-6 text-[#657188]">
+                          {item.description}
+                        </p>
+                      </div>
+                      <dl className="grid gap-4 border-t border-[#d8dee8] pt-5 font-mono text-sm xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
+                        <div>
+                          <dt className="text-[#9aa3b2]">Trigger</dt>
+                          <dd className="mt-1 text-[#172033]">{item.trigger}</dd>
+                        </div>
+                        <div>
+                          <dt className="text-[#9aa3b2]">Outcome</dt>
+                          <dd className="mt-1 text-[#172033]">{item.outcome}</dd>
+                        </div>
+                      </dl>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
         id="faq"
         className="mx-auto w-full max-w-6xl px-5 pb-16 sm:px-8 sm:pb-24"
       >
