@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, nativeTheme } from "electron";
 import { spawn, type ChildProcess } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
@@ -14,10 +15,12 @@ import { desktopCliEnvironment } from "./cli-env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FILE_PREVIEW_BYTES = 1_000_000;
+const TELEMETRY_IDENTITY_FILE = "telemetry-identity.json";
 let agentServerProcess: ChildProcess | null = null;
 let agentServerPort: number | null = null;
 let agentServerReady: Promise<number> | null = null;
 
+ipcMain.handle("composer:get-telemetry-identity", () => telemetryIdentity());
 ipcMain.handle("composer:list-local-sessions", () => loadLocalSessions());
 ipcMain.handle("composer:update-session-visibility", (_event, request: unknown) => {
   const value = isRecord(request) ? request : {};
@@ -175,6 +178,45 @@ function windowFrameState(window: BrowserWindow | null) {
     maximized,
     titlebarControlsVisible: process.platform === "darwin" && !fullScreen && !maximized
   };
+}
+
+function telemetryIdentity() {
+  const filePath = path.join(app.getPath("userData"), TELEMETRY_IDENTITY_FILE);
+  const existing = readTelemetryIdentity(filePath);
+
+  if (existing) {
+    return existing;
+  }
+
+  const created = {
+    installationId: randomUUID(),
+    appVersion: app.getVersion(),
+    platform: process.platform
+  };
+
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(created, null, 2), "utf8");
+
+  return created;
+}
+
+function readTelemetryIdentity(filePath: string) {
+  try {
+    const value = JSON.parse(fs.readFileSync(filePath, "utf8")) as unknown;
+
+    if (!isRecord(value) || typeof value.installationId !== "string") {
+      return null;
+    }
+
+    return {
+      installationId: value.installationId,
+      appVersion:
+        typeof value.appVersion === "string" ? value.appVersion : app.getVersion(),
+      platform: typeof value.platform === "string" ? value.platform : process.platform
+    };
+  } catch {
+    return null;
+  }
 }
 
 app.whenReady().then(() => {

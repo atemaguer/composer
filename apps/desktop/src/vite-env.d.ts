@@ -24,6 +24,11 @@ declare global {
   interface Window {
     composer?: {
       platform: string;
+      getTelemetryIdentity?: () => Promise<{
+        installationId: string;
+        appVersion: string;
+        platform: string;
+      }>;
       getAgentServer?: () => Promise<{
         httpUrl: string;
         wsUrl: string;

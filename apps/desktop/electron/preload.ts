@@ -18,6 +18,12 @@ type WindowFrameState = {
 
 contextBridge.exposeInMainWorld("composer", {
   platform: process.platform,
+  getTelemetryIdentity: () =>
+    ipcRenderer.invoke("composer:get-telemetry-identity") as Promise<{
+      installationId: string;
+      appVersion: string;
+      platform: string;
+    }>,
   getAgentServer: () => ipcRenderer.invoke("composer:get-agent-server"),
   listLocalSessions: () => ipcRenderer.invoke("composer:list-local-sessions"),
   updateSessionVisibility: (request: {
