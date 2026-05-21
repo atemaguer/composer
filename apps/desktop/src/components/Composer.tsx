@@ -119,9 +119,15 @@ const providerModels: Record<ComposerProvider, ModelOption[]> = {
   ],
   meta: [
     {
-      value: "meta-claude-opus-codex-mini",
-      label: "Plan -> Execute",
+      value: "meta-planner-review",
+      label: "Planner review",
       detail: "Claude plans high, Codex executes low",
+      efforts: ["High"]
+    },
+    {
+      value: "meta-parallel-initial",
+      label: "Parallel initial",
+      detail: "Codex and Claude start together",
       efforts: ["High"]
     }
   ]
@@ -1286,6 +1292,16 @@ function ModelSettingsMenu({
       : provider === "codex"
         ? "Reasoning effort"
         : "Thinking effort";
+  const metaExecutionDetails =
+    selectedModel.value === "meta-parallel-initial"
+      ? [
+          ["Codex", "Starts a GPT-5.4 thread immediately"],
+          ["Claude", "Starts a Claude Sonnet 4.6 thread immediately"]
+        ]
+      : [
+          ["Claude Opus 4.7", "Planning with Extra High thinking"],
+          ["GPT-5.4 Mini", "Execution with Low reasoning"]
+        ];
 
   return (
     <div
@@ -1325,18 +1341,14 @@ function ModelSettingsMenu({
       </div>
       {provider === "meta" ? (
         <div className="grid gap-1 px-2 pb-1 text-[13px] text-app-text">
-          <div className={cn("px-2.5 py-2", subtleCardSurface)}>
-            <div className="text-app-text">Claude Opus 4.7</div>
-            <div className="text-[12px] text-app-dim">
-              Planning with Extra High thinking
+          {metaExecutionDetails.map(([title, detail]) => (
+            <div key={title} className={cn("px-2.5 py-2", subtleCardSurface)}>
+              <div className="text-app-text">{title}</div>
+              <div className="text-[12px] text-app-dim">
+                {detail}
+              </div>
             </div>
-          </div>
-          <div className={cn("px-2.5 py-2", subtleCardSurface)}>
-            <div className="text-app-text">GPT-5.4 Mini</div>
-            <div className="text-[12px] text-app-dim">
-              Execution with Low reasoning
-            </div>
-          </div>
+          ))}
         </div>
       ) : (
         efforts.map((label) => (

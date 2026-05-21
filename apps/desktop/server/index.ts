@@ -389,7 +389,11 @@ function parseModel(value: unknown, provider: SessionProvider) {
   const model = value.trim();
   const allowedModels =
     provider === "meta"
-      ? ["meta-claude-opus-codex-mini"]
+      ? [
+          "meta-claude-opus-codex-mini",
+          "meta-planner-review",
+          "meta-parallel-initial"
+        ]
       : provider === "claude"
       ? ["claude-sonnet-4-6", "claude-opus-4-7"]
       : ["gpt-5.5", "gpt-5.4", "gpt-5.4-mini"];

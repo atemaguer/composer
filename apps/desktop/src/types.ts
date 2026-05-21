@@ -50,6 +50,7 @@ export type ProviderSessionState = {
   sessionId?: string;
   lastContextVersion?: number;
 };
+export type SessionRenderMode = "single" | "hybrid";
 export type SessionHandoffSummary = {
   id: string;
   provider: SessionProvider;
@@ -214,6 +215,9 @@ export type ConversationItem =
       type: "assistant_message";
       body: string;
       attachments?: FileChangeSummaryItem[];
+      provider?: SessionProvider;
+      layoutGroupId?: string;
+      layoutTitle?: string;
     }
   | {
       id: string;
@@ -226,6 +230,8 @@ export type ConversationItem =
       summary: string;
       details: ToolDetail[];
       provider?: SessionProvider;
+      layoutGroupId?: string;
+      layoutTitle?: string;
       defaultOpen?: boolean;
     }
   | {
@@ -256,6 +262,16 @@ export type ConversationItem =
       id: string;
       type: "jump_marker";
       label?: string;
+    }
+  | {
+      id: string;
+      type: "parallel_thread_group";
+      columns: Array<{
+        provider: SessionProvider;
+        title: string;
+        items: ConversationItem[];
+      }>;
+      prompt?: string;
     };
 
 export type PendingConversationItem = Extract<
@@ -268,6 +284,8 @@ export type SessionContent = {
   provider: SessionProvider;
   providerSessionId?: string;
   providerSessions?: Partial<Record<SessionProvider, ProviderSessionState>>;
+  renderMode?: SessionRenderMode;
+  parentSessionId?: string;
   contextVersion?: number;
   lastProvider?: SessionProvider;
   handoffSummaries?: SessionHandoffSummary[];
@@ -322,6 +340,9 @@ export type LiveAgentEvent =
       sessionId: string;
       messageId: string;
       delta: string;
+      provider?: SessionProvider;
+      layoutGroupId?: string;
+      layoutTitle?: string;
     }
   | {
       id: string;
@@ -329,6 +350,9 @@ export type LiveAgentEvent =
       sessionId: string;
       messageId: string;
       body?: string;
+      provider?: SessionProvider;
+      layoutGroupId?: string;
+      layoutTitle?: string;
     }
   | {
       id: string;
@@ -337,6 +361,8 @@ export type LiveAgentEvent =
       toolId: string;
       label: string;
       provider?: SessionProvider;
+      layoutGroupId?: string;
+      layoutTitle?: string;
       detail?: ToolDetail;
     }
   | {
@@ -345,6 +371,8 @@ export type LiveAgentEvent =
       sessionId: string;
       toolId: string;
       provider?: SessionProvider;
+      layoutGroupId?: string;
+      layoutTitle?: string;
       delta: string;
     }
   | {
@@ -353,6 +381,8 @@ export type LiveAgentEvent =
       sessionId: string;
       toolId: string;
       provider?: SessionProvider;
+      layoutGroupId?: string;
+      layoutTitle?: string;
       detail?: ToolDetail;
     }
   | { id: string; type: "approval.requested"; approval: ApprovalRequest }

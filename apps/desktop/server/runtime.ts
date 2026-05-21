@@ -6,6 +6,7 @@ import {
   updateLocalSessionVisibility,
   type LocalSessionAction
 } from "../electron/session-loader.js";
+import { upsertHybridDelegateSessions } from "../electron/hybrid-session-metadata.js";
 import { ClaudeProvider } from "./providers/claude.js";
 import { CodexProvider } from "./providers/codex.js";
 import { MetaProvider } from "./providers/meta.js";
@@ -110,6 +111,7 @@ export class AgentRuntime {
     const session: SessionContent = {
       id,
       provider: request.provider,
+      renderMode: request.provider === "meta" ? "hybrid" : "single",
       providerSessions: {},
       contextVersion: 0,
       runtimeStatus: "running",
@@ -531,11 +533,17 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
 
     if (existing?.type === "assistant_message") {
       existing.body += event.delta;
+      existing.provider = event.provider ?? existing.provider;
+      existing.layoutGroupId = event.layoutGroupId ?? existing.layoutGroupId;
+      existing.layoutTitle = event.layoutTitle ?? existing.layoutTitle;
     } else {
       session.items.push({
         id: event.messageId,
         type: "assistant_message",
-        body: event.delta
+        body: event.delta,
+        provider: event.provider,
+        layoutGroupId: event.layoutGroupId,
+        layoutTitle: event.layoutTitle
       });
     }
     return;
@@ -548,6 +556,9 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
 
     if (existing?.type === "assistant_message" && event.body) {
       existing.body = event.body;
+      existing.provider = event.provider ?? existing.provider;
+      existing.layoutGroupId = event.layoutGroupId ?? existing.layoutGroupId;
+      existing.layoutTitle = event.layoutTitle ?? existing.layoutTitle;
     }
     return;
   }
@@ -559,6 +570,8 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
       summary: event.label,
       details: event.detail ? [event.detail] : [toolDetail(event.toolId, event.label)],
       provider: event.provider,
+      layoutGroupId: event.layoutGroupId,
+      layoutTitle: event.layoutTitle,
       defaultOpen: false
     });
     return;
@@ -697,6 +710,8 @@ function sessionForProvider(
     ...session,
     id: `${provider}-live-shared-${safeSessionId(session.id)}`,
     provider,
+    renderMode: "single",
+    parentSessionId: session.id,
     providerSessionId: providerState?.sessionId ?? legacySessionId,
     model: providerModel(provider),
     pendingItems: []
@@ -718,6 +733,21 @@ function syncProviderState(
     ...current,
     sessionId: providerSession.providerSessionId ?? current.sessionId
   };
+
+  if (
+    session.id !== providerSession.id &&
+    (provider === "codex" || provider === "claude") &&
+    providerSession.providerSessionId
+  ) {
+    upsertHybridDelegateSessions([
+      {
+        parentSessionId: session.id,
+        provider,
+        providerSessionId: providerSession.providerSessionId,
+        mode: "handoff"
+      }
+    ]);
+  }
 
   session.providerSessions = providerSessions;
 
@@ -1051,15 +1081,22 @@ function stampToolEventProvider(
     event.type === "tool.delta" ||
     event.type === "tool.completed"
   ) {
-    return { ...event, provider };
+    return { ...event, provider: event.provider ?? provider };
   }
 
   return event;
 }
 
 function providerModel(provider: SessionProvider, model?: string) {
-  if (provider === "meta" && model === "meta-claude-opus-codex-mini") {
+  if (
+    provider === "meta" &&
+    (model === "meta-claude-opus-codex-mini" || model === "meta-planner-review")
+  ) {
     return "Opus plan -> GPT-5.4 Mini";
+  }
+
+  if (provider === "meta" && model === "meta-parallel-initial") {
+    return "Codex + Claude parallel";
   }
 
   if (model) {

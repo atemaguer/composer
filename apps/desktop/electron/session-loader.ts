@@ -8,6 +8,7 @@ import {
   reviewFileFromCodexChange,
   type PatchReviewFile
 } from "./patch-review.js";
+import { readHybridSessionMetadata } from "./hybrid-session-metadata.js";
 
 type SessionProvider = "codex" | "claude" | "meta";
 type ToolStatus = "running" | "completed" | "failed" | "cancelled";
@@ -100,6 +101,8 @@ type ProjectThread = {
   cwd?: string;
 };
 
+type SessionRenderMode = "single" | "hybrid";
+
 type Project = {
   id?: string;
   name: string;
@@ -112,6 +115,8 @@ type SessionContent = {
   id: string;
   provider: SessionProvider;
   providerSessionId?: string;
+  renderMode?: SessionRenderMode;
+  parentSessionId?: string;
   runtimeStatus?: "idle" | "running" | "awaiting_approval" | "error";
   title: string;
   updatedAt?: string;
@@ -135,9 +140,19 @@ const MAX_TEXT_LENGTH = 4_000;
 const MAX_DETAIL_LENGTH = 520;
 
 export function loadLocalSessions(): SessionSnapshot {
+  const hybridMetadata = readHybridSessionMetadata();
+  const delegateKeys = new Set(
+    hybridMetadata.delegates.map((delegate) =>
+      delegateSessionKey(delegate.provider, delegate.providerSessionId)
+    )
+  );
   const claudeSessions = loadClaudeSessions();
   const codexSessions = loadCodexSessions();
-  const localSessions = uniqueSessionsById([...claudeSessions, ...codexSessions]);
+  const localSessions = uniqueSessionsById([...claudeSessions, ...codexSessions])
+    .filter((session) =>
+      !session.providerSessionId ||
+      !delegateKeys.has(delegateSessionKey(session.provider, session.providerSessionId))
+    );
   const sessions = Object.fromEntries(
     localSessions.map((session) => [
       session.id,
@@ -153,6 +168,10 @@ export function loadLocalSessions(): SessionSnapshot {
 
 function uniqueSessionsById(sessions: SessionContent[]) {
   return [...new Map(sessions.map((session) => [session.id, session])).values()];
+}
+
+function delegateSessionKey(provider: SessionProvider, providerSessionId: string) {
+  return `${provider}:${providerSessionId}`;
 }
 
 function loadCodexSessions(): SessionContent[] {
@@ -433,6 +452,7 @@ function parseCodexSession(
     id: `codex-${id}`,
     provider: "codex",
     providerSessionId: id,
+    renderMode: "single",
     title,
     updatedAt,
     cwd,
@@ -583,6 +603,7 @@ function parseClaudeSession(filePath: string): SessionContent | null {
     id: `claude-${sessionId}`,
     provider: "claude",
     providerSessionId: sessionId,
+    renderMode: "single",
     title: titleFromText(firstUserText) ?? titleFromCwd(cwd) ?? titleFromPath(filePath),
     updatedAt,
     cwd,

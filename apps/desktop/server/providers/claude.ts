@@ -144,7 +144,7 @@ export class ClaudeProvider implements AgentProvider {
     this.active.set(request.sessionId, { abortController });
     const turnId = randomUUID();
     const messageId = `${request.sessionId}-assistant-${turnId}`;
-    let receivedDelta = false;
+    let emittedText = "";
 
     request.emit({
       id: randomUUID(),
@@ -249,7 +249,7 @@ export class ClaudeProvider implements AgentProvider {
           const delta = extractClaudeStreamDelta(message);
 
           if (delta) {
-            receivedDelta = true;
+            emittedText += delta;
             request.emit({
               id: randomUUID(),
               type: "message.delta",
@@ -310,7 +310,12 @@ export class ClaudeProvider implements AgentProvider {
           for (const block of message.message.content) {
             const record = block as unknown as JsonRecord;
 
-            if (record.type === "text" && typeof record.text === "string" && !receivedDelta) {
+            if (
+              record.type === "text" &&
+              typeof record.text === "string" &&
+              !hasEmittedText(emittedText, record.text)
+            ) {
+              emittedText += record.text;
               request.emit({
                 id: randomUUID(),
                 type: "message.delta",
@@ -344,13 +349,15 @@ export class ClaudeProvider implements AgentProvider {
               sessionId: request.sessionId,
               message: claudeResultErrorMessage(message)
             });
-          } else if (!receivedDelta && message.result) {
+          } else if (message.result && !hasEmittedText(emittedText, message.result)) {
+            const delta = remainingClaudeResultText(emittedText, message.result);
+            emittedText += delta;
             request.emit({
               id: randomUUID(),
               type: "message.delta",
               sessionId: request.sessionId,
               messageId,
-              delta: message.result
+              delta
             });
           }
 
@@ -627,6 +634,27 @@ function extractClaudeStreamDelta(message: Extract<SDKMessage, { type: "stream_e
   }
 
   return "";
+}
+
+function hasEmittedText(emittedText: string, candidate: string) {
+  const emitted = emittedText.trim();
+  const value = candidate.trim();
+
+  if (!value || !emitted) {
+    return false;
+  }
+
+  return emitted === value || emitted.includes(value) || value.includes(emitted);
+}
+
+function remainingClaudeResultText(emittedText: string, result: string) {
+  if (!emittedText) {
+    return result;
+  }
+
+  return result.startsWith(emittedText)
+    ? result.slice(emittedText.length)
+    : result;
 }
 
 function sessionIdFromMessage(message: SDKMessage) {
