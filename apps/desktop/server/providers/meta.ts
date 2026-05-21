@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { AgentProvider } from "../runtime.js";
+import { upsertHybridDelegateSessions } from "../../electron/hybrid-session-metadata.js";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
 import type {
@@ -13,6 +14,7 @@ import type {
 } from "../../src/types.js";
 
 type DelegateProvider = "codex" | "claude";
+type MetaStrategy = "planner-review" | "parallel-initial";
 
 type MetaProviderState = {
   codex?: string;
@@ -27,6 +29,7 @@ type DelegateRun = {
   role: "planning" | "execution";
   phase: "plan" | "execute";
   settings: AgentSettings;
+  layoutGroupId?: string;
 };
 
 const META_PLANNER = {
@@ -39,6 +42,19 @@ const META_EXECUTOR = {
   provider: "codex" as const,
   model: "gpt-5.4-mini",
   intelligence: "Low" as const
+};
+
+const PARALLEL_DELEGATES = {
+  codex: {
+    provider: "codex" as const,
+    model: "gpt-5.4",
+    intelligence: "Medium" as const
+  },
+  claude: {
+    provider: "claude" as const,
+    model: "claude-sonnet-4-6",
+    intelligence: "High" as const
+  }
 };
 
 export class MetaProvider implements AgentProvider {
@@ -66,13 +82,74 @@ export class MetaProvider implements AgentProvider {
       turnId,
       label: "Hybrid supervisor is coordinating"
     });
-    emitSupervisorMessage(
-      request,
-      turnId,
-      "Planning with Claude Opus 4.7 at Extra High thinking, then executing the approved plan with Codex GPT-5.4 Mini at Low reasoning."
-    );
+    const strategy = metaStrategy(request.settings.model);
+    request.session.renderMode = "hybrid";
+    emitSupervisorMessage(request, turnId, strategyDescription(strategy));
 
     try {
+      if (strategy === "parallel-initial") {
+        const layoutGroupId = `${request.sessionId}-${turnId}-parallel`;
+        const results = await Promise.allSettled([
+          this.runDelegate(request, {
+            provider: PARALLEL_DELEGATES.codex.provider,
+            session: delegateSessions.codex,
+            prompt: request.prompt,
+            intro: "Codex parallel delegate",
+            role: "execution",
+            phase: "execute",
+            layoutGroupId,
+            settings: {
+              ...request.settings,
+              intelligence: PARALLEL_DELEGATES.codex.intelligence,
+              model: PARALLEL_DELEGATES.codex.model
+            }
+          }),
+          this.runDelegate(request, {
+            provider: PARALLEL_DELEGATES.claude.provider,
+            session: delegateSessions.claude,
+            prompt: request.prompt,
+            intro: "Claude parallel delegate",
+            role: "execution",
+            phase: "execute",
+            layoutGroupId,
+            settings: {
+              ...request.settings,
+              intelligence: PARALLEL_DELEGATES.claude.intelligence,
+              model: PARALLEL_DELEGATES.claude.model
+            }
+          })
+        ]);
+
+        state.codex = delegateSessions.codex.providerSessionId;
+        state.claude = delegateSessions.claude.providerSessionId;
+        writeMetaState(request.session, state);
+        writeHybridDelegateMetadata(request.session.id, strategy, state);
+
+        const failures = results
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason instanceof Error
+            ? result.reason.message
+            : String(result.reason));
+
+        if (failures.length > 0) {
+          throw new Error(failures.join("\n"));
+        }
+
+        emitSupervisorMessage(
+          request,
+          turnId,
+          "Parallel run complete. Codex and Claude both received the initial message in separate provider threads."
+        );
+        request.emit({
+          id: randomUUID(),
+          type: "turn.completed",
+          sessionId: request.sessionId,
+          turnId,
+          status: "idle"
+        });
+        return;
+      }
+
       const plan = await this.runDelegate(request, {
         provider: META_PLANNER.provider,
         session: delegateSessions[META_PLANNER.provider],
@@ -91,6 +168,7 @@ export class MetaProvider implements AgentProvider {
       state[META_PLANNER.provider] =
         delegateSessions[META_PLANNER.provider].providerSessionId;
       writeMetaState(request.session, state);
+      writeHybridDelegateMetadata(request.session.id, strategy, state);
       emitSupervisorMessage(
         request,
         turnId,
@@ -114,6 +192,7 @@ export class MetaProvider implements AgentProvider {
       state[META_EXECUTOR.provider] =
         delegateSessions[META_EXECUTOR.provider].providerSessionId;
       writeMetaState(request.session, state);
+      writeHybridDelegateMetadata(request.session.id, strategy, state);
 
       emitSupervisorMessage(
         request,
@@ -177,6 +256,11 @@ export class MetaProvider implements AgentProvider {
       sessionId: request.sessionId,
       toolId: delegateToolId(delegate.provider, delegateTurnId),
       label: `${delegate.intro} started`,
+      provider: delegate.provider,
+      layoutGroupId: delegate.layoutGroupId,
+      layoutTitle: delegate.layoutGroupId
+        ? `${providerLabel(delegate.provider)} thread`
+        : undefined,
       detail: {
         id: `${delegate.provider}-${delegateTurnId}-call`,
         label: delegate.intro,
@@ -196,7 +280,12 @@ export class MetaProvider implements AgentProvider {
       type: "message.delta",
       sessionId: request.sessionId,
       messageId: `${request.sessionId}-${delegate.provider}-${delegateTurnId}-header`,
-      delta: `\n\n**${delegate.intro}**\n\n`
+      delta: `\n\n**${delegate.intro}**\n\n`,
+      provider: delegate.provider,
+      layoutGroupId: delegate.layoutGroupId,
+      layoutTitle: delegate.layoutGroupId
+        ? `${providerLabel(delegate.provider)} thread`
+        : undefined
     });
 
     await new Promise<void>((resolve, reject) => {
@@ -235,7 +324,8 @@ export class MetaProvider implements AgentProvider {
             const remapped = remapDelegateEvent(
               event,
               request.sessionId,
-              delegate.provider
+              delegate.provider,
+              delegate.layoutGroupId
             );
 
             if (remapped) {
@@ -263,6 +353,11 @@ export class MetaProvider implements AgentProvider {
       type: "tool.completed",
       sessionId: request.sessionId,
       toolId: delegateToolId(delegate.provider, delegateTurnId),
+      provider: delegate.provider,
+      layoutGroupId: delegate.layoutGroupId,
+      layoutTitle: delegate.layoutGroupId
+        ? `${providerLabel(delegate.provider)} thread`
+        : undefined,
       detail: {
         id: `${delegate.provider}-${delegateTurnId}-done`,
         label: `${delegate.intro} completed`,
@@ -291,6 +386,8 @@ function delegateSession(
     id: `${provider}-live-meta-${safeSessionId(parent.id)}`,
     provider,
     providerSessionId,
+    renderMode: "single",
+    parentSessionId: parent.id,
     runtimeStatus: "running",
     model: provider === "codex" ? "Codex" : "Claude Code",
     pendingItems: []
@@ -334,7 +431,8 @@ function executionPrompt(prompt: string, plan: string) {
 function remapDelegateEvent(
   event: LiveAgentEvent,
   sessionId: string,
-  provider: DelegateProvider
+  provider: DelegateProvider,
+  layoutGroupId?: string
 ): LiveAgentEvent | null {
   if (event.type === "turn.started" || event.type === "turn.completed") {
     return null;
@@ -353,7 +451,10 @@ function remapDelegateEvent(
       ...event,
       id: randomUUID(),
       sessionId,
-      messageId: `${provider}-${event.messageId}`
+      messageId: `${provider}-${event.messageId}`,
+      provider,
+      layoutGroupId,
+      layoutTitle: layoutGroupId ? `${providerLabel(provider)} thread` : undefined
     };
   }
 
@@ -362,7 +463,10 @@ function remapDelegateEvent(
       ...event,
       id: randomUUID(),
       sessionId,
-      messageId: `${provider}-${event.messageId}`
+      messageId: `${provider}-${event.messageId}`,
+      provider,
+      layoutGroupId,
+      layoutTitle: layoutGroupId ? `${providerLabel(provider)} thread` : undefined
     };
   }
 
@@ -372,6 +476,9 @@ function remapDelegateEvent(
       id: randomUUID(),
       sessionId,
       toolId: `${provider}-${event.toolId}`,
+      provider,
+      layoutGroupId,
+      layoutTitle: layoutGroupId ? `${providerLabel(provider)} thread` : undefined,
       label: `[${providerLabel(provider)}] ${event.label}`,
       detail: event.detail
         ? {
@@ -388,7 +495,10 @@ function remapDelegateEvent(
       ...event,
       id: randomUUID(),
       sessionId,
-      toolId: `${provider}-${event.toolId}`
+      toolId: `${provider}-${event.toolId}`,
+      provider,
+      layoutGroupId,
+      layoutTitle: layoutGroupId ? `${providerLabel(provider)} thread` : undefined
     };
   }
 
@@ -398,6 +508,9 @@ function remapDelegateEvent(
       id: randomUUID(),
       sessionId,
       toolId: `${provider}-${event.toolId}`,
+      provider,
+      layoutGroupId,
+      layoutTitle: layoutGroupId ? `${providerLabel(provider)} thread` : undefined,
       detail: event.detail
         ? {
             ...event.detail,
@@ -489,4 +602,50 @@ function providerLabel(provider: DelegateProvider) {
 
 function safeSessionId(sessionId: string) {
   return sessionId.replace(/[^A-Za-z0-9_-]/g, "-");
+}
+
+function metaStrategy(model?: string): MetaStrategy {
+  return model === "meta-parallel-initial"
+    ? "parallel-initial"
+    : "planner-review";
+}
+
+function strategyDescription(strategy: MetaStrategy) {
+  if (strategy === "parallel-initial") {
+    return "Starting Codex GPT-5.4 and Claude Sonnet 4.6 in parallel with the initial message, each in its own provider thread.";
+  }
+
+  return "Planning with Claude Opus 4.7 at Extra High thinking, then executing the approved plan with Codex GPT-5.4 Mini at Low reasoning.";
+}
+
+function writeHybridDelegateMetadata(
+  parentSessionId: string,
+  mode: MetaStrategy,
+  state: MetaProviderState
+) {
+  upsertHybridDelegateSessions(
+    ([
+      state.codex
+        ? {
+            parentSessionId,
+            provider: "codex" as const,
+            providerSessionId: state.codex,
+            mode
+          }
+        : undefined,
+      state.claude
+        ? {
+            parentSessionId,
+            provider: "claude" as const,
+            providerSessionId: state.claude,
+            mode
+          }
+        : undefined
+    ]).filter((value): value is {
+      parentSessionId: string;
+      provider: DelegateProvider;
+      providerSessionId: string;
+      mode: MetaStrategy;
+    } => Boolean(value))
+  );
 }

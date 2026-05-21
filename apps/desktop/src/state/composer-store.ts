@@ -13,7 +13,7 @@ import { resolveState, type StateUpdater } from "./state-utils";
 export const defaultModelsByProvider: Record<SessionProvider, AgentModel> = {
   codex: "gpt-5.4",
   claude: "claude-sonnet-4-6",
-  meta: "meta-claude-opus-codex-mini"
+  meta: "meta-planner-review"
 };
 
 export const defaultIntelligenceByProvider: Record<

@@ -83,8 +83,10 @@ export function Conversation({
 }: ConversationProps) {
   const timelineItems = useMemo(
     () =>
-      groupConsecutiveToolActivity(
-        items.filter((item) => item.type !== "jump_marker")
+      groupParallelThreadActivity(
+        groupConsecutiveToolActivity(
+          items.filter((item) => item.type !== "jump_marker")
+        )
       ),
     [items]
   );
@@ -171,7 +173,7 @@ function groupConsecutiveToolActivity(
   while (index < items.length) {
     const item = items[index];
 
-    if (item.type !== "tool_group") {
+    if (item.type !== "tool_group" || item.layoutGroupId) {
       grouped.push(item);
       index += 1;
       continue;
@@ -179,7 +181,10 @@ function groupConsecutiveToolActivity(
 
     const batch: ToolGroupItem[] = [];
 
-    while (items[index]?.type === "tool_group") {
+    while (
+      items[index]?.type === "tool_group" &&
+      !(items[index] as ToolGroupItem).layoutGroupId
+    ) {
       batch.push(items[index] as ToolGroupItem);
       index += 1;
     }
@@ -188,6 +193,288 @@ function groupConsecutiveToolActivity(
   }
 
   return grouped;
+}
+
+type ParallelThreadItem = Extract<
+  ConversationItem,
+  { type: "assistant_message" | "tool_group" }
+>;
+
+type ParallelThreadGroupItem = Extract<
+  ConversationItem,
+  { type: "parallel_thread_group" }
+>;
+
+function groupParallelThreadActivity(
+  items: ConversationItem[]
+): ConversationItem[] {
+  const grouped: ConversationItem[] = [];
+  let index = 0;
+  let fallbackGroupIndex = 0;
+  let lastUserPrompt: string | undefined;
+
+  while (index < items.length) {
+    const item = items[index];
+
+    if (item.type === "user_message") {
+      lastUserPrompt = item.body;
+    }
+
+    const layoutGroupId =
+      parallelLayoutGroupId(item) ??
+      (isParallelThreadMarker(item) ? `parallel-fallback-${fallbackGroupIndex++}` : undefined);
+
+    if (!layoutGroupId) {
+      grouped.push(item);
+      index += 1;
+      continue;
+    }
+
+    const batch: ParallelThreadItem[] = [];
+    let activeFallbackProvider: SessionProvider | undefined;
+    const isFallbackGroup = layoutGroupId.startsWith("parallel-fallback-");
+
+    while (
+      index < items.length &&
+      belongsToParallelGroup(items[index], layoutGroupId, batch, activeFallbackProvider)
+    ) {
+      const normalized = normalizeParallelThreadItem(
+        items[index] as ParallelThreadItem,
+        activeFallbackProvider,
+        isFallbackGroup
+      );
+
+      activeFallbackProvider = normalized.provider ?? activeFallbackProvider;
+      batch.push(normalized);
+      index += 1;
+    }
+
+    const parallelGroup = parallelThreadGroup(layoutGroupId, batch, lastUserPrompt);
+    grouped.push(parallelGroup ?? batch[0]);
+  }
+
+  return grouped;
+}
+
+function parallelLayoutGroupId(item: ConversationItem) {
+  if (item.type === "assistant_message" || item.type === "tool_group") {
+    return item.layoutGroupId;
+  }
+
+  return undefined;
+}
+
+function belongsToParallelGroup(
+  item: ConversationItem,
+  layoutGroupId: string,
+  currentBatch: ParallelThreadItem[],
+  activeFallbackProvider?: SessionProvider
+) {
+  const itemLayoutGroupId = parallelLayoutGroupId(item);
+
+  if (itemLayoutGroupId) {
+    return itemLayoutGroupId === layoutGroupId;
+  }
+
+  if (!layoutGroupId.startsWith("parallel-fallback-")) {
+    return false;
+  }
+
+  if (!isParallelThreadItem(item)) {
+    return false;
+  }
+
+  if (isParallelThreadMarker(item)) {
+    return true;
+  }
+
+  return currentBatch.some(isParallelThreadMarker) &&
+    Boolean(parallelItemProvider(item, currentBatch, activeFallbackProvider));
+}
+
+function isParallelThreadItem(item: ConversationItem): item is ParallelThreadItem {
+  return item.type === "assistant_message" || item.type === "tool_group";
+}
+
+function isParallelThreadMarker(item: ConversationItem) {
+  return /(?:codex|claude) parallel delegate/i.test(parallelItemText(item));
+}
+
+function normalizeParallelThreadItem(
+  item: ParallelThreadItem,
+  activeFallbackProvider?: SessionProvider,
+  forceFallbackProvider = false
+): ParallelThreadItem {
+  const provider = parallelItemProvider(
+    item,
+    [],
+    activeFallbackProvider,
+    forceFallbackProvider
+  );
+
+  return {
+    ...item,
+    provider,
+    layoutTitle: item.layoutTitle ?? (provider ? `${providerLabel(provider)} thread` : undefined)
+  };
+}
+
+function parallelItemProvider(
+  item: ParallelThreadItem,
+  currentBatch: ParallelThreadItem[] = [],
+  activeFallbackProvider?: SessionProvider,
+  forceFallbackProvider = false
+): SessionProvider | undefined {
+  const text = parallelItemText(item);
+
+  if (/\bcodex\b/i.test(text)) {
+    return "codex";
+  }
+
+  if (/\bclaude\b/i.test(text)) {
+    return "claude";
+  }
+
+  if (
+    forceFallbackProvider &&
+    (activeFallbackProvider === "codex" || activeFallbackProvider === "claude")
+  ) {
+    return activeFallbackProvider;
+  }
+
+  if (item.provider && item.provider !== "meta") {
+    return item.provider;
+  }
+
+  if (activeFallbackProvider === "codex" || activeFallbackProvider === "claude") {
+    return activeFallbackProvider;
+  }
+
+  return [...currentBatch]
+    .reverse()
+    .map((batchItem) => batchItem.provider)
+    .find((provider): provider is SessionProvider => provider === "codex" || provider === "claude");
+}
+
+function parallelItemText(item: ConversationItem) {
+  if (item.type === "assistant_message") {
+    return item.body;
+  }
+
+  if (item.type === "tool_group") {
+    return [
+      item.summary,
+      ...item.details.flatMap((detail) => [
+        detail.label,
+        detail.toolName,
+        detail.args?.provider
+      ])
+    ].filter(Boolean).join(" ");
+  }
+
+  return "";
+}
+
+function parallelThreadGroup(
+  layoutGroupId: string,
+  items: ParallelThreadItem[],
+  prompt?: string
+): ParallelThreadGroupItem | null {
+  const expandedItems = items.flatMap(splitParallelItemByProvider);
+  const providers = Array.from(
+    new Set(
+      expandedItems
+        .map((item) => item.provider)
+        .filter((provider): provider is SessionProvider => Boolean(provider))
+    )
+  );
+
+  if (providers.length < 2) {
+    return null;
+  }
+
+  const providerOrder: SessionProvider[] = ["codex", "claude", "meta"];
+
+  return {
+    id: `parallel-${layoutGroupId}`,
+    type: "parallel_thread_group",
+    prompt,
+    columns: providers
+      .sort((left, right) => providerOrder.indexOf(left) - providerOrder.indexOf(right))
+      .map((provider) => {
+        const providerItems = expandedItems.filter((item) => item.provider === provider);
+
+        return {
+          provider,
+          title:
+            providerItems.find((providerItem) => providerItem.layoutTitle)?.layoutTitle ??
+            `${providerLabel(provider)} thread`,
+          items: providerItems
+        };
+      })
+  };
+}
+
+function splitParallelItemByProvider(item: ParallelThreadItem): ParallelThreadItem[] {
+  if (item.type !== "tool_group") {
+    return [item];
+  }
+
+  const detailGroups = new Map<SessionProvider, ToolDetail[]>();
+  const fallbackProvider =
+    item.provider === "codex" || item.provider === "claude"
+      ? item.provider
+      : undefined;
+
+  for (const detail of item.details) {
+    const provider = parallelDetailProvider(detail) ?? fallbackProvider;
+
+    if (!provider) {
+      continue;
+    }
+
+    detailGroups.set(provider, [...(detailGroups.get(provider) ?? []), detail]);
+  }
+
+  if (detailGroups.size <= 1) {
+    return [item];
+  }
+
+  return Array.from(detailGroups.entries()).map(([provider, details]) => ({
+    ...item,
+    id: `${item.id}-${provider}`,
+    provider,
+    summary: summarizeParallelToolDetails(details),
+    details,
+    layoutTitle: `${providerLabel(provider)} thread`
+  }));
+}
+
+function parallelDetailProvider(detail: ToolDetail): SessionProvider | undefined {
+  const provider = detail.args?.provider?.toLowerCase();
+
+  if (provider === "codex" || provider === "claude") {
+    return provider;
+  }
+
+  const labelMatch = /^\[(Codex|Claude)\]\s+/i.exec(detail.label);
+
+  if (labelMatch) {
+    return labelMatch[1].toLowerCase() as SessionProvider;
+  }
+
+  return undefined;
+}
+
+function summarizeParallelToolDetails(details: ToolDetail[]) {
+  return summarizeToolActivityBatch([
+    {
+      id: `parallel-tool-${details[0]?.id ?? "details"}`,
+      type: "tool_group",
+      summary: "",
+      details
+    }
+  ]);
 }
 
 function mergeToolActivityBatch(batch: ToolGroupItem[]): ToolGroupItem {
@@ -284,6 +571,14 @@ function capitalizeFirst(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
 }
 
+function providerLabel(provider: SessionProvider) {
+  if (provider === "meta") {
+    return "Hybrid";
+  }
+
+  return provider === "claude" ? "Claude" : "Codex";
+}
+
 export function ConversationTimeline({
   items,
   cwd,
@@ -296,7 +591,7 @@ export function ConversationTimeline({
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   return (
-    <div data-conversation-content className="mx-auto w-full max-w-[820px]">
+    <div data-conversation-content className="mx-auto w-full max-w-[1180px]">
       <div data-conversation-stream className="grid gap-5 pt-3">
         {items.map((item) => (
           <ConversationItemView
@@ -359,6 +654,17 @@ function ConversationItemView({
     );
   }
 
+  if (item.type === "parallel_thread_group") {
+    return (
+      <ParallelThreadGroup
+        item={item}
+        cwd={cwd}
+        onOpenFile={onOpenFile}
+        onReviewChanges={onReviewChanges}
+      />
+    );
+  }
+
   if (item.type === "running_tool") {
     return <RunningToolCard label={item.label} overlay={false} />;
   }
@@ -380,6 +686,97 @@ function ConversationItemView({
   }
 
   return <NoticeRow label={item.label} />;
+}
+
+function ParallelThreadGroup({
+  item,
+  cwd,
+  onOpenFile,
+  onReviewChanges
+}: {
+  item: ParallelThreadGroupItem;
+  cwd?: string;
+  onOpenFile?: (filePath: string) => void;
+  onReviewChanges?: (request?: ReviewChangeRequest) => void;
+}) {
+  return (
+    <div className="grid gap-3 xl:grid-cols-2">
+      {item.columns.map((column) => (
+        <section
+          key={column.provider}
+          className={cn(
+            "min-w-0 rounded-lg border border-app-line bg-app-panel/45 p-3",
+            "shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_4%,transparent)]"
+          )}
+          aria-label={column.title}
+        >
+          <div className="mb-3 flex min-w-0 items-center gap-2 border-b border-app-line pb-2 text-[12px] font-medium text-app-muted">
+            <ProviderLogo
+              provider={column.provider}
+              className={cn(
+                "h-3.5 w-3.5",
+                column.provider === "claude" && appSuccessText,
+                column.provider === "codex" && appAccentText
+              )}
+            />
+            <span className="truncate">{column.title}</span>
+          </div>
+          <div className="grid min-w-0 gap-4">
+            {item.prompt && (
+              <ParallelThreadUserPrompt
+                body={item.prompt}
+                onOpenFile={onOpenFile}
+              />
+            )}
+            {parallelColumnItems(column.items).map((columnItem) => (
+              <ConversationItemView
+                key={columnItem.id}
+                item={columnItem}
+                cwd={cwd}
+                onOpenFile={onOpenFile}
+                onReviewChanges={onReviewChanges}
+              />
+            ))}
+          </div>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function parallelColumnItems(items: ConversationItem[]) {
+  return items.filter((item) => !isParallelDelegateWrapper(item));
+}
+
+function isParallelDelegateWrapper(item: ConversationItem) {
+  if (item.type === "assistant_message") {
+    return /^\s*\*\*(?:Codex|Claude) parallel delegate\*\*\s*$/i.test(item.body);
+  }
+
+  if (item.type === "tool_group") {
+    return item.details.some((detail) => detail.toolName === "meta_supervisor") ||
+      /(?:codex|claude) parallel delegate started/i.test(item.summary);
+  }
+
+  return false;
+}
+
+function ParallelThreadUserPrompt({
+  body,
+  onOpenFile
+}: {
+  body: string;
+  onOpenFile?: (filePath: string) => void;
+}) {
+  return (
+    <div className="grid justify-items-end gap-1">
+      <div className="max-w-[92%] rounded-lg border border-app-line-strong bg-app-text/[0.07] px-3 py-2 text-[13px] text-app-text">
+        <ChatMessageMarkdown tone="user" onOpenFile={onOpenFile}>
+          {body}
+        </ChatMessageMarkdown>
+      </div>
+    </div>
+  );
 }
 
 export function TurnStatusDivider({ label }: { label: string }) {
