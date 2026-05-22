@@ -285,6 +285,7 @@ export type SessionContent = {
   id: string;
   provider: SessionProvider;
   providerSessionId?: string;
+  nativeWorktreeName?: string;
   providerSessions?: Partial<Record<SessionProvider, ProviderSessionState>>;
   renderMode?: SessionRenderMode;
   parentSessionId?: string;
@@ -297,6 +298,7 @@ export type SessionContent = {
   title: string;
   updatedAt?: string;
   cwd?: string;
+  displayCwd?: string;
   model?: string;
   items: ConversationItem[];
   pendingItems: PendingConversationItem[];

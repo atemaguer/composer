@@ -98,9 +98,14 @@ export class ClaudeProvider implements AgentProvider {
     try {
       for await (const message of claudeQuery) {
         const sessionId = sessionIdFromMessage(message);
+        const cwd = cwdFromMessage(message);
 
         if (sessionId) {
           request.session.providerSessionId = sessionId;
+        }
+
+        if (cwd) {
+          request.session.cwd = cwd;
         }
 
         if (message.type === "system" && message.subtype === "compact_boundary") {
@@ -226,9 +231,7 @@ export class ClaudeProvider implements AgentProvider {
       env
     };
 
-    if (resumeSessionId) {
-      options.resume = resumeSessionId;
-    }
+    applyClaudeNativeWorktreeOption(options, request.session, resumeSessionId);
 
     const claudeQuery = query({
       prompt: claudePrompt(request.prompt, request.imageAttachments),
@@ -240,9 +243,14 @@ export class ClaudeProvider implements AgentProvider {
     try {
       for await (const message of claudeQuery) {
         const sessionId = sessionIdFromMessage(message);
+        const cwd = cwdFromMessage(message);
 
         if (sessionId) {
           request.session.providerSessionId = sessionId;
+        }
+
+        if (cwd) {
+          request.session.cwd = cwd;
         }
 
         if (message.type === "stream_event") {
@@ -661,6 +669,34 @@ function sessionIdFromMessage(message: SDKMessage) {
   return "session_id" in message && typeof message.session_id === "string"
     ? message.session_id
     : undefined;
+}
+
+function cwdFromMessage(message: SDKMessage) {
+  return message.type === "system" &&
+    "cwd" in message &&
+    typeof message.cwd === "string"
+    ? message.cwd
+    : undefined;
+}
+
+export function applyClaudeNativeWorktreeOption(
+  options: Pick<Options, "extraArgs" | "resume">,
+  session: Pick<SessionContent, "nativeWorktreeName">,
+  resumeSessionId?: string
+) {
+  if (resumeSessionId) {
+    options.resume = resumeSessionId;
+    return;
+  }
+
+  if (!session.nativeWorktreeName) {
+    return;
+  }
+
+  options.extraArgs = {
+    ...(options.extraArgs ?? {}),
+    worktree: session.nativeWorktreeName
+  };
 }
 
 function toolDetail(id: string, toolName: string, input: JsonRecord): ToolDetail {

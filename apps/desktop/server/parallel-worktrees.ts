@@ -4,7 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-type DelegateProvider = "codex" | "claude";
+type DelegateProvider = "codex";
 
 type ExistingWorktrees = Partial<Record<DelegateProvider, string>>;
 
@@ -13,7 +13,7 @@ export type ParallelDelegateWorktree = {
   cwd: string;
 };
 
-export function createParallelDelegateWorktrees({
+export function createCodexParallelWorktree({
   baseCwd,
   parentSessionId,
   existing
@@ -21,7 +21,7 @@ export function createParallelDelegateWorktrees({
   baseCwd: string;
   parentSessionId: string;
   existing?: ExistingWorktrees;
-}): Record<DelegateProvider, ParallelDelegateWorktree> {
+}): ParallelDelegateWorktree {
   const gitRoot = git(baseCwd, ["rev-parse", "--show-toplevel"]);
   git(gitRoot, ["rev-parse", "--verify", "HEAD"]);
 
@@ -29,10 +29,7 @@ export function createParallelDelegateWorktrees({
   const sessionKey = safePathSegment(parentSessionId);
   const root = path.join(os.homedir(), ".composer", "worktrees", rootKey, sessionKey);
 
-  return {
-    codex: ensureDelegateWorktree(gitRoot, root, "codex", existing?.codex),
-    claude: ensureDelegateWorktree(gitRoot, root, "claude", existing?.claude)
-  };
+  return ensureDelegateWorktree(gitRoot, root, "codex", existing?.codex);
 }
 
 function ensureDelegateWorktree(

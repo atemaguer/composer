@@ -176,7 +176,8 @@ export function Conversation({
 type ToolGroupItem = Extract<ConversationItem, { type: "tool_group" }>;
 
 function groupConsecutiveToolActivity(
-  items: ConversationItem[]
+  items: ConversationItem[],
+  options: { includeLayoutGroups?: boolean } = {}
 ): ConversationItem[] {
   const grouped: ConversationItem[] = [];
   let index = 0;
@@ -184,7 +185,10 @@ function groupConsecutiveToolActivity(
   while (index < items.length) {
     const item = items[index];
 
-    if (item.type !== "tool_group" || item.layoutGroupId) {
+    if (
+      item.type !== "tool_group" ||
+      (item.layoutGroupId && !options.includeLayoutGroups)
+    ) {
       grouped.push(item);
       index += 1;
       continue;
@@ -194,7 +198,7 @@ function groupConsecutiveToolActivity(
 
     while (
       items[index]?.type === "tool_group" &&
-      !(items[index] as ToolGroupItem).layoutGroupId
+      (!(items[index] as ToolGroupItem).layoutGroupId || options.includeLayoutGroups)
     ) {
       batch.push(items[index] as ToolGroupItem);
       index += 1;
@@ -675,6 +679,7 @@ function ConversationItemView({
       <ParallelThreadGroup
         item={item}
         cwd={cwd}
+        parallelAdoption={parallelAdoption}
         onOpenFile={onOpenFile}
         onReviewChanges={onReviewChanges}
       />
@@ -738,29 +743,11 @@ function ParallelThreadGroup({
               )}
             />
             <span className="truncate">{column.title}</span>
-            {parallelAdoption && isDelegateProvider(column.provider) && (
-              <ParallelAdoptButton
-                provider={column.provider}
-                selectedProvider={parallelAdoption.selectedProvider}
-                onAdopt={parallelAdoption.onAdopt}
-              />
-            )}
           </div>
-          {parallelAdoption?.required && (
-            <div className="mb-3 rounded-md border border-app-line bg-app-overlay/30 px-3 py-2 text-[12px] text-app-muted">
-              Pick the thread to continue before sending another message.
-            </div>
-          )}
           <div className="grid min-w-0 gap-4">
-            {item.prompt && (
-              <ParallelThreadUserPrompt
-                body={item.prompt}
-                onOpenFile={onOpenFile}
-              />
-            )}
-            {parallelColumnItems(column.items).map((columnItem) => (
+            {parallelColumnItems(column.items).map((columnItem, index) => (
               <ConversationItemView
-                key={columnItem.id}
+                key={`${columnItem.id}-${index}`}
                 item={columnItem}
                 cwd={cwd}
                 parallelAdoption={parallelAdoption}
@@ -769,37 +756,38 @@ function ParallelThreadGroup({
               />
             ))}
           </div>
+          {parallelAdoption?.required && isDelegateProvider(column.provider) && (
+            <div className="mt-4 border-t border-app-line pt-3">
+              <ParallelContinueButton
+                provider={column.provider}
+                onAdopt={parallelAdoption.onAdopt}
+              />
+            </div>
+          )}
         </section>
       ))}
     </div>
   );
 }
 
-function ParallelAdoptButton({
+function ParallelContinueButton({
   provider,
-  selectedProvider,
   onAdopt
 }: {
   provider: DelegateSessionProvider;
-  selectedProvider?: DelegateSessionProvider;
   onAdopt: (provider: DelegateSessionProvider) => void;
 }) {
-  const selected = selectedProvider === provider;
-
   return (
     <button
       type="button"
       className={cn(
-        "ml-auto inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[12px] transition-colors",
-        selected
-          ? "border-app-line bg-app-hover text-app-text"
-          : "border-app-line/80 bg-app-panel/50 text-app-muted hover:bg-app-hover hover:text-app-text"
+        "inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border px-3 text-[12px] font-medium transition-colors",
+        "border-app-line bg-app-panel/60 text-app-muted hover:bg-app-hover hover:text-app-text"
       )}
       onClick={() => onAdopt(provider)}
-      aria-pressed={selected}
     >
-      {selected && <Check size={13} />}
-      {selected ? "Adopted" : "Adopt"}
+      <Check size={13} />
+      Continue with {providerLabel(provider)}
     </button>
   );
 }
@@ -809,7 +797,10 @@ function isDelegateProvider(provider: SessionProvider): provider is DelegateSess
 }
 
 function parallelColumnItems(items: ConversationItem[]) {
-  return items.filter((item) => !isParallelDelegateWrapper(item));
+  return groupConsecutiveToolActivity(
+    items.filter((item) => !isParallelDelegateWrapper(item)),
+    { includeLayoutGroups: true }
+  );
 }
 
 function isParallelDelegateWrapper(item: ConversationItem) {
@@ -819,28 +810,20 @@ function isParallelDelegateWrapper(item: ConversationItem) {
 
   if (item.type === "tool_group") {
     return item.details.some((detail) => detail.toolName === "meta_supervisor") ||
-      /(?:codex|claude) parallel delegate started/i.test(item.summary);
+      /(?:codex|claude) parallel delegate started/i.test(item.summary) ||
+      isInitialUserEchoTool(item);
   }
 
   return false;
 }
 
-function ParallelThreadUserPrompt({
-  body,
-  onOpenFile
-}: {
-  body: string;
-  onOpenFile?: (filePath: string) => void;
-}) {
-  return (
-    <div className="grid justify-items-end gap-1">
-      <div className="max-w-[92%] rounded-lg border border-app-line-strong bg-app-text/[0.07] px-3 py-2 text-[13px] text-app-text">
-        <ChatMessageMarkdown tone="user" onOpenFile={onOpenFile}>
-          {body}
-        </ChatMessageMarkdown>
-      </div>
-    </div>
-  );
+function isInitialUserEchoTool(item: ToolGroupItem) {
+  const text = [
+    item.summary,
+    ...item.details.map((detail) => detail.label)
+  ].join(" ");
+
+  return /\buser message\b/i.test(text);
 }
 
 export function TurnStatusDivider({ label }: { label: string }) {

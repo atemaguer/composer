@@ -25,7 +25,8 @@
     "build:mac:dev": "run-s build electron:build:mac:dev",
     "build:linux": "run-s build electron:build:linux",
     "preview": "vite preview --host 127.0.0.1",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.server.json --noEmit"
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "test:server": "npm run server:build && node --test test/*.test.mjs"
   },
   "dependencies": {
     "@ai-sdk/react": "^3.0.177",

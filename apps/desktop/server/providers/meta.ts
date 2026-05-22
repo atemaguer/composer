@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { defaultCwd, type AgentProvider } from "../runtime.js";
 import { upsertHybridDelegateSessions } from "../../electron/hybrid-session-metadata.js";
-import { createParallelDelegateWorktrees } from "../parallel-worktrees.js";
+import { createCodexParallelWorktree } from "../parallel-worktrees.js";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
 import type {
@@ -22,6 +22,7 @@ type MetaProviderState = {
   claude?: string;
   codexCwd?: string;
   claudeCwd?: string;
+  claudeWorktreeName?: string;
 };
 
 type DelegateRun = {
@@ -69,23 +70,30 @@ export class MetaProvider implements AgentProvider {
     const turnId = randomUUID();
     const state = readMetaState(request.session.providerSessionId);
     const strategy = metaStrategy(request.settings.model);
-    const delegateCwds = strategy === "parallel-initial"
-      ? createParallelDelegateWorktrees({
+    const codexWorktree = strategy === "parallel-initial"
+      ? createCodexParallelWorktree({
           baseCwd: defaultCwd(request.session),
           parentSessionId: request.session.id,
           existing: {
-            codex: state.codexCwd,
-            claude: state.claudeCwd
+            codex: state.codexCwd
           }
         })
       : undefined;
 
-    state.codexCwd = delegateCwds?.codex.cwd ?? state.codexCwd;
-    state.claudeCwd = delegateCwds?.claude.cwd ?? state.claudeCwd;
+    state.codexCwd = codexWorktree?.cwd ?? state.codexCwd;
+    state.claudeWorktreeName = strategy === "parallel-initial"
+      ? state.claudeWorktreeName ?? claudeWorktreeName(request.session.id)
+      : state.claudeWorktreeName;
 
     const delegateSessions = {
       codex: delegateSession(request.session, "codex", state.codex, state.codexCwd),
-      claude: delegateSession(request.session, "claude", state.claude, state.claudeCwd)
+      claude: delegateSession(
+        request.session,
+        "claude",
+        state.claude,
+        state.claudeCwd,
+        state.claudeWorktreeName
+      )
     };
 
     this.activeDelegates.set(request.sessionId, {
@@ -139,6 +147,8 @@ export class MetaProvider implements AgentProvider {
 
         state.codex = delegateSessions.codex.providerSessionId;
         state.claude = delegateSessions.claude.providerSessionId;
+        state.codexCwd = delegateSessions.codex.cwd ?? state.codexCwd;
+        state.claudeCwd = delegateSessions.claude.cwd ?? state.claudeCwd;
         writeMetaState(request.session, state);
         writeParallelProviderSessions(request.session, state);
         writeHybridDelegateMetadata(request.session.id, strategy, state);
@@ -398,7 +408,8 @@ function delegateSession(
   parent: SessionContent,
   provider: DelegateProvider,
   providerSessionId?: string,
-  cwd?: string
+  cwd?: string,
+  nativeWorktreeName?: string
 ): SessionContent {
   return {
     ...parent,
@@ -409,6 +420,7 @@ function delegateSession(
     parentSessionId: parent.id,
     runtimeStatus: "running",
     cwd: cwd ?? parent.cwd,
+    nativeWorktreeName,
     model: provider === "codex" ? "Codex" : "Claude Code",
     pendingItems: []
   };
@@ -603,7 +615,10 @@ function readMetaState(value?: string): MetaProviderState {
       codex: typeof record.codex === "string" ? record.codex : undefined,
       claude: typeof record.claude === "string" ? record.claude : undefined,
       codexCwd: typeof record.codexCwd === "string" ? record.codexCwd : undefined,
-      claudeCwd: typeof record.claudeCwd === "string" ? record.claudeCwd : undefined
+      claudeCwd: typeof record.claudeCwd === "string" ? record.claudeCwd : undefined,
+      claudeWorktreeName: typeof record.claudeWorktreeName === "string"
+        ? record.claudeWorktreeName
+        : undefined
     };
   } catch {
     return {};
@@ -651,6 +666,10 @@ function providerLabel(provider: DelegateProvider) {
 
 function safeSessionId(sessionId: string) {
   return sessionId.replace(/[^A-Za-z0-9_-]/g, "-");
+}
+
+function claudeWorktreeName(sessionId: string) {
+  return `composer-${safeSessionId(sessionId)}`.slice(0, 64);
 }
 
 function metaStrategy(model?: string): MetaStrategy {

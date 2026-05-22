@@ -314,14 +314,38 @@ function basename(filePath: string) {
   return filePath.replace(/\/+$/, "").split("/").pop() || filePath;
 }
 
-export function workspaceProjectForSession(session: Pick<SessionContent, "cwd">) {
-  const cwd = session.cwd?.replace(/\/+$/, "");
+export function workspaceProjectForSession(
+  session: Pick<SessionContent, "cwd" | "displayCwd" | "renderMode" | "parallelAdoptedProvider">
+) {
+  const cwd = workspaceCwdForSession(session).replace(/\/+$/, "");
 
   return {
     id: cwd ?? "unknown-workspace",
     name: cwd ? basename(cwd) : "Unknown workspace",
     cwd
   };
+}
+
+function workspaceCwdForSession(
+  session: Pick<SessionContent, "cwd" | "displayCwd" | "renderMode" | "parallelAdoptedProvider">
+) {
+  return displayWorkspaceCwd(session.displayCwd ?? session.cwd) ?? "";
+}
+
+function displayWorkspaceCwd(cwd?: string) {
+  if (!cwd) {
+    return undefined;
+  }
+
+  const normalized = cwd.replace(/\/+$/, "");
+  const claudeWorktreeMarker = "/.claude/worktrees/";
+  const claudeIndex = normalized.indexOf(claudeWorktreeMarker);
+
+  if (claudeIndex > 0) {
+    return normalized.slice(0, claudeIndex);
+  }
+
+  return normalized;
 }
 
 function projectKey(project: Project) {

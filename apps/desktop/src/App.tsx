@@ -216,7 +216,9 @@ export default function App() {
   const selectedWorkspace =
     allWorkspaceOptions.find((option) => option.id === selectedWorkspaceId) ??
     allWorkspaceOptions[0];
-  const currentCwd = activeSession?.cwd ?? selectedWorkspace?.cwd;
+  const currentCwd = activeSession
+    ? sessionWorkspaceCwd(activeSession) ?? selectedWorkspace?.cwd
+    : selectedWorkspace?.cwd;
   const workspaceName =
     selectedWorkspace?.label ??
     agentServer?.workspaceName ??
@@ -462,8 +464,10 @@ export default function App() {
     const nextProvider = composerProviderForSession(session, provider);
     setProvider(nextProvider);
 
-    if (session.cwd) {
-      setSelectedWorkspaceId(session.cwd);
+    const sessionWorkspace = sessionWorkspaceCwd(session);
+
+    if (sessionWorkspace) {
+      setSelectedWorkspaceId(sessionWorkspace);
     }
   }
 
@@ -711,7 +715,9 @@ export default function App() {
         setSessionSnapshot(data.snapshot);
       }
 
+      setSelectedThread(activeSession.id);
       setProvider(provider);
+      navigateAppRoute(sessionRoute(activeSession.id), { replace: true });
     } catch (error) {
       console.warn("Could not adopt parallel thread", error);
     }
@@ -1103,6 +1109,12 @@ export default function App() {
           <div className="h-full min-h-0 min-w-0 overflow-hidden">
             {shouldShowConversation && activeSession ? (
               <Conversation
+                key={[
+                  activeSession.id,
+                  activeSession.provider,
+                  activeSession.renderMode ?? "single",
+                  activeSession.parallelAdoptedProvider ?? ""
+                ].join(":")}
                 cwd={activeSession.cwd ?? currentCwd}
                 inspectorOpen={inspectorOpen}
                 items={activeSession.items}
@@ -1201,6 +1213,26 @@ function needsParallelAdoption(session: SessionContent) {
     Boolean(session.providerSessions?.claude?.sessionId) &&
     !session.parallelAdoptedProvider
   );
+}
+
+function sessionWorkspaceCwd(session: SessionContent) {
+  return displayWorkspaceCwd(session.displayCwd ?? session.cwd);
+}
+
+function displayWorkspaceCwd(cwd?: string) {
+  if (!cwd) {
+    return undefined;
+  }
+
+  const normalized = cwd.replace(/\/+$/, "");
+  const claudeWorktreeMarker = "/.claude/worktrees/";
+  const claudeIndex = normalized.indexOf(claudeWorktreeMarker);
+
+  if (claudeIndex > 0) {
+    return normalized.slice(0, claudeIndex);
+  }
+
+  return normalized;
 }
 
 function reviewDiffFromFiles(

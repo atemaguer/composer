@@ -15,6 +15,7 @@ import type {
   AgentImageAttachment,
   ApprovalDecision,
   ApprovalRequest,
+  ConversationItem,
   DelegateSessionProvider,
   LiveAgentEvent,
   Project,
@@ -109,6 +110,7 @@ export class AgentRuntime {
     }
 
     const id = `${request.provider}-live-${randomUUID()}`;
+    const displayCwd = displayWorkspaceCwd(request.cwd);
     const session: SessionContent = {
       id,
       provider: request.provider,
@@ -118,6 +120,7 @@ export class AgentRuntime {
       runtimeStatus: "running",
       title: titleFromPrompt(request.prompt),
       cwd: request.cwd,
+      displayCwd,
       model: providerModel(request.provider, request.settings.model),
       updatedAt: new Date().toISOString(),
       items: [
@@ -279,7 +282,10 @@ export class AgentRuntime {
     }
 
     session.parallelAdoptedProvider = provider;
+    session.provider = provider;
     session.lastProvider = provider;
+    session.renderMode = "single";
+    session.model = providerModel(provider);
     session.updatedAt = new Date().toISOString();
 
     const providerSessions = { ...(session.providerSessions ?? {}) };
@@ -289,6 +295,9 @@ export class AgentRuntime {
     };
     session.providerSessions = providerSessions;
     session.cwd = providerSessions[provider]?.cwd ?? session.cwd;
+    session.providerSessionId = providerSessionId;
+    session.items = adoptedParallelItems(session.items, provider);
+    session.pendingItems = [];
 
     this.broadcast({
       id: randomUUID(),
@@ -833,6 +842,71 @@ function parallelProviderSessionId(
   }
 }
 
+export function adoptedParallelItems(
+  items: ConversationItem[],
+  provider: DelegateSessionProvider
+): ConversationItem[] {
+  return items.flatMap((item): ConversationItem[] => {
+    if (item.type === "user_message" || item.type === "attachment_group") {
+      return [item];
+    }
+
+    if (item.type !== "assistant_message" && item.type !== "tool_group") {
+      return [];
+    }
+
+    if (item.layoutGroupId && item.provider !== provider) {
+      return [];
+    }
+
+    if (item.type === "assistant_message") {
+      if (isParallelDelegateHeader(item)) {
+        return [];
+      }
+
+      if (!item.layoutGroupId && item.provider !== provider) {
+        return [];
+      }
+
+      const { provider: _provider, layoutGroupId: _layoutGroupId, layoutTitle: _layoutTitle, ...rest } = item;
+      return [rest];
+    }
+
+    if (isParallelDelegateToolWrapper(item)) {
+      return [];
+    }
+
+    if (!item.layoutGroupId && item.provider !== provider) {
+      return [];
+    }
+
+    const { provider: _provider, layoutGroupId: _layoutGroupId, layoutTitle: _layoutTitle, ...rest } = item;
+    return [rest];
+  });
+}
+
+function isParallelDelegateHeader(
+  item: Extract<ConversationItem, { type: "assistant_message" }>
+) {
+  return /^\s*\*\*(?:Codex|Claude) parallel delegate\*\*\s*$/i.test(item.body);
+}
+
+function isParallelDelegateToolWrapper(
+  item: Extract<ConversationItem, { type: "tool_group" }>
+) {
+  const text = [
+    item.summary,
+    ...item.details.flatMap((detail) => [
+      detail.label,
+      detail.toolName
+    ])
+  ].filter(Boolean).join(" ");
+
+  return item.details.some((detail) => detail.toolName === "meta_supervisor") ||
+    /(?:codex|claude) parallel delegate started/i.test(text) ||
+    /\buser message\b/i.test(text);
+}
+
 function syncProviderState(
   session: SessionContent,
   provider: RuntimeSessionProvider,
@@ -1148,7 +1222,7 @@ function buildProjects(sessions: Record<string, SessionContent>): Project[] {
   const byWorkspace = new Map<string, SessionContent[]>();
 
   for (const session of Object.values(sessions)) {
-    const cwd = normalizeCwd(session.cwd);
+    const cwd = normalizeCwd(workspaceCwdForSession(session));
     const key = cwd ?? "unknown-workspace";
 
     byWorkspace.set(key, [...(byWorkspace.get(key) ?? []), session]);
@@ -1171,11 +1245,43 @@ function buildProjects(sessions: Record<string, SessionContent>): Project[] {
           age: relativeAge(session.updatedAt),
           provider: session.provider,
           model: session.model,
-          cwd: session.cwd
+          cwd: workspaceCwdForSession(session)
         }))
       };
     })
     .sort((a, b) => latestProjectTimestamp(b, sessions) - latestProjectTimestamp(a, sessions));
+}
+
+function workspaceCwdForSession(session: SessionContent) {
+  return displayWorkspaceCwd(session.displayCwd ?? session.cwd);
+}
+
+function displayWorkspaceCwd(cwd?: string) {
+  if (!cwd) {
+    return undefined;
+  }
+
+  const normalized = path.resolve(cwd);
+  const claudeWorktreeMarker = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
+  const claudeIndex = normalized.indexOf(claudeWorktreeMarker);
+
+  if (claudeIndex > 0) {
+    return normalized.slice(0, claudeIndex);
+  }
+
+  const gitCommonDir = runGit(normalized, [
+    "rev-parse",
+    "--path-format=absolute",
+    "--git-common-dir"
+  ]);
+  const gitWorktreeMarker = `${path.sep}.git${path.sep}worktrees${path.sep}`;
+  const gitWorktreeIndex = gitCommonDir?.indexOf(gitWorktreeMarker) ?? -1;
+
+  if (gitWorktreeIndex > 0) {
+    return gitCommonDir?.slice(0, gitWorktreeIndex);
+  }
+
+  return normalized;
 }
 
 function isRuntimeProvider(

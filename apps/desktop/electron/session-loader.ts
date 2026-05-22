@@ -117,10 +117,12 @@ type SessionContent = {
   providerSessionId?: string;
   renderMode?: SessionRenderMode;
   parentSessionId?: string;
+  parallelAdoptedProvider?: "codex" | "claude";
   runtimeStatus?: "idle" | "running" | "awaiting_approval" | "error";
   title: string;
   updatedAt?: string;
   cwd?: string;
+  displayCwd?: string;
   model?: string;
   items: ConversationItem[];
   pendingItems: Extract<ConversationItem, { type: "running_tool" }>[];
@@ -824,13 +826,15 @@ function uniqueFilePath(filePath: string) {
 }
 
 function sessionToThread(session: SessionContent): ProjectThread {
+  const cwd = workspaceCwdForSession(session);
+
   return {
     id: session.id,
     name: session.title,
     age: relativeAge(session.updatedAt),
     provider: session.provider,
     model: session.model,
-    cwd: session.cwd
+    cwd
   };
 }
 
@@ -841,7 +845,7 @@ function groupSessionsByWorkspace(sessions: SessionContent[]): Project[] {
   >();
 
   for (const session of sessions) {
-    const cwd = normalizeCwd(session.cwd);
+    const cwd = normalizeCwd(workspaceCwdForSession(session));
     const id = cwd ?? "unknown-workspace";
     const existing = byWorkspace.get(id);
 
@@ -868,6 +872,26 @@ function groupSessionsByWorkspace(sessions: SessionContent[]): Project[] {
         .map(sessionToThread)
     }))
     .sort((a, b) => latestThreadTimestamp(b, sessions) - latestThreadTimestamp(a, sessions));
+}
+
+function workspaceCwdForSession(session: SessionContent) {
+  return displayWorkspaceCwd(session.displayCwd ?? session.cwd);
+}
+
+function displayWorkspaceCwd(cwd?: string) {
+  if (!cwd) {
+    return undefined;
+  }
+
+  const normalized = path.resolve(cwd);
+  const claudeWorktreeMarker = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
+  const claudeIndex = normalized.indexOf(claudeWorktreeMarker);
+
+  if (claudeIndex > 0) {
+    return normalized.slice(0, claudeIndex);
+  }
+
+  return normalized;
 }
 
 function compareSessionsByUpdatedAt(a: SessionContent, b: SessionContent) {
