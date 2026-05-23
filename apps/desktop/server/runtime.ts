@@ -288,10 +288,12 @@ export class AgentRuntime {
     session.model = providerModel(provider);
     session.updatedAt = new Date().toISOString();
 
-    const providerSessions = { ...(session.providerSessions ?? {}) };
-    providerSessions[provider] = {
-      ...(providerSessions[provider] ?? {}),
-      sessionId: providerSessionId
+    const adoptedProviderState = session.providerSessions?.[provider] ?? {};
+    const providerSessions: SessionContent["providerSessions"] = {
+      [provider]: {
+        ...adoptedProviderState,
+        sessionId: providerSessionId
+      }
     };
     session.providerSessions = providerSessions;
     session.cwd = providerSessions[provider]?.cwd ?? session.cwd;

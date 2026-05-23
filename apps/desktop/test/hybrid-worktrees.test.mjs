@@ -147,6 +147,126 @@ test("parallel adoption keeps only the chosen provider transcript", async () => 
   ]);
 });
 
+test("parallel adoption discards the unchosen provider session before handoff", async () => {
+  const { AgentRuntime } = await import("../dist-server/server/runtime.js");
+  const runtime = new AgentRuntime({
+    sessions: {
+      "meta-live-test": {
+        id: "meta-live-test",
+        provider: "meta",
+        providerSessionId: JSON.stringify({
+          codex: "codex-session",
+          claude: "stale-claude-session"
+        }),
+        providerSessions: {
+          codex: {
+            sessionId: "codex-session",
+            cwd: "/tmp/source/.composer/worktrees/repo/session/codex"
+          },
+          claude: {
+            sessionId: "stale-claude-session",
+            cwd: "/tmp/source/.claude/worktrees/composer-meta-live-test"
+          }
+        },
+        renderMode: "hybrid",
+        displayCwd: "/tmp/source",
+        contextVersion: 1,
+        runtimeStatus: "idle",
+        title: "Explain project",
+        cwd: "/tmp/source/.claude/worktrees/composer-meta-live-test",
+        model: "Codex + Claude parallel",
+        updatedAt: new Date().toISOString(),
+        items: [
+          {
+            id: "user",
+            type: "user_message",
+            body: "explain this project"
+          }
+        ],
+        pendingItems: []
+      }
+    },
+    projects: []
+  });
+
+  const adopted = runtime.adoptParallelThread("meta-live-test", "codex")
+    .sessions["meta-live-test"];
+
+  assert.equal(adopted.provider, "codex");
+  assert.equal(adopted.lastProvider, "codex");
+  assert.equal(adopted.renderMode, "single");
+  assert.equal(adopted.providerSessionId, "codex-session");
+  assert.deepEqual(adopted.providerSessions, {
+    codex: {
+      sessionId: "codex-session",
+      cwd: "/tmp/source/.composer/worktrees/repo/session/codex"
+    }
+  });
+
+  const completed = new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      unsubscribe();
+      reject(new Error("Timed out waiting for Claude handoff run"));
+    }, 2_000);
+    const unsubscribe = runtime.onBroadcast((event) => {
+      if (
+        event.type === "session.updated" &&
+        event.session.providerSessions?.claude?.sessionId === "new-claude-session"
+      ) {
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve(event.session);
+      }
+    });
+  });
+
+  runtime.providers.codex = {
+    async run() {},
+    async compact(request) {
+      assert.equal(request.session.providerSessionId, "codex-session");
+    },
+    async interrupt() {},
+    dispose() {}
+  };
+  runtime.providers.claude = {
+    async run(request) {
+      assert.equal(request.session.providerSessionId, undefined);
+      assert.equal(
+        request.session.cwd,
+        "/tmp/source/.composer/worktrees/repo/session/codex"
+      );
+      request.session.providerSessionId = "new-claude-session";
+      request.emit({
+        id: "claude-complete",
+        type: "turn.completed",
+        sessionId: request.sessionId,
+        turnId: "claude-turn",
+        status: "idle"
+      });
+    },
+    async interrupt() {},
+    dispose() {}
+  };
+
+  runtime.sendMessage({
+    sessionId: "meta-live-test",
+    provider: "claude",
+    prompt: "continue with Claude",
+    settings: {
+      permissionMode: "Full access",
+      intelligence: "High",
+      model: "claude-sonnet-4-6"
+    }
+  }, () => {});
+
+  const completedSession = await completed;
+  assert.equal(completedSession.providerSessions.claude.sessionId, "new-claude-session");
+  assert.equal(
+    completedSession.providerSessions.claude.cwd,
+    "/tmp/source/.composer/worktrees/repo/session/codex"
+  );
+});
+
 test("hybrid sessions are grouped under their source workspace, not delegate worktrees", async () => {
   const { AgentRuntime } = await import("../dist-server/server/runtime.js");
   const runtime = new AgentRuntime({
