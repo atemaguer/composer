@@ -91,6 +91,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
 
       - name: Resolve release version
         id: release
@@ -215,6 +216,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
+          package-manager-cache: false
 
       - name: Install Linux packaging dependencies
         if: matrix.target == 'linux'
