@@ -7,6 +7,24 @@ on:
         description: Update channel/path inside the GCS bucket
         required: true
         default: stable
+      target:
+        description: Build target to run. Use mac with runner_mode=local to build on the self-hosted Mac runner.
+        required: true
+        type: choice
+        options:
+          - mac
+          - win
+          - linux
+          - all
+        default: mac
+      runner_mode:
+        description: Runner mode for macOS manual builds.
+        required: true
+        type: choice
+        options:
+          - local
+          - hosted
+        default: local
       bucket:
         description: GCS bucket name. Falls back to vars.GCP_UPDATES_BUCKET.
         required: false
@@ -31,6 +49,10 @@ on:
         description: Require and verify Windows code signing.
         required: false
         default: "false"
+      upload_artifacts:
+        description: Upload release files as GitHub Actions artifacts.
+        required: false
+        default: "false"
   push:
     branches:
       - main
@@ -52,12 +74,13 @@ jobs:
   prepare:
     name: Prepare desktop release
     if: github.event_name != 'push' || github.ref != 'refs/heads/main' || github.actor != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_mode == 'local' && 'composer-mac-local' || 'ubuntu-latest' }}
     outputs:
       desktop_version: ${{ steps.release.outputs.desktop_version }}
       release_ref: ${{ steps.release.outputs.release_ref }}
       release_tag: ${{ steps.release.outputs.release_tag }}
       should_release: ${{ steps.release.outputs.should_release }}
+      build_matrix: ${{ steps.release.outputs.build_matrix }}
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -68,11 +91,13 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: npm
 
       - name: Resolve release version
         id: release
         shell: bash
+        env:
+          BUILD_TARGET: ${{ github.event.inputs.target || 'all' }}
+          RUNNER_MODE: ${{ github.event.inputs.runner_mode || 'hosted' }}
         run: |
           set -euo pipefail
 
@@ -129,6 +154,40 @@ jobs:
           echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
           echo "should_release=${should_release}" >> "$GITHUB_OUTPUT"
 
+          node <<'NODE' >> "$GITHUB_OUTPUT"
+          const target = process.env.BUILD_TARGET || "all";
+          const runnerMode = process.env.RUNNER_MODE || "hosted";
+
+          const targets = target === "all" ? new Set(["mac", "win", "linux"]) : new Set([target]);
+          const include = [];
+
+          if (targets.has("mac")) {
+            include.push({
+              name: "macOS",
+              os: runnerMode === "local" ? "composer-mac-local" : "macos-latest",
+              target: "mac",
+            });
+          }
+
+          if (targets.has("win")) {
+            include.push({
+              name: "Windows",
+              os: "windows-latest",
+              target: "win",
+            });
+          }
+
+          if (targets.has("linux")) {
+            include.push({
+              name: "Linux",
+              os: "ubuntu-latest",
+              target: "linux",
+            });
+          }
+
+          console.log(`build_matrix=${JSON.stringify({ include })}`);
+          NODE
+
   build:
     name: Build ${{ matrix.name }}
     needs: prepare
@@ -136,17 +195,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - name: macOS
-            os: macos-latest
-            target: mac
-          - name: Windows
-            os: windows-latest
-            target: win
-          - name: Linux
-            os: ubuntu-latest
-            target: linux
+      matrix: ${{ fromJSON(needs.prepare.outputs.build_matrix) }}
     env:
       CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
       GCS_PREFIX: ${{ github.event.inputs.prefix || 'composer/desktop' }}
@@ -154,6 +203,7 @@ jobs:
       PUBLISH_RELEASE: ${{ github.event.inputs.publish || vars.DESKTOP_RELEASE_PUBLISH || 'false' }}
       MACOS_NOTARIZE: ${{ github.event.inputs.notarize_macos || vars.MACOS_NOTARIZE || 'false' }}
       WINDOWS_SIGNING: ${{ github.event.inputs.sign_windows || vars.WINDOWS_SIGNING || 'false' }}
+      UPLOAD_ARTIFACTS: ${{ github.event.inputs.upload_artifacts || vars.DESKTOP_RELEASE_UPLOAD_ARTIFACTS || 'false' }}
       COMPOSER_UPDATE_BASE_URL: https://updates.invalid/composer/desktop/${{ github.event.inputs.channel || 'stable' }}
     steps:
       - name: Checkout
@@ -165,7 +215,6 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: npm
 
       - name: Install Linux packaging dependencies
         if: matrix.target == 'linux'
@@ -259,7 +308,7 @@ jobs:
           CSC_KEY_PASSWORD: ${{ matrix.target == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
           WIN_CSC_LINK: ${{ matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true') && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true') && secrets.WIN_CSC_KEY_PASSWORD || '' }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ (matrix.target == 'mac' || (matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true'))) && 'true' || 'false' }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ ((matrix.target == 'mac' && (github.event.inputs.notarize_macos == 'true' || vars.MACOS_NOTARIZE == 'true')) || (matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true'))) && 'true' || 'false' }}
         run: |
           set -euo pipefail
 
@@ -291,6 +340,7 @@ jobs:
           Write-Host "Windows installer signature is valid: $($signature.SignerCertificate.Subject)"
 
       - name: Upload workflow artifact
+        if: env.UPLOAD_ARTIFACTS == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
