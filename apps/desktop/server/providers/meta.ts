@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { defaultCwd, type AgentProvider } from "../runtime.js";
-import { upsertHybridDelegateSessions } from "../../electron/hybrid-session-metadata.js";
+import { upsertComposerProviderSessions } from "../../electron/composer-session-registry.js";
 import { createCodexParallelWorktree } from "../parallel-worktrees.js";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
@@ -68,6 +68,7 @@ export class MetaProvider implements AgentProvider {
 
   async run(request: Parameters<AgentProvider["run"]>[0]) {
     const turnId = randomUUID();
+    const composerSessionId = request.session.parentSessionId ?? request.session.id;
     const state = readMetaState(request.session.providerSessionId);
     const strategy = metaStrategy(request.settings.model);
     const codexWorktree = strategy === "parallel-initial"
@@ -151,7 +152,7 @@ export class MetaProvider implements AgentProvider {
         state.claudeCwd = delegateSessions.claude.cwd ?? state.claudeCwd;
         writeMetaState(request.session, state);
         writeParallelProviderSessions(request.session, state);
-        writeHybridDelegateMetadata(request.session.id, strategy, state);
+        writeComposerDelegateMetadata(composerSessionId, strategy, state);
 
         const failures = results
           .filter((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -196,7 +197,7 @@ export class MetaProvider implements AgentProvider {
       state[META_PLANNER.provider] =
         delegateSessions[META_PLANNER.provider].providerSessionId;
       writeMetaState(request.session, state);
-      writeHybridDelegateMetadata(request.session.id, strategy, state);
+      writeComposerDelegateMetadata(composerSessionId, strategy, state);
       emitSupervisorMessage(
         request,
         turnId,
@@ -220,7 +221,7 @@ export class MetaProvider implements AgentProvider {
       state[META_EXECUTOR.provider] =
         delegateSessions[META_EXECUTOR.provider].providerSessionId;
       writeMetaState(request.session, state);
-      writeHybridDelegateMetadata(request.session.id, strategy, state);
+      writeComposerDelegateMetadata(composerSessionId, strategy, state);
 
       emitSupervisorMessage(
         request,
@@ -686,34 +687,36 @@ function strategyDescription(strategy: MetaStrategy) {
   return "Planning with Claude Opus 4.7 at Extra High thinking, then executing the approved plan with Codex GPT-5.4 Mini at Low reasoning.";
 }
 
-function writeHybridDelegateMetadata(
+function writeComposerDelegateMetadata(
   parentSessionId: string,
   mode: MetaStrategy,
   state: MetaProviderState
 ) {
-  upsertHybridDelegateSessions(
-    ([
-      state.codex
-        ? {
-            parentSessionId,
-            provider: "codex" as const,
-            providerSessionId: state.codex,
-            mode
-          }
-        : undefined,
-      state.claude
-        ? {
-            parentSessionId,
-            provider: "claude" as const,
-            providerSessionId: state.claude,
-            mode
-          }
-        : undefined
-    ]).filter((value): value is {
-      parentSessionId: string;
-      provider: DelegateProvider;
-      providerSessionId: string;
-      mode: MetaStrategy;
-    } => Boolean(value))
-  );
+  const records: Parameters<typeof upsertComposerProviderSessions>[0] = [];
+
+  if (state.codex) {
+    records.push({
+      composerSessionId: parentSessionId,
+      provider: "codex",
+      providerSessionId: state.codex,
+      mode,
+      role: mode === "parallel-initial" ? "parallel-initial" : "executor",
+      lifecycle: "active",
+      cwd: state.codexCwd
+    });
+  }
+
+  if (state.claude) {
+    records.push({
+      composerSessionId: parentSessionId,
+      provider: "claude",
+      providerSessionId: state.claude,
+      mode,
+      role: mode === "parallel-initial" ? "parallel-initial" : "planner",
+      lifecycle: "active",
+      cwd: state.claudeCwd
+    });
+  }
+
+  upsertComposerProviderSessions(records);
 }

@@ -6,7 +6,11 @@ import {
   updateLocalSessionVisibility,
   type LocalSessionAction
 } from "../electron/session-loader.js";
-import { upsertHybridDelegateSessions } from "../electron/hybrid-session-metadata.js";
+import {
+  adoptComposerParallelProvider,
+  upsertComposerProviderSessions,
+  upsertComposerSessionFromRuntime
+} from "../electron/composer-session-registry.js";
 import { ClaudeProvider } from "./providers/claude.js";
 import { CodexProvider } from "./providers/codex.js";
 import { MetaProvider } from "./providers/meta.js";
@@ -143,6 +147,7 @@ export class AgentRuntime {
     };
 
     this.sessions[id] = session;
+    upsertComposerSessionFromRuntime(session);
     if (request.requestId) {
       this.requestSessions.set(request.requestId, id);
     }
@@ -204,6 +209,7 @@ export class AgentRuntime {
         status: "running"
       }
     ];
+    upsertComposerSessionFromRuntime(session);
     this.emitToSink(sink, { id: randomUUID(), type: "session.updated", session });
 
     this.startProviderRun(provider, {
@@ -287,6 +293,7 @@ export class AgentRuntime {
     session.renderMode = "single";
     session.model = providerModel(provider);
     session.updatedAt = new Date().toISOString();
+    upsertComposerSessionFromRuntime(session);
 
     const adoptedProviderState = session.providerSessions?.[provider] ?? {};
     const providerSessions: SessionContent["providerSessions"] = {
@@ -300,6 +307,13 @@ export class AgentRuntime {
     session.providerSessionId = providerSessionId;
     session.items = adoptedParallelItems(session.items, provider);
     session.pendingItems = [];
+    adoptComposerParallelProvider({
+      composerSessionId: session.id,
+      provider,
+      providerSessionId,
+      activeCwd: session.cwd
+    });
+    upsertComposerSessionFromRuntime(session);
 
     this.broadcast({
       id: randomUUID(),
@@ -516,6 +530,7 @@ export class AgentRuntime {
   private apply(event: LiveAgentEvent) {
     if (event.type === "session.started" || event.type === "session.updated") {
       this.sessions[event.session.id] = event.session;
+      upsertComposerSessionFromRuntime(event.session);
       this.broadcast(event);
       return;
     }
@@ -525,6 +540,7 @@ export class AgentRuntime {
 
       if (session) {
         applySessionEvent(session, event);
+        upsertComposerSessionFromRuntime(session);
         this.broadcast({
           id: randomUUID(),
           type: "session.updated",
@@ -548,6 +564,7 @@ export class AgentRuntime {
         completeProviderTurn(session, this.activeRunProviders.get(event.sessionId));
         this.activeRunProviders.delete(event.sessionId);
       }
+      upsertComposerSessionFromRuntime(session);
       this.broadcast({
         id: randomUUID(),
         type: "session.updated",
@@ -931,12 +948,15 @@ function syncProviderState(
     (provider === "codex" || provider === "claude") &&
     providerSession.providerSessionId
   ) {
-    upsertHybridDelegateSessions([
+    upsertComposerProviderSessions([
       {
-        parentSessionId: session.id,
+        composerSessionId: session.id,
         provider,
         providerSessionId: providerSession.providerSessionId,
-        mode: "handoff"
+        mode: "handoff",
+        role: "handoff",
+        lifecycle: "handoff",
+        cwd: providerSession.cwd
       }
     ]);
   }

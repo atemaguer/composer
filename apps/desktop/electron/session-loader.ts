@@ -8,7 +8,14 @@ import {
   reviewFileFromCodexChange,
   type PatchReviewFile
 } from "./patch-review.js";
-import { readHybridSessionMetadata } from "./hybrid-session-metadata.js";
+import {
+  composerDelegateProviderSessionKeys,
+  providerSessionKey,
+  readComposerSessionRegistry,
+  type ComposerProviderSessionRecord,
+  type ComposerSessionRegistry,
+  type ComposerSessionRecord
+} from "./composer-session-registry.js";
 
 type SessionProvider = "codex" | "claude" | "meta";
 type ToolStatus = "running" | "completed" | "failed" | "cancelled";
@@ -89,6 +96,16 @@ type ConversationItem =
       id: string;
       type: "jump_marker";
       label?: string;
+    }
+  | {
+      id: string;
+      type: "parallel_thread_group";
+      columns: Array<{
+        provider: SessionProvider;
+        title: string;
+        items: ConversationItem[];
+      }>;
+      prompt?: string;
     };
 
 type ProjectThread = {
@@ -102,6 +119,12 @@ type ProjectThread = {
 };
 
 type SessionRenderMode = "single" | "hybrid";
+
+type ProviderSessionState = {
+  sessionId?: string;
+  cwd?: string;
+  lastContextVersion?: number;
+};
 
 type Project = {
   id?: string;
@@ -117,6 +140,9 @@ type SessionContent = {
   providerSessionId?: string;
   renderMode?: SessionRenderMode;
   parentSessionId?: string;
+  providerSessions?: Partial<Record<SessionProvider, ProviderSessionState>>;
+  contextVersion?: number;
+  lastProvider?: SessionProvider;
   parallelAdoptedProvider?: "codex" | "claude";
   runtimeStatus?: "idle" | "running" | "awaiting_approval" | "error";
   title: string;
@@ -142,28 +168,27 @@ const MAX_TEXT_LENGTH = 4_000;
 const MAX_DETAIL_LENGTH = 520;
 
 export function loadLocalSessions(): SessionSnapshot {
-  const hybridMetadata = readHybridSessionMetadata();
-  const delegateKeys = new Set(
-    hybridMetadata.delegates.map((delegate) =>
-      delegateSessionKey(delegate.provider, delegate.providerSessionId)
-    )
-  );
+  const registry = readComposerSessionRegistry();
+  const delegateKeys = composerDelegateProviderSessionKeys(registry);
   const claudeSessions = loadClaudeSessions();
   const codexSessions = loadCodexSessions();
-  const localSessions = uniqueSessionsById([...claudeSessions, ...codexSessions])
+  const nativeSessions = uniqueSessionsById([...claudeSessions, ...codexSessions]);
+  const composerSessions = composerSessionsFromRegistry(registry, nativeSessions);
+  const localSessions = nativeSessions
     .filter((session) =>
       !session.providerSessionId ||
       !delegateKeys.has(delegateSessionKey(session.provider, session.providerSessionId))
     );
+  const allSessions = uniqueSessionsById([...composerSessions, ...localSessions]);
   const sessions = Object.fromEntries(
-    localSessions.map((session) => [
+    allSessions.map((session) => [
       session.id,
       session
     ])
   );
 
   return {
-    projects: groupSessionsByWorkspace(localSessions),
+    projects: groupSessionsByWorkspace(allSessions),
     sessions
   };
 }
@@ -173,7 +198,257 @@ function uniqueSessionsById(sessions: SessionContent[]) {
 }
 
 function delegateSessionKey(provider: SessionProvider, providerSessionId: string) {
+  if (provider !== "codex" && provider !== "claude") {
+    return `${provider}:${providerSessionId}`;
+  }
+
   return `${provider}:${providerSessionId}`;
+}
+
+function composerSessionsFromRegistry(
+  registry: ComposerSessionRegistry,
+  nativeSessions: SessionContent[]
+) {
+  const nativeByProviderSession = new Map(
+    nativeSessions
+      .filter((session) =>
+        (session.provider === "codex" || session.provider === "claude") &&
+        Boolean(session.providerSessionId)
+      )
+      .map((session) => [
+        providerSessionKey(session.provider as "codex" | "claude", session.providerSessionId!),
+        session
+      ])
+  );
+  const sessions: SessionContent[] = [];
+
+  for (const sessionRecord of registry.sessions) {
+    const providerRecords = registry.providerSessions.filter((record) =>
+      record.composerSessionId === sessionRecord.id
+    );
+
+    if (providerRecords.length === 0) {
+      continue;
+    }
+
+    const activeRecords = activeProviderRecordsForSession(sessionRecord, providerRecords);
+
+    if (activeRecords.length === 0) {
+      continue;
+    }
+
+    const session = composerSessionFromRecord(
+      sessionRecord,
+      activeRecords,
+      nativeByProviderSession
+    );
+
+    if (session) {
+      sessions.push(session);
+    }
+  }
+
+  return sessions;
+}
+
+function activeProviderRecordsForSession(
+  session: ComposerSessionRecord,
+  providers: ComposerProviderSessionRecord[]
+) {
+  if (session.parallelAdoptedProvider) {
+    return providers.filter((record) =>
+      record.provider === session.parallelAdoptedProvider &&
+      record.lifecycle !== "discarded"
+    );
+  }
+
+  return providers.filter((record) => record.lifecycle !== "discarded");
+}
+
+function composerSessionFromRecord(
+  sessionRecord: ComposerSessionRecord,
+  providerRecords: ComposerProviderSessionRecord[],
+  nativeByProviderSession: Map<string, SessionContent>
+): SessionContent | null {
+  const renderMode = sessionRecord.renderMode ??
+    (sessionRecord.hybridMode === "parallel-initial" && !sessionRecord.parallelAdoptedProvider
+      ? "hybrid"
+      : "single");
+  const providerSessions = providerSessionsFromRecords(providerRecords);
+  const nativeMatches = providerRecords
+    .map((record) => nativeByProviderSession.get(
+      providerSessionKey(record.provider, record.providerSessionId)
+    ))
+    .filter((session): session is SessionContent => Boolean(session));
+
+  if (renderMode === "hybrid" && !sessionRecord.parallelAdoptedProvider) {
+    return composerParallelSessionFromRecord(
+      sessionRecord,
+      providerRecords,
+      nativeByProviderSession,
+      providerSessions
+    );
+  }
+
+  const visibleProvider = sessionRecord.parallelAdoptedProvider ??
+    (sessionRecord.currentProvider === "codex" || sessionRecord.currentProvider === "claude"
+      ? sessionRecord.currentProvider
+      : providerRecords[0]?.provider);
+  const visibleRecord = visibleProvider
+    ? latestProviderRecord(providerRecords.filter((record) => record.provider === visibleProvider))
+    : latestProviderRecord(providerRecords);
+  const visibleNative = visibleRecord
+    ? nativeByProviderSession.get(
+        providerSessionKey(visibleRecord.provider, visibleRecord.providerSessionId)
+      )
+    : nativeMatches[0];
+
+  if (!visibleRecord && !visibleNative) {
+    return null;
+  }
+
+  return finishSession({
+    id: sessionRecord.id,
+    provider: visibleProvider ?? visibleRecord?.provider ?? visibleNative?.provider ?? "meta",
+    providerSessionId: visibleRecord?.providerSessionId ?? visibleNative?.providerSessionId,
+    providerSessions,
+    renderMode: "single",
+    parallelAdoptedProvider: sessionRecord.parallelAdoptedProvider,
+    lastProvider: sessionRecord.lastProvider ?? visibleProvider,
+    title: sessionRecord.title ?? visibleNative?.title ?? titleFromCwd(sessionRecord.sourceCwd) ?? "Composer session",
+    updatedAt: latestSessionUpdatedAt(sessionRecord, nativeMatches),
+    cwd: sessionRecord.activeCwd ?? visibleRecord?.cwd ?? visibleNative?.cwd ?? sessionRecord.sourceCwd,
+    displayCwd: sessionRecord.displayCwd ?? sessionRecord.sourceCwd,
+    model: visibleNative?.model,
+    items: visibleNative?.items ?? []
+  });
+}
+
+function composerParallelSessionFromRecord(
+  sessionRecord: ComposerSessionRecord,
+  providerRecords: ComposerProviderSessionRecord[],
+  nativeByProviderSession: Map<string, SessionContent>,
+  providerSessions: Partial<Record<SessionProvider, ProviderSessionState>>
+): SessionContent | null {
+  const columns: Array<{
+    provider: SessionProvider;
+    title: string;
+    items: ConversationItem[];
+  }> = [];
+
+  for (const provider of ["codex", "claude"] as const) {
+    const record = latestProviderRecord(
+      providerRecords.filter((candidate) => candidate.provider === provider)
+    );
+    const native = record
+      ? nativeByProviderSession.get(providerSessionKey(provider, record.providerSessionId))
+      : undefined;
+
+    if (!native) {
+      continue;
+    }
+
+    columns.push({
+      provider,
+      title: `${provider === "codex" ? "Codex" : "Claude"} thread`,
+      items: agentOutputItems(native.items)
+    });
+  }
+
+  if (columns.length === 0) {
+    return null;
+  }
+
+  const nativeMatches = providerRecords
+    .map((record) => nativeByProviderSession.get(
+      providerSessionKey(record.provider, record.providerSessionId)
+    ))
+    .filter((session): session is SessionContent => Boolean(session));
+  const firstUser = nativeMatches
+    .flatMap((session) => session.items)
+    .find((item): item is Extract<ConversationItem, { type: "user_message" }> =>
+      item.type === "user_message"
+    );
+  const items: ConversationItem[] = [
+    ...(firstUser
+      ? [{
+          id: `${sessionRecord.id}-user-0`,
+          type: "user_message" as const,
+          body: firstUser.body,
+          timestamp: firstUser.timestamp
+        }]
+      : []),
+    {
+      id: `${sessionRecord.id}-parallel-0`,
+      type: "parallel_thread_group",
+      columns,
+      prompt: firstUser?.body
+    }
+  ];
+
+  return finishSession({
+    id: sessionRecord.id,
+    provider: "meta",
+    providerSessions,
+    renderMode: "hybrid",
+    lastProvider: sessionRecord.lastProvider,
+    parallelAdoptedProvider: sessionRecord.parallelAdoptedProvider,
+    title: sessionRecord.title ?? nativeMatches[0]?.title ?? titleFromCwd(sessionRecord.sourceCwd) ?? "Composer session",
+    updatedAt: latestSessionUpdatedAt(sessionRecord, nativeMatches),
+    cwd: sessionRecord.activeCwd ?? sessionRecord.sourceCwd,
+    displayCwd: sessionRecord.displayCwd ?? sessionRecord.sourceCwd,
+    model: "Codex + Claude parallel",
+    items
+  });
+}
+
+function providerSessionsFromRecords(records: ComposerProviderSessionRecord[]) {
+  const providerSessions: Partial<Record<SessionProvider, ProviderSessionState>> = {};
+
+  for (const record of records) {
+    const current = providerSessions[record.provider];
+
+    if (
+      current?.sessionId &&
+      Date.parse(record.updatedAt) < Date.parse(
+        records.find((candidate) =>
+          candidate.provider === record.provider &&
+          candidate.providerSessionId === current.sessionId
+        )?.updatedAt ?? ""
+      )
+    ) {
+      continue;
+    }
+
+    providerSessions[record.provider] = {
+      sessionId: record.providerSessionId,
+      cwd: record.cwd,
+      lastContextVersion: record.lastContextVersion
+    };
+  }
+
+  return providerSessions;
+}
+
+function latestProviderRecord(records: ComposerProviderSessionRecord[]) {
+  return [...records].sort((a, b) =>
+    Date.parse(b.updatedAt) - Date.parse(a.updatedAt)
+  )[0];
+}
+
+function latestSessionUpdatedAt(
+  session: ComposerSessionRecord,
+  nativeSessions: SessionContent[]
+) {
+  return [session.updatedAt, ...nativeSessions.map((native) => native.updatedAt)]
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => Date.parse(b) - Date.parse(a))[0];
+}
+
+function agentOutputItems(items: ConversationItem[]) {
+  return items.filter((item) =>
+    item.type !== "user_message" && item.type !== "attachment_group"
+  );
 }
 
 function loadCodexSessions(): SessionContent[] {
