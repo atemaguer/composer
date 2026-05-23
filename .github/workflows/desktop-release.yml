@@ -73,8 +73,8 @@ concurrency:
 jobs:
   prepare:
     name: Prepare desktop release
-    if: github.event_name != 'push' || github.ref != 'refs/heads/main' || github.actor != 'github-actions[bot]'
-    runs-on: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.runner_mode == 'local' && 'composer-mac-local' || 'ubuntu-latest' }}
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
+    runs-on: ${{ (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.runner_mode == 'local')) && 'composer-mac-local' || 'ubuntu-latest' }}
     outputs:
       desktop_version: ${{ steps.release.outputs.desktop_version }}
       release_ref: ${{ steps.release.outputs.release_ref }}
@@ -97,8 +97,8 @@ jobs:
         id: release
         shell: bash
         env:
-          BUILD_TARGET: ${{ github.event.inputs.target || 'all' }}
-          RUNNER_MODE: ${{ github.event.inputs.runner_mode || 'hosted' }}
+          BUILD_TARGET: ${{ github.event_name == 'push' && 'mac' || github.event.inputs.target || 'all' }}
+          RUNNER_MODE: ${{ github.event_name == 'push' && 'local' || github.event.inputs.runner_mode || 'hosted' }}
         run: |
           set -euo pipefail
 
