@@ -17,6 +17,16 @@ on:
           - linux
           - all
         default: mac
+      version_bump:
+        description: Version bump to apply before building. Use none for a rebuild of the current version.
+        required: true
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - none
+        default: patch
       runner_mode:
         description: Runner mode for macOS manual builds.
         required: true
@@ -99,10 +109,56 @@ jobs:
         env:
           BUILD_TARGET: ${{ github.event_name == 'push' && 'mac' || github.event.inputs.target || 'all' }}
           RUNNER_MODE: ${{ github.event_name == 'push' && 'local' || github.event.inputs.runner_mode || 'hosted' }}
+          VERSION_BUMP: ${{ github.event_name == 'push' && 'patch' || github.event.inputs.version_bump || 'none' }}
         run: |
           set -euo pipefail
 
           should_release="true"
+          version_bump="${VERSION_BUMP:-none}"
+
+          case "${version_bump}" in
+            patch|minor|major|none) ;;
+            *)
+              echo "Unsupported version bump: ${version_bump}" >&2
+              exit 1
+              ;;
+          esac
+
+          bump_release_version() {
+            if [[ "${version_bump}" == "none" ]]; then
+              desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+              release_ref="${GITHUB_SHA}"
+              release_tag=""
+              return
+            fi
+
+            if [[ "${GITHUB_REF_TYPE}" != "branch" ]]; then
+              echo "Version bumps can only run from a branch ref; current ref type is ${GITHUB_REF_TYPE}." >&2
+              exit 1
+            fi
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git pull --ff-only origin "${GITHUB_REF_NAME}"
+
+            npm version "${version_bump}" --workspace composer --no-git-tag-version
+            npm install --package-lock-only --ignore-scripts
+
+            desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+            release_tag="desktop-v${desktop_version}"
+
+            if git rev-parse "${release_tag}" >/dev/null 2>&1; then
+              echo "Release tag ${release_tag} already exists." >&2
+              exit 1
+            fi
+
+            git add apps/desktop/package.json package-lock.json
+            git commit -m "chore(desktop): release v${desktop_version}"
+            git tag "${release_tag}"
+            git push origin "HEAD:${GITHUB_REF_NAME}" "${release_tag}"
+
+            release_ref="${release_tag}"
+          }
 
           if [[ "${GITHUB_EVENT_NAME}" == "push" && "${GITHUB_REF}" == "refs/heads/main" ]]; then
             before_sha="${{ github.event.before }}"
@@ -118,32 +174,14 @@ jobs:
               release_tag=""
               should_release="false"
             else
-              git config user.name "github-actions[bot]"
-              git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-              git pull --ff-only origin "${GITHUB_REF_NAME}"
-
-              npm version patch --workspace composer --no-git-tag-version
-              npm install --package-lock-only --ignore-scripts
-
-              desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
-              release_tag="desktop-v${desktop_version}"
-
-              if git rev-parse "${release_tag}" >/dev/null 2>&1; then
-                echo "Release tag ${release_tag} already exists." >&2
-                exit 1
-              fi
-
-              git add apps/desktop/package.json package-lock.json
-              git commit -m "chore(desktop): release v${desktop_version}"
-              git tag "${release_tag}"
-              git push origin "HEAD:${GITHUB_REF_NAME}" "${release_tag}"
-
-              release_ref="${release_tag}"
+              bump_release_version
             fi
           elif [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
             release_ref="${GITHUB_REF_NAME}"
             release_tag="${GITHUB_REF_NAME}"
             desktop_version="$(node -p "require('./apps/desktop/package.json').version")"
+          elif [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            bump_release_version
           else
             release_ref="${GITHUB_SHA}"
             release_tag=""
