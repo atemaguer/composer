@@ -10,9 +10,9 @@ import {
   FolderOpen,
   ListFilter,
   LoaderCircle,
-  MessageSquarePlus,
   MoreHorizontal,
   PanelRight,
+  Plus,
   Search,
   Settings
 } from "lucide-react";
@@ -457,7 +457,7 @@ export function Sidebar({
                   <div key={key} className="grid gap-0.5">
                     <div
                       className={cn(
-                        "grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md text-app-muted transition-colors",
+                        "group/workspace grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-1 rounded-md text-app-muted transition-colors",
                         appHoverSurfaceSubtle
                       )}
                     >
@@ -480,11 +480,14 @@ export function Sidebar({
                       </TooltipButton>
                       <TooltipButton
                         aria-label={`New session in ${project.name}`}
-                        className={cn("mr-1", subtleIconButton)}
+                        className={cn(
+                          "mr-1 opacity-0 transition-opacity group-hover/workspace:opacity-100 focus-visible:opacity-100",
+                          subtleIconButton
+                        )}
                         tooltip={`New session in ${project.name}`}
                         onClick={() => onNewSession?.(project)}
                       >
-                        <MessageSquarePlus size={13} />
+                        <Plus size={13} />
                       </TooltipButton>
                     </div>
                     <div
