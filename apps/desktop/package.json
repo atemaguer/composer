@@ -1,6 +1,6 @@
 {
   "name": "composer",
-  "version": "0.1.22",
+  "version": "0.1.23",
   "private": true,
   "description": "Composer desktop app",
   "author": "Atem Atem",
