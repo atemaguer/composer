@@ -1314,7 +1314,7 @@ function isRuntimeProvider(
 
 function providerLabel(provider: SessionProvider) {
   if (provider === "meta") {
-    return "Hybrid agent";
+    return "Compose agent";
   }
 
   return provider === "codex" ? "Codex" : "Claude";
@@ -1352,7 +1352,7 @@ function providerModel(provider: SessionProvider, model?: string) {
   }
 
   if (provider === "meta") {
-    return "Hybrid supervisor";
+    return "Compose supervisor";
   }
 
   return provider === "codex" ? "Codex" : "Claude Code";

@@ -107,7 +107,7 @@ export class MetaProvider implements AgentProvider {
       type: "turn.started",
       sessionId: request.sessionId,
       turnId,
-      label: "Hybrid supervisor is coordinating"
+      label: "Compose supervisor is coordinating"
     });
     request.session.renderMode = "hybrid";
     emitSupervisorMessage(request, turnId, strategyDescription(strategy));
@@ -595,7 +595,7 @@ function emitSupervisorMessage(
     type: "message.delta",
     sessionId: request.sessionId,
     messageId,
-    delta: `**Hybrid supervisor**\n\n${body}\n`
+    delta: `**Compose supervisor**\n\n${body}\n`
   });
   request.emit({
     id: randomUUID(),

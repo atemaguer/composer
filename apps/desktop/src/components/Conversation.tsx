@@ -588,7 +588,7 @@ function capitalizeFirst(value: string) {
 
 function providerLabel(provider: SessionProvider) {
   if (provider === "meta") {
-    return "Hybrid";
+    return "Compose";
   }
 
   return provider === "claude" ? "Claude" : "Codex";

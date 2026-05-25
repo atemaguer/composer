@@ -642,7 +642,7 @@ export function Composer({ pendingItems = [], ...controls }: ComposerProps) {
 const providerOptions = [
   { value: "codex", label: "Codex" },
   { value: "claude", label: "Claude" },
-  { value: "meta", label: "Hybrid" }
+  { value: "meta", label: "Compose" }
 ] satisfies Array<{ value: ComposerProvider; label: string }>;
 
 function ProviderDropdown({
@@ -1309,7 +1309,7 @@ function ModelSettingsMenu({
   const selectedModel = modelOption(provider, model);
   const efforts = selectedModel.efforts;
   const providerLabel =
-    provider === "meta" ? "Hybrid" : provider === "codex" ? "Codex" : "Claude";
+    provider === "meta" ? "Compose" : provider === "codex" ? "Codex" : "Claude";
   const effortLabel =
     provider === "meta"
       ? "Planner and executor"
