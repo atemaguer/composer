@@ -50,7 +50,7 @@ on:
       publish:
         description: Upload release files to the GCS update bucket.
         required: false
-        default: "false"
+        default: "true"
       notarize_macos:
         description: Notarize macOS builds with Apple notarytool.
         required: false
@@ -239,7 +239,7 @@ jobs:
       CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
       GCS_PREFIX: ${{ github.event.inputs.prefix || 'composer/desktop' }}
       GCS_BUCKET: ${{ github.event.inputs.bucket || vars.GCP_UPDATES_BUCKET }}
-      PUBLISH_RELEASE: ${{ github.event.inputs.publish || vars.DESKTOP_RELEASE_PUBLISH || 'false' }}
+      PUBLISH_RELEASE: "true"
       MACOS_NOTARIZE: ${{ github.event.inputs.notarize_macos || vars.MACOS_NOTARIZE || 'false' }}
       WINDOWS_SIGNING: ${{ github.event.inputs.sign_windows || vars.WINDOWS_SIGNING || 'false' }}
       UPLOAD_ARTIFACTS: ${{ github.event.inputs.upload_artifacts || vars.DESKTOP_RELEASE_UPLOAD_ARTIFACTS || 'false' }}
