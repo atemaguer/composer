@@ -434,7 +434,7 @@ export function PromptComposer({
           onPaste={handlePaste}
         />
         <div className="composer-action-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5">
-          <div className="composer-left-controls flex min-w-0 flex-nowrap items-center gap-2 overflow-hidden">
+          <div className="composer-left-controls flex min-w-0 flex-nowrap items-center gap-2 overflow-visible">
             <input
               ref={fileInputRef}
               className="hidden"
