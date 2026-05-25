@@ -23,7 +23,6 @@ import {
   GitCompareArrows,
   GitPullRequestCreateArrow,
   Laptop,
-  ListChecks,
   MessageSquare,
   Mic,
   Plus,
@@ -251,7 +250,6 @@ export type PromptComposerProps = PromptComposerControls & {
   placeholder: string;
   textareaRows?: number;
   showAttachmentPill?: boolean;
-  showPlanButton?: boolean;
   submitMode?: "send" | "stop";
   submitLabel?: string;
   footerItems?: PromptComposerFooterItem[];
@@ -278,7 +276,6 @@ export function PromptComposer({
   placeholder,
   textareaRows = 1,
   showAttachmentPill = true,
-  showPlanButton = true,
   submitMode = "stop",
   submitLabel = submitMode === "send" ? "Start session" : "Stop",
   onSubmit,
@@ -455,20 +452,6 @@ export function PromptComposer({
             >
               <Plus size={17} />
             </TooltipButton>
-            {showPlanButton && (
-              <TooltipButton
-                className={cn(
-                  "composer-plan-button h-[30px] shrink-0 gap-1.5 px-2 text-[13px]",
-                  pillButton
-                )}
-                aria-label="Plan"
-                tooltip="Plan response"
-                type="button"
-              >
-                <ListChecks size={13} />
-                <span className="composer-collapsible-text">Plan</span>
-              </TooltipButton>
-            )}
             <TooltipButton
               className={cn(
                 "composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
@@ -492,7 +475,7 @@ export function PromptComposer({
               </span>
               <ChevronDown className="shrink-0" size={13} />
             </TooltipButton>
-            <ProviderToggle provider={provider} setProvider={setProvider} />
+            <ProviderDropdown provider={provider} setProvider={setProvider} />
           </div>
 
           <div className="composer-right-controls flex min-w-0 flex-nowrap items-center justify-end gap-2">
@@ -656,47 +639,88 @@ export function Composer({ pendingItems = [], ...controls }: ComposerProps) {
   );
 }
 
-function ProviderToggle({
+const providerOptions = [
+  { value: "codex", label: "Codex" },
+  { value: "claude", label: "Claude" },
+  { value: "meta", label: "Hybrid" }
+] satisfies Array<{ value: ComposerProvider; label: string }>;
+
+function ProviderDropdown({
   provider,
   setProvider
 }: {
   provider: SessionProvider;
   setProvider: (value: SessionProvider) => void;
 }) {
-  const providers = [
-    { value: "codex", label: "Codex" },
-    { value: "claude", label: "Claude" },
-    { value: "meta", label: "Hybrid" }
-  ] satisfies Array<{ value: ComposerProvider; label: string }>;
+  const [open, setOpen] = useState(false);
   const visibleProvider: ComposerProvider = provider;
+  const selectedProvider =
+    providerOptions.find((option) => option.value === visibleProvider) ??
+    providerOptions[0];
+  const menuId = "composer-provider-menu";
 
   return (
-    <div
-      className={cn(
-        "composer-provider-toggle inline-grid min-w-0 shrink grid-cols-3 rounded-full border p-0.5 text-[12px] text-app-muted",
-        appSoftBorder,
-        appSoftSurface,
-        appInsetHighlight
-      )}
-    >
-      {providers.map(({ value, label }) => (
-        <TooltipButton
-          key={value}
-          className={[
-            "composer-provider-button inline-flex h-[26px] min-w-0 items-center gap-1 rounded-full px-2 transition-colors",
-            visibleProvider === value
-              ? "bg-app-text/[0.12] text-app-text shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_4%,transparent)]"
-              : appHoverSurface
-          ].join(" ")}
-          aria-label={label}
-          onClick={() => setProvider(value)}
-          tooltip={`Switch to ${label}`}
-          type="button"
+    <div className="relative min-w-0 shrink-0">
+      {open && (
+        <div
+          id={menuId}
+          className={cn(
+            "absolute bottom-[38px] left-0 z-20 grid min-w-[180px] gap-1",
+            menuSurface
+          )}
+          role="menu"
+          aria-label="Provider"
         >
-          <ProviderLogo provider={value} className="h-3.5 w-3.5" />
-          <span className="composer-provider-label truncate">{label}</span>
-        </TooltipButton>
-      ))}
+          {providerOptions.map(({ value, label }) => (
+            <TooltipButton
+              key={value}
+              className={cn(
+                "grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-[14px] text-app-text",
+                menuItem,
+                visibleProvider === value && `${appActiveSurface} text-app-text`
+              )}
+              onClick={() => {
+                setProvider(value);
+                setOpen(false);
+              }}
+              role="menuitemradio"
+              aria-checked={visibleProvider === value}
+              tooltip={`Switch to ${label}`}
+              type="button"
+            >
+              <ProviderLogo provider={value} className="h-3.5 w-3.5" />
+              <span className="composer-provider-menu-label truncate">
+                {label}
+              </span>
+              {visibleProvider === value && <Check size={14} />}
+            </TooltipButton>
+          ))}
+        </div>
+      )}
+      <TooltipButton
+        className={cn(
+          "composer-provider-button inline-flex h-[30px] min-w-0 max-w-[132px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] text-app-text shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
+          appSoftBorder,
+          appSoftSurface,
+          appHoverSurface
+        )}
+        onClick={() => setOpen(!open)}
+        aria-label={`Provider: ${selectedProvider.label}`}
+        aria-controls={menuId}
+        aria-expanded={open}
+        aria-haspopup="menu"
+        tooltip={`Provider: ${selectedProvider.label}`}
+        type="button"
+      >
+        <ProviderLogo
+          provider={selectedProvider.value}
+          className="h-3.5 w-3.5"
+        />
+        <span className="composer-provider-label truncate">
+          {selectedProvider.label}
+        </span>
+        <ChevronDown className="shrink-0" size={13} />
+      </TooltipButton>
     </div>
   );
 }

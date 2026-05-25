@@ -237,7 +237,7 @@ button:disabled {
   }
 
   .composer-provider-button {
-    width: 1.875rem;
+    width: 3rem;
     justify-content: center;
     padding-left: 0;
     padding-right: 0;
@@ -250,12 +250,6 @@ button:disabled {
   .composer-model-label,
   .composer-model-effort {
     min-width: 0;
-  }
-}
-
-@container (max-width: 620px) {
-  .composer-plan-button {
-    display: none;
   }
 }
 

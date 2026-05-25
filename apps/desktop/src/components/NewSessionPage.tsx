@@ -69,7 +69,6 @@ export function NewSessionPage({
               { icon: GitBranch, label: "main" }
             ]}
             placeholder="Ask Composer anything. @ to use plugins or mention files"
-            showPlanButton={false}
             textareaRows={2}
           />
         </div>
