@@ -1,10 +1,17 @@
-import { app, BrowserWindow, ipcMain, nativeTheme } from "electron";
-import { spawn, type ChildProcess } from "node:child_process";
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  nativeTheme,
+  type WebContents
+} from "electron";
+import { execFileSync, spawn, type ChildProcess } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 
 import {
   loadLocalSessions,
@@ -15,10 +22,32 @@ import { desktopCliEnvironment } from "./cli-env.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FILE_PREVIEW_BYTES = 1_000_000;
+const MAX_WORKSPACE_FILE_ENTRIES = 5_000;
+const IGNORED_WORKSPACE_DIRECTORIES = new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "out"
+]);
 const TELEMETRY_IDENTITY_FILE = "telemetry-identity.json";
 let agentServerProcess: ChildProcess | null = null;
 let agentServerPort: number | null = null;
 let agentServerReady: Promise<number> | null = null;
+const terminalSessions = new Map<string, TerminalSession>();
+
+type TerminalSession = {
+  id: string;
+  cwd: string;
+  ptyProcess: pty.IPty;
+  webContents: WebContents;
+  dataDisposable: pty.IDisposable;
+  exitDisposable: pty.IDisposable;
+  destroyedListener: () => void;
+};
 
 ipcMain.handle("composer:get-telemetry-identity", () => telemetryIdentity());
 ipcMain.handle("composer:list-local-sessions", () => loadLocalSessions());
@@ -77,6 +106,19 @@ ipcMain.handle("composer:set-native-appearance", (_event, request: unknown) => {
 ipcMain.handle("composer:create-project", (_event, request: unknown) =>
   createProject(request)
 );
+ipcMain.handle("composer:list-workspace-files", (_event, requestedCwd: unknown) => {
+  if (typeof requestedCwd !== "string") {
+    throw new Error("Expected a workspace path");
+  }
+
+  const cwd = existingDirectory(requestedCwd);
+
+  if (!cwd) {
+    throw new Error("Workspace path is not a directory");
+  }
+
+  return listWorkspaceFiles(cwd);
+});
 ipcMain.handle("composer:read-text-file", (_event, requestedPath: unknown) => {
   if (typeof requestedPath !== "string" || !path.isAbsolute(requestedPath)) {
     throw new Error("Expected an absolute file path");
@@ -104,6 +146,40 @@ ipcMain.handle("composer:read-text-file", (_event, requestedPath: unknown) => {
     };
   } finally {
     fs.closeSync(file);
+  }
+});
+ipcMain.handle("composer:terminal-create", (event, request: unknown) =>
+  createTerminalSession(event.sender, request)
+);
+ipcMain.on("composer:terminal-write", (event, request: unknown) => {
+  const session = terminalSessionForSender(event.sender, request);
+  const data = isRecord(request) && typeof request.data === "string"
+    ? request.data
+    : "";
+
+  if (session && data) {
+    session.ptyProcess.write(data);
+  }
+});
+ipcMain.on("composer:terminal-resize", (event, request: unknown) => {
+  const session = terminalSessionForSender(event.sender, request);
+
+  if (!session || !isRecord(request)) {
+    return;
+  }
+
+  const cols = integerInRange(request.cols, 2, 500);
+  const rows = integerInRange(request.rows, 2, 500);
+
+  if (cols && rows) {
+    session.ptyProcess.resize(cols, rows);
+  }
+});
+ipcMain.on("composer:terminal-dispose", (event, request: unknown) => {
+  const session = terminalSessionForSender(event.sender, request);
+
+  if (session) {
+    disposeTerminalSession(session.id);
   }
 });
 
@@ -238,8 +314,139 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
+  disposeTerminalSessions();
   void stopAgentServer();
 });
+
+function createTerminalSession(sender: WebContents, request: unknown) {
+  const value = isRecord(request) ? request : {};
+  const cwd = typeof value.cwd === "string"
+    ? existingDirectory(value.cwd) ?? workspaceCwd()
+    : workspaceCwd();
+  const cols = integerInRange(value.cols, 2, 500) ?? 80;
+  const rows = integerInRange(value.rows, 2, 500) ?? 24;
+  const shell = defaultShell();
+  const id = randomUUID();
+  const env = terminalEnvironment(shell);
+  const ptyProcess = pty.spawn(shell, [], {
+    name: "xterm-256color",
+    cols,
+    rows,
+    cwd,
+    env
+  });
+
+  const dataDisposable = ptyProcess.onData((data) => {
+    if (!sender.isDestroyed()) {
+      sender.send("composer:terminal-data", { sessionId: id, data });
+    }
+  });
+  const exitDisposable = ptyProcess.onExit(({ exitCode, signal }) => {
+    terminalSessions.delete(id);
+    dataDisposable.dispose();
+    exitDisposable.dispose();
+
+    if (!sender.isDestroyed()) {
+      sender.send("composer:terminal-exit", { sessionId: id, exitCode, signal });
+    }
+  });
+  const destroyedListener = () => disposeTerminalSession(id);
+  const session: TerminalSession = {
+    id,
+    cwd,
+    ptyProcess,
+    webContents: sender,
+    dataDisposable,
+    exitDisposable,
+    destroyedListener
+  };
+
+  terminalSessions.set(id, session);
+  sender.once("destroyed", destroyedListener);
+
+  return {
+    id,
+    cwd,
+    pid: ptyProcess.pid,
+    shell: path.basename(shell)
+  };
+}
+
+function terminalSessionForSender(sender: WebContents, request: unknown) {
+  const sessionId = isRecord(request) && typeof request.sessionId === "string"
+    ? request.sessionId
+    : "";
+  const session = terminalSessions.get(sessionId);
+
+  if (!session || session.webContents.id !== sender.id) {
+    return null;
+  }
+
+  return session;
+}
+
+function disposeTerminalSession(sessionId: string) {
+  const session = terminalSessions.get(sessionId);
+
+  if (!session) {
+    return;
+  }
+
+  terminalSessions.delete(sessionId);
+  session.webContents.removeListener("destroyed", session.destroyedListener);
+  session.dataDisposable.dispose();
+  session.exitDisposable.dispose();
+
+  try {
+    session.ptyProcess.kill();
+  } catch {
+    // The process may already be gone.
+  }
+}
+
+function disposeTerminalSessions() {
+  for (const sessionId of terminalSessions.keys()) {
+    disposeTerminalSession(sessionId);
+  }
+}
+
+function defaultShell() {
+  const configured = process.env.SHELL;
+
+  if (configured && path.isAbsolute(configured)) {
+    return configured;
+  }
+
+  if (process.platform === "win32") {
+    return process.env.ComSpec ?? "powershell.exe";
+  }
+
+  return fs.existsSync("/bin/zsh") ? "/bin/zsh" : "/bin/sh";
+}
+
+function terminalEnvironment(shell: string) {
+  const env = desktopCliEnvironment({
+    ...process.env,
+    COLORTERM: "truecolor",
+    SHELL: shell,
+    TERM: "xterm-256color"
+  });
+  const entries = Object.entries(env).filter(
+    (entry): entry is [string, string] => typeof entry[1] === "string"
+  );
+
+  return Object.fromEntries(entries);
+}
+
+function integerInRange(value: unknown, min: number, max: number) {
+  const number = typeof value === "number" ? value : Number(value);
+
+  if (!Number.isInteger(number) || number < min || number > max) {
+    return null;
+  }
+
+  return number;
+}
 
 function ensureAgentServer() {
   if (agentServerReady) {
@@ -310,6 +517,86 @@ function workspaceCwd() {
   }
 
   return process.cwd();
+}
+
+function listWorkspaceFiles(cwd: string) {
+  const relativePaths = gitWorkspaceFilePaths(cwd) ?? walkedWorkspaceFilePaths(cwd);
+
+  return relativePaths
+    .slice(0, MAX_WORKSPACE_FILE_ENTRIES)
+    .map((relativePath) => {
+      const absolutePath = path.join(cwd, relativePath);
+      const stats = fs.statSync(absolutePath);
+
+      return {
+        path: relativePath,
+        absolutePath,
+        size: stats.size,
+        mtimeMs: stats.mtimeMs
+      };
+    });
+}
+
+function gitWorkspaceFilePaths(cwd: string) {
+  try {
+    const output = execFileSync(
+      "git",
+      ["-C", cwd, "ls-files", "--cached", "--others", "--exclude-standard"],
+      {
+        encoding: "utf8",
+        maxBuffer: 4 * 1024 * 1024
+      }
+    );
+
+    return output
+      .split("\n")
+      .map((entry) => entry.trim())
+      .filter((entry) => entry && !entry.split("/").some((part) => IGNORED_WORKSPACE_DIRECTORIES.has(part)))
+      .filter((entry) => {
+        try {
+          return fs.statSync(path.join(cwd, entry)).isFile();
+        } catch {
+          return false;
+        }
+      })
+      .sort((a, b) => a.localeCompare(b));
+  } catch {
+    return null;
+  }
+}
+
+function walkedWorkspaceFilePaths(cwd: string) {
+  const files: string[] = [];
+
+  function walk(directory: string) {
+    if (files.length >= MAX_WORKSPACE_FILE_ENTRIES) {
+      return;
+    }
+
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+      if (files.length >= MAX_WORKSPACE_FILE_ENTRIES) {
+        return;
+      }
+
+      if (IGNORED_WORKSPACE_DIRECTORIES.has(entry.name)) {
+        continue;
+      }
+
+      const absolutePath = path.join(directory, entry.name);
+
+      if (entry.isDirectory()) {
+        walk(absolutePath);
+        continue;
+      }
+
+      if (entry.isFile()) {
+        files.push(path.relative(cwd, absolutePath).replaceAll(path.sep, "/"));
+      }
+    }
+  }
+
+  walk(cwd);
+  return files.sort((a, b) => a.localeCompare(b));
 }
 
 function createProject(request: unknown) {

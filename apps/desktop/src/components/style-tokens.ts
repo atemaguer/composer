@@ -63,7 +63,7 @@ export const pillButton =
   `inline-flex items-center rounded-full border border-transparent bg-transparent text-app-muted transition-colors hover:border-app-line hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
 
 export const cardSurface =
-  `rounded-[18px] border ${appSoftBorder} bg-app-panel-2/85 ${appPanelShadowSoft}`;
+  `rounded-[18px] border ${appSoftBorder} bg-app-panel-2 ${appPanelShadowSoft}`;
 
 export const subtleCardSurface =
   `rounded-[14px] border ${appSubtleDivider} bg-app-text/[0.045] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3%,transparent)]`;

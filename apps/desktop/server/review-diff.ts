@@ -4,39 +4,30 @@ import path from "node:path";
 import { promisify } from "node:util";
 
 import type {
+  ReviewBranchList,
   ReviewDiff,
   ReviewDiffFile,
-  ReviewDiffHunk
+  ReviewDiffHunk,
+  ReviewDiffScope
 } from "../src/types.js";
 
 const execFileAsync = promisify(execFile);
 
 export async function loadReviewDiff(
   cwd: string,
-  filePath?: string | string[]
+  options: {
+    filePath?: string | string[];
+    scope?: Exclude<ReviewDiffScope, "last-turn">;
+    branchHeadRef?: string;
+    branchBaseRef?: string;
+  } = {}
 ): Promise<ReviewDiff> {
-  const relativePaths = normalizeGitPaths(cwd, filePath);
-  const [unstaged, staged, untracked] = await Promise.all([
-    git(cwd, [
-      "diff",
-      "--no-ext-diff",
-      "--unified=6",
-      "--no-color",
-      "--",
-      ...relativePaths
-    ]),
-    git(cwd, [
-      "diff",
-      "--cached",
-      "--no-ext-diff",
-      "--unified=6",
-      "--no-color",
-      "--",
-      ...relativePaths
-    ]),
-    loadUntrackedDiff(cwd, relativePaths)
-  ]);
-  const raw = [staged, unstaged, untracked].filter(Boolean).join("\n");
+  const scope = options.scope ?? "unstaged";
+  const relativePaths = normalizeGitPaths(cwd, options.filePath);
+  const { raw, comparison } = await loadRawDiff(cwd, scope, relativePaths, {
+    branchHeadRef: options.branchHeadRef,
+    branchBaseRef: options.branchBaseRef
+  });
   const files = combineReviewFiles(parseUnifiedDiff(raw));
 
   return {
@@ -45,8 +36,207 @@ export async function loadReviewDiff(
     files,
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
-    raw
+    raw,
+    comparison
   };
+}
+
+export async function loadReviewBranches(cwd: string): Promise<ReviewBranchList> {
+  const [currentRef, defaultBaseRef, refsOutput] = await Promise.all([
+    gitOptional(cwd, ["branch", "--show-current"]),
+    resolveBranchBase(cwd),
+    git(cwd, [
+      "for-each-ref",
+      "--format=%(refname:short)\t%(refname)",
+      "refs/heads",
+      "refs/remotes"
+    ])
+  ]);
+  const seen = new Set<string>();
+  const branches = refsOutput
+    .split(/\r?\n/)
+    .map((line) => {
+      const [name, fullRef] = line.split("\t");
+      const trimmedName = name?.trim();
+
+      if (
+        !trimmedName ||
+        trimmedName.endsWith("/HEAD") ||
+        fullRef?.endsWith("/HEAD") ||
+        seen.has(trimmedName)
+      ) {
+        return null;
+      }
+
+      seen.add(trimmedName);
+      return {
+        name: trimmedName,
+        kind: fullRef?.startsWith("refs/remotes/")
+          ? ("remote" as const)
+          : ("local" as const)
+      };
+    })
+    .filter((branch): branch is ReviewBranchList["branches"][number] => Boolean(branch))
+    .sort((a, b) => {
+      if (a.kind !== b.kind) {
+        return a.kind === "local" ? -1 : 1;
+      }
+
+      return a.name.localeCompare(b.name);
+    });
+
+  return {
+    currentRef: currentRef ?? "HEAD",
+    defaultBaseRef,
+    branches
+  };
+}
+
+async function loadRawDiff(
+  cwd: string,
+  scope: Exclude<ReviewDiffScope, "last-turn">,
+  relativePaths: string[],
+  options: {
+    branchHeadRef?: string;
+    branchBaseRef?: string;
+  }
+): Promise<{
+  raw: string;
+  comparison?: ReviewDiff["comparison"];
+}> {
+  if (scope === "staged") {
+    return {
+      raw: await git(cwd, [
+        "diff",
+        "--cached",
+        "--no-ext-diff",
+        "--unified=6",
+        "--no-color",
+        "--",
+        ...relativePaths
+      ])
+    };
+  }
+
+  if (scope === "branch") {
+    return loadBranchDiff(
+      cwd,
+      relativePaths,
+      options.branchHeadRef,
+      options.branchBaseRef
+    );
+  }
+
+  if (scope === "commit") {
+    return {
+      raw: await git(cwd, [
+        "show",
+        "--format=",
+        "--no-ext-diff",
+        "--unified=6",
+        "--no-color",
+        "HEAD",
+        "--",
+        ...relativePaths
+      ])
+    };
+  }
+
+  const [unstaged, untracked] = await Promise.all([
+    git(cwd, [
+      "diff",
+      "--no-ext-diff",
+      "--unified=6",
+      "--no-color",
+      "--",
+      ...relativePaths
+    ]),
+    loadUntrackedDiff(cwd, relativePaths)
+  ]);
+
+  return { raw: [unstaged, untracked].filter(Boolean).join("\n") };
+}
+
+async function loadBranchDiff(
+  cwd: string,
+  relativePaths: string[],
+  requestedHeadRef?: string,
+  requestedBaseRef?: string
+) {
+  const headRef =
+    normalizeGitRef(requestedHeadRef) ??
+    (await gitOptional(cwd, ["branch", "--show-current"])) ??
+    "HEAD";
+  const baseRef = normalizeGitRef(requestedBaseRef) ?? (await resolveBranchBase(cwd));
+
+  if (!baseRef) {
+    throw new Error("Could not find a base branch for branch diff.");
+  }
+
+  const mergeBase = await git(cwd, ["merge-base", headRef, baseRef]);
+  const baseSha = mergeBase.trim();
+
+  if (!baseSha) {
+    throw new Error(`Could not find merge base with ${baseRef}.`);
+  }
+
+  return {
+    raw: await git(cwd, [
+      "diff",
+      "--no-ext-diff",
+      "--unified=6",
+      "--no-color",
+      `${baseSha}..${headRef}`,
+      "--",
+      ...relativePaths
+    ]),
+    comparison: {
+      headRef,
+      baseRef
+    }
+  };
+}
+
+function normalizeGitRef(ref?: string) {
+  const trimmed = ref?.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  if (trimmed.startsWith("-") || /[\0\r\n]/.test(trimmed)) {
+    throw new Error("Invalid branch ref.");
+  }
+
+  return trimmed;
+}
+
+async function resolveBranchBase(cwd: string) {
+  const upstream = await gitOptional(cwd, [
+    "rev-parse",
+    "--abbrev-ref",
+    "--symbolic-full-name",
+    "@{upstream}"
+  ]);
+
+  if (upstream) {
+    return upstream;
+  }
+
+  for (const candidate of ["origin/main", "origin/master", "main", "master"]) {
+    const ref = await gitOptional(cwd, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      candidate
+    ]);
+
+    if (ref) {
+      return candidate;
+    }
+  }
+
+  return null;
 }
 
 async function git(cwd: string, args: string[]) {
@@ -66,6 +256,16 @@ async function git(cwd: string, args: string[]) {
       stderr.trim() || (error instanceof Error ? error.message : String(error));
 
     throw new Error(`Could not read git diff: ${message}`);
+  }
+}
+
+async function gitOptional(cwd: string, args: string[]) {
+  try {
+    const output = await git(cwd, args);
+
+    return output.trim() || null;
+  } catch {
+    return null;
   }
 }
 

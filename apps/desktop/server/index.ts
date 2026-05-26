@@ -10,7 +10,7 @@ import {
 
 import { loadLocalSessions } from "../electron/session-loader.js";
 import { loadCapabilityCatalog, readCapabilityContent } from "./capabilities.js";
-import { loadReviewDiff } from "./review-diff.js";
+import { loadReviewBranches, loadReviewDiff } from "./review-diff.js";
 import { AgentRuntime } from "./runtime.js";
 import type {
   AgentSettings,
@@ -71,6 +71,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/review/diff") {
       await handleReviewDiffRequest(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/review/branches") {
+      await handleReviewBranchesRequest(request, response);
       return;
     }
 
@@ -310,9 +315,34 @@ async function handleReviewDiffRequest(
   const filePaths = Array.isArray(body.filePaths)
     ? body.filePaths.filter((value: unknown): value is string => typeof value === "string")
     : undefined;
-  const diff = await loadReviewDiff(cwd, filePath ?? filePaths);
+  const scope =
+    body.scope === "staged" ||
+    body.scope === "commit" ||
+    body.scope === "branch"
+      ? body.scope
+      : "unstaged";
+  const diff = await loadReviewDiff(cwd, {
+    filePath: filePath ?? filePaths,
+    scope,
+    branchHeadRef: typeof body.branchHeadRef === "string"
+      ? body.branchHeadRef
+      : undefined,
+    branchBaseRef: typeof body.branchBaseRef === "string"
+      ? body.branchBaseRef
+      : undefined
+  });
 
   writeJson(response, 200, diff);
+}
+
+async function handleReviewBranchesRequest(
+  request: IncomingMessage,
+  response: ServerResponse
+) {
+  const body = await readJson(request);
+  const cwd = parseCwd(body.cwd);
+
+  writeJson(response, 200, await loadReviewBranches(cwd));
 }
 
 async function interruptRuntime(sessionId?: string, requestId?: string) {

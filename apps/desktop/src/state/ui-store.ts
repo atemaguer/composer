@@ -12,19 +12,26 @@ type Updater<T> = T | ((current: T) => T);
 
 export const minReviewContentWidth = 300;
 export const maxReviewContentWidth = 720;
+export const minSidebarWidth = 220;
+export const maxSidebarWidth = 420;
 
 const uiPreferencesStorageKey = "composer.ui.preferences";
 const threadViewModeStorageKey = "composer.threadViewMode";
 const reviewContentWidthStorageKey = "composer.reviewContentWidth";
+const sidebarWidthStorageKey = "composer.sidebarWidth";
 const defaultReviewContentWidth = 360;
+const defaultSidebarWidth = 244;
 
 type PersistedUiPreferences = {
   threadViewMode: ThreadViewMode;
   reviewContentWidth: number;
+  sidebarWidth: number;
 };
 
 export type UiStore = {
   sidebarOpen: boolean;
+  sidebarWidth: number;
+  sidebarResizing: boolean;
   inspectorOpen: boolean;
   settingsOpen: boolean;
   threadViewMode: ThreadViewMode;
@@ -36,6 +43,8 @@ export type UiStore = {
   navigationAvailability: NavigationAvailability;
   setSidebarOpen: (next: Updater<boolean>) => void;
   toggleSidebarOpen: () => void;
+  setSidebarWidth: (next: Updater<number>) => void;
+  setSidebarResizing: (next: Updater<boolean>) => void;
   setInspectorOpen: (next: Updater<boolean>) => void;
   toggleInspectorOpen: () => void;
   setSettingsOpen: (next: Updater<boolean>) => void;
@@ -66,6 +75,19 @@ export const useUiStore = create<UiStore>()(
         })),
       toggleSidebarOpen: () =>
         set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+      setSidebarWidth: (next) =>
+        set((state) => {
+          const sidebarWidth = clampSidebarWidth(
+            resolveNextValue(next, state.sidebarWidth)
+          );
+
+          writeStorage(sidebarWidthStorageKey, String(sidebarWidth));
+          return { sidebarWidth };
+        }),
+      setSidebarResizing: (next) =>
+        set((state) => ({
+          sidebarResizing: resolveNextValue(next, state.sidebarResizing)
+        })),
       setInspectorOpen: (next) =>
         set((state) => ({
           inspectorOpen: resolveNextValue(next, state.inspectorOpen)
@@ -131,6 +153,7 @@ export const useUiStore = create<UiStore>()(
           reviewContentWidthStorageKey,
           String(nextState.reviewContentWidth)
         );
+        writeStorage(sidebarWidthStorageKey, String(nextState.sidebarWidth));
         set(nextState);
       }
     }),
@@ -139,7 +162,8 @@ export const useUiStore = create<UiStore>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state): PersistedUiPreferences => ({
         threadViewMode: state.threadViewMode,
-        reviewContentWidth: state.reviewContentWidth
+        reviewContentWidth: state.reviewContentWidth,
+        sidebarWidth: state.sidebarWidth
       }),
       merge: (persistedState, currentState) => {
         const persisted = persistedState as Partial<PersistedUiPreferences> | null;
@@ -149,14 +173,19 @@ export const useUiStore = create<UiStore>()(
         const reviewContentWidth = clampReviewContentWidth(
           persisted?.reviewContentWidth ?? currentState.reviewContentWidth
         );
+        const sidebarWidth = clampSidebarWidth(
+          persisted?.sidebarWidth ?? currentState.sidebarWidth
+        );
 
         writeStorage(threadViewModeStorageKey, threadViewMode);
         writeStorage(reviewContentWidthStorageKey, String(reviewContentWidth));
+        writeStorage(sidebarWidthStorageKey, String(sidebarWidth));
 
         return {
           ...currentState,
           threadViewMode,
-          reviewContentWidth
+          reviewContentWidth,
+          sidebarWidth
         };
       }
     }
@@ -167,13 +196,16 @@ function createInitialUiState() {
   return {
     ...createDefaultUiState(),
     threadViewMode: readThreadViewMode(),
-    reviewContentWidth: readReviewContentWidth()
+    reviewContentWidth: readReviewContentWidth(),
+    sidebarWidth: readSidebarWidth()
   };
 }
 
 function createDefaultUiState() {
   return {
     sidebarOpen: true,
+    sidebarWidth: clampSidebarWidth(defaultSidebarWidth),
+    sidebarResizing: false,
     inspectorOpen: false,
     settingsOpen: false,
     threadViewMode: "sidebar" as ThreadViewMode,
@@ -201,6 +233,12 @@ function readReviewContentWidth() {
   );
 }
 
+function readSidebarWidth() {
+  return clampSidebarWidth(
+    Number(readStorage(sidebarWidthStorageKey)) || defaultSidebarWidth
+  );
+}
+
 export function clampReviewContentWidth(value: number) {
   const viewportLimit =
     typeof window === "undefined"
@@ -210,6 +248,18 @@ export function clampReviewContentWidth(value: number) {
   return Math.min(
     Math.max(Math.round(value), minReviewContentWidth),
     Math.min(maxReviewContentWidth, viewportLimit)
+  );
+}
+
+export function clampSidebarWidth(value: number) {
+  const viewportLimit =
+    typeof window === "undefined"
+      ? maxSidebarWidth
+      : Math.max(minSidebarWidth, Math.floor(window.innerWidth * 0.4));
+
+  return Math.min(
+    Math.max(Math.round(value), minSidebarWidth),
+    Math.min(maxSidebarWidth, viewportLimit)
   );
 }
 

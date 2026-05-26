@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import type { FilePreview, SessionSnapshot } from "./types";
+import type { FilePreview, SessionSnapshot, WorkspaceFileEntry } from "./types";
 
 declare global {
   const __APP_VERSION__: string;
@@ -19,6 +19,24 @@ declare global {
     fullScreen: boolean;
     maximized: boolean;
     titlebarControlsVisible: boolean;
+  };
+
+  type TerminalSessionInfo = {
+    id: string;
+    cwd: string;
+    pid: number;
+    shell: string;
+  };
+
+  type TerminalDataEvent = {
+    sessionId: string;
+    data: string;
+  };
+
+  type TerminalExitEvent = {
+    sessionId: string;
+    exitCode: number;
+    signal?: number;
   };
 
   interface Window {
@@ -47,7 +65,29 @@ declare global {
         cwd: string;
         workspaceName: string;
       }>;
+      listWorkspaceFiles?: (cwd: string) => Promise<WorkspaceFileEntry[]>;
       readTextFile?: (filePath: string) => Promise<FilePreview>;
+      createTerminalSession?: (request: {
+        cwd?: string | null;
+        cols: number;
+        rows: number;
+      }) => Promise<TerminalSessionInfo>;
+      writeTerminalSession?: (request: {
+        sessionId: string;
+        data: string;
+      }) => void;
+      resizeTerminalSession?: (request: {
+        sessionId: string;
+        cols: number;
+        rows: number;
+      }) => void;
+      disposeTerminalSession?: (sessionId: string) => void;
+      onTerminalData?: (
+        listener: (event: TerminalDataEvent) => void
+      ) => () => void;
+      onTerminalExit?: (
+        listener: (event: TerminalExitEvent) => void
+      ) => () => void;
       getAutoUpdateState?: () => Promise<AutoUpdateState>;
       installAutoUpdate?: () => Promise<AutoUpdateState>;
       onAutoUpdateState?: (

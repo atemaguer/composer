@@ -140,6 +140,30 @@ export type ReviewDiff = {
   additions: number;
   deletions: number;
   raw: string;
+  comparison?: ReviewBranchComparison;
+};
+
+export type ReviewDiffScope =
+  | "last-turn"
+  | "unstaged"
+  | "staged"
+  | "commit"
+  | "branch";
+
+export type ReviewBranchComparison = {
+  headRef: string;
+  baseRef: string;
+};
+
+export type ReviewBranchRef = {
+  name: string;
+  kind: "local" | "remote";
+};
+
+export type ReviewBranchList = {
+  currentRef: string;
+  defaultBaseRef: string | null;
+  branches: ReviewBranchRef[];
 };
 
 export type ProjectThread = {
@@ -412,3 +436,12 @@ export type FilePreview = {
   truncated: boolean;
   mtimeMs: number;
 };
+
+export type WorkspaceFileEntry = {
+  path: string;
+  absolutePath: string;
+  size: number;
+  mtimeMs: number;
+};
+
+export type InspectorPanelTab = "review" | "terminal" | "file-preview";

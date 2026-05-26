@@ -16,6 +16,24 @@ type WindowFrameState = {
   titlebarControlsVisible: boolean;
 };
 
+type TerminalSessionInfo = {
+  id: string;
+  cwd: string;
+  pid: number;
+  shell: string;
+};
+
+type TerminalDataEvent = {
+  sessionId: string;
+  data: string;
+};
+
+type TerminalExitEvent = {
+  sessionId: string;
+  exitCode: number;
+  signal?: number;
+};
+
 contextBridge.exposeInMainWorld("composer", {
   platform: process.platform,
   getTelemetryIdentity: () =>
@@ -32,8 +50,51 @@ contextBridge.exposeInMainWorld("composer", {
   }) => ipcRenderer.invoke("composer:update-session-visibility", request),
   createProject: (request: { name?: string; baseCwd?: string }) =>
     ipcRenderer.invoke("composer:create-project", request),
+  listWorkspaceFiles: (cwd: string) =>
+    ipcRenderer.invoke("composer:list-workspace-files", cwd),
   readTextFile: (filePath: string) =>
     ipcRenderer.invoke("composer:read-text-file", filePath),
+  createTerminalSession: (request: {
+    cwd?: string | null;
+    cols: number;
+    rows: number;
+  }) =>
+    ipcRenderer.invoke("composer:terminal-create", request) as Promise<TerminalSessionInfo>,
+  writeTerminalSession: (request: { sessionId: string; data: string }) => {
+    ipcRenderer.send("composer:terminal-write", request);
+  },
+  resizeTerminalSession: (request: {
+    sessionId: string;
+    cols: number;
+    rows: number;
+  }) => {
+    ipcRenderer.send("composer:terminal-resize", request);
+  },
+  disposeTerminalSession: (sessionId: string) => {
+    ipcRenderer.send("composer:terminal-dispose", { sessionId });
+  },
+  onTerminalData: (listener: (event: TerminalDataEvent) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: TerminalDataEvent) => {
+      listener(payload);
+    };
+
+    ipcRenderer.on("composer:terminal-data", handler);
+
+    return () => {
+      ipcRenderer.removeListener("composer:terminal-data", handler);
+    };
+  },
+  onTerminalExit: (listener: (event: TerminalExitEvent) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: TerminalExitEvent) => {
+      listener(payload);
+    };
+
+    ipcRenderer.on("composer:terminal-exit", handler);
+
+    return () => {
+      ipcRenderer.removeListener("composer:terminal-exit", handler);
+    };
+  },
   getAutoUpdateState: () =>
     ipcRenderer.invoke("composer:get-auto-update-state") as Promise<AutoUpdateState>,
   installAutoUpdate: () =>

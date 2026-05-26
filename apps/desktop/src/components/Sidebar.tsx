@@ -1,5 +1,6 @@
-import type { ElementType, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import type { ElementType, ReactNode, RefObject } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Archive,
   ArrowLeft,
@@ -8,8 +9,10 @@ import {
   Edit3,
   Folder,
   FolderOpen,
+  HelpCircle,
   ListFilter,
   LoaderCircle,
+  MessageSquare,
   MoreHorizontal,
   PanelRight,
   Plus,
@@ -64,6 +67,7 @@ type SidebarProps = {
   onNavigateForward?: () => void;
   onSearch?: () => void;
   onSettings?: () => void;
+  onFeedback?: () => void;
 };
 
 const INITIAL_THREADS_PER_WORKSPACE = 4;
@@ -104,7 +108,8 @@ export function Sidebar({
   onNavigateBack,
   onNavigateForward,
   onSearch,
-  onSettings
+  onSettings,
+  onFeedback
 }: SidebarProps) {
   const [workspacesOpen, setWorkspacesOpen] = useState(true);
   const [expandedWorkspaces, setExpandedWorkspaces] = useState(
@@ -116,6 +121,9 @@ export function Sidebar({
   const [visibleWorkspaceCount, setVisibleWorkspaceCount] =
     useState(INITIAL_WORKSPACES);
   const [providerFilterOpen, setProviderFilterOpen] = useState(false);
+  const [helpMenuOpen, setHelpMenuOpen] = useState(false);
+  const helpMenuRef = useRef<HTMLDivElement>(null);
+  const helpButtonRef = useRef<HTMLButtonElement>(null);
   const filteredProjects = useMemo(
     () =>
       providerFilter === "all"
@@ -192,6 +200,38 @@ export function Sidebar({
     });
   }, [filteredProjects, selectedThread]);
 
+  useEffect(() => {
+    if (!helpMenuOpen) {
+      return;
+    }
+
+    function closeOnOutsidePointer(event: MouseEvent) {
+      const target = event.target as Node;
+
+      if (
+        helpMenuRef.current?.contains(target) ||
+        helpButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setHelpMenuOpen(false);
+    }
+
+    function closeOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        setHelpMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", closeOnOutsidePointer);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("mousedown", closeOnOutsidePointer);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [helpMenuOpen]);
+
   function toggleWorkspace(name: string) {
     setExpandedWorkspaces((current) => {
       const next = new Set(current);
@@ -248,7 +288,7 @@ export function Sidebar({
     >
       <div
         className={cn(
-          "app-drag h-11 w-[244px] shrink-0 pr-2",
+          "app-drag h-11 w-full shrink-0 pr-2",
           titlebarControlRow
         )}
       >
@@ -287,7 +327,7 @@ export function Sidebar({
         </TooltipButton>
       </div>
 
-      <div className="flex min-h-0 w-[244px] flex-1 flex-col gap-4 overflow-hidden px-2 pb-2.5 pt-3">
+      <div className="flex min-h-0 w-full flex-1 flex-col gap-4 overflow-hidden px-2 pb-2.5 pt-3">
         <nav className="grid shrink-0 gap-1" aria-label="Primary">
           <SidebarButton
             icon={Edit3}
@@ -581,8 +621,24 @@ export function Sidebar({
           </div>
         </div>
 
-        <div className="grid shrink-0 gap-1">
-          <div className="grid min-h-8 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2">
+        <div className="relative grid shrink-0 gap-1">
+          <div className="grid min-h-8 grid-cols-[auto_auto_minmax(0,1fr)_auto] items-center gap-1">
+            <TooltipButton
+              ref={helpButtonRef}
+              className={cn(
+                "flex size-8 items-center justify-center rounded-md text-app-muted/85 transition-colors",
+                appHoverSurfaceSubtle,
+                helpMenuOpen && `${appActiveSurface} text-app-text`,
+                focusRing
+              )}
+              aria-label="Help"
+              aria-haspopup="menu"
+              aria-expanded={helpMenuOpen}
+              tooltip="Help"
+              onClick={() => setHelpMenuOpen((value) => !value)}
+            >
+              <HelpCircle className={mutedIcon} size={17} />
+            </TooltipButton>
             <TooltipButton
               className={cn(
                 "flex size-8 items-center justify-center rounded-md text-app-muted/85 transition-colors",
@@ -619,6 +675,17 @@ export function Sidebar({
               v{__APP_VERSION__}
             </span>
           </div>
+          {helpMenuOpen &&
+            createPortal(
+              <HelpMenu
+                menuRef={helpMenuRef}
+                onFeedback={() => {
+                  setHelpMenuOpen(false);
+                  onFeedback?.();
+                }}
+              />,
+              document.body
+            )}
           {updateInstallError && (
             <div className="max-h-8 overflow-hidden px-2 text-[11px] leading-4 text-red-300/90">
               {autoUpdateState.message}
@@ -627,6 +694,71 @@ export function Sidebar({
         </div>
       </div>
     </aside>
+  );
+}
+
+function HelpMenu({
+  menuRef,
+  onFeedback
+}: {
+  menuRef: RefObject<HTMLDivElement | null>;
+  onFeedback: () => void;
+}) {
+  return (
+    <div
+      ref={menuRef}
+      className={cn(
+        "fixed bottom-12 left-2 z-50 grid w-[300px] gap-1 rounded-[18px] border bg-app-panel-2 p-2 text-[14px] text-app-text",
+        appSoftBorder,
+        appPanelShadow
+      )}
+      role="menu"
+      aria-label="Help"
+    >
+      <HelpMenuButton
+        icon={MessageSquare}
+        label="Send feedback"
+        shortcut="⌘⌥F"
+        onClick={onFeedback}
+      />
+    </div>
+  );
+}
+
+function HelpMenuButton({
+  icon: Icon,
+  trailingIcon: TrailingIcon,
+  label,
+  shortcut,
+  inset = false,
+  onClick
+}: {
+  icon?: ElementType;
+  trailingIcon?: ElementType;
+  label: string;
+  shortcut?: string;
+  inset?: boolean;
+  onClick?: () => void;
+}) {
+  return (
+    <button
+      className={cn(
+        "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl px-3 text-left text-app-muted transition-colors",
+        appHoverSurface,
+        focusRing,
+        inset && "pl-[52px]"
+      )}
+      role="menuitem"
+      type="button"
+      onClick={onClick}
+    >
+      {!inset && Icon ? <Icon size={17} /> : <span aria-hidden="true" />}
+      <span>{label}</span>
+      <span className="flex items-center gap-2 text-app-dim">
+        {shortcut}
+        {TrailingIcon && <TrailingIcon size={14} />}
+      </span>
+    </button>
   );
 }
 

@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type PointerEvent
 } from "react";
-import { MoreHorizontal } from "lucide-react";
+import { Check, Paperclip, MoreHorizontal, X } from "lucide-react";
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 
 import { AppChrome } from "./components/AppChrome";
@@ -25,7 +25,15 @@ import { useComposerStore } from "./state/composer-store";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { useRuntimeStore } from "./state/runtime-store";
 import { isSessionRunning, useSessionStore } from "./state/session-store";
-import { clampReviewContentWidth, useUiStore } from "./state/ui-store";
+import {
+  clampReviewContentWidth,
+  clampSidebarWidth,
+  maxReviewContentWidth,
+  maxSidebarWidth,
+  minReviewContentWidth,
+  minSidebarWidth,
+  useUiStore
+} from "./state/ui-store";
 import {
   mergeWorkspaceOptions,
   useWorkspaceStore,
@@ -35,21 +43,26 @@ import type {
   ApprovalDecision,
   ComposerImageAttachment,
   ComposerReviewCommentAttachment,
+  ConversationItem,
   DelegateSessionProvider,
+  FileChangeRow,
+  InspectorPanelTab,
   LiveAgentEvent,
   ProviderFilter,
   Project,
   ProjectThread,
   ReviewDiff,
   ReviewDiffFile,
+  ReviewDiffScope,
+  ReviewBranchComparison,
+  ReviewBranchList,
+  ReviewBranchRef,
   SessionContent,
   SessionProvider,
   SessionSnapshot,
-  ThreadViewMode
+  ThreadViewMode,
+  WorkspaceFileEntry
 } from "./types";
-
-const minReviewContentWidth = 300;
-const maxReviewContentWidth = 720;
 
 export default function App() {
   const location = useLocation();
@@ -57,6 +70,12 @@ export default function App() {
   const navigationType = useNavigationType();
   const sidebarOpen = useUiStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
+  const sidebarWidth = useUiStore((state) => state.sidebarWidth);
+  const setSidebarWidth = useUiStore((state) => state.setSidebarWidth);
+  const sidebarResizing = useUiStore((state) => state.sidebarResizing);
+  const setSidebarResizing = useUiStore(
+    (state) => state.setSidebarResizing
+  );
   const inspectorOpen = useUiStore((state) => state.inspectorOpen);
   const setInspectorOpen = useUiStore((state) => state.setInspectorOpen);
   const settingsOpen = useUiStore((state) => state.settingsOpen);
@@ -75,6 +94,7 @@ export default function App() {
   const setSearchOpen = useUiStore((state) => state.setSearchOpen);
   const searchQuery = useUiStore((state) => state.searchQuery);
   const setSearchQuery = useUiStore((state) => state.setSearchQuery);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const activeNav = useUiStore((state) => state.activeNav);
   const setActiveNav = useUiStore((state) => state.setActiveNav);
   const navigationAvailability = useUiStore(
@@ -183,19 +203,46 @@ export default function App() {
     status: "idle"
   });
   const [reviewDiff, setReviewDiff] = useState<ReviewDiff | null>(null);
+  const [reviewScope, setReviewScope] =
+    useState<ReviewDiffScope>("unstaged");
+  const [reviewBranchRefs, setReviewBranchRefs] = useState<ReviewBranchRef[]>([]);
+  const [reviewBranchRefsLoading, setReviewBranchRefsLoading] = useState(false);
+  const [reviewBranchRefsError, setReviewBranchRefsError] = useState<string | null>(null);
+  const [reviewBranchComparison, setReviewBranchComparison] =
+    useState<ReviewBranchComparison | null>(null);
+  const [inspectorTab, setInspectorTab] =
+    useState<InspectorPanelTab>("review");
+  const [filePreviewTabOpen, setFilePreviewTabOpen] = useState(false);
+  const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileEntry[]>([]);
+  const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
+  const [workspaceFilesError, setWorkspaceFilesError] = useState<string | null>(null);
+  const [lastTurnReviewFilesOverride, setLastTurnReviewFilesOverride] =
+    useState<ReviewDiffFile[] | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [reviewError, setReviewError] = useState<string | null>(null);
   const [selectedReviewPath, setSelectedReviewPath] = useState<string | null>(
     null
   );
   const reviewRequestIdRef = useRef(0);
+  const workspaceFilesRequestIdRef = useRef(0);
 
   const activeSession = selectedThread ? sessions[selectedThread] : undefined;
+  const activeSessionLastTurnReviewFiles = useMemo(
+    () => latestReviewFilesFromItems(activeSession?.items ?? []) ?? null,
+    [activeSession]
+  );
+  const lastTurnReviewFiles =
+    lastTurnReviewFilesOverride ?? activeSessionLastTurnReviewFiles;
   const activeProvider = provider;
   const activeModel = modelByProvider[activeProvider];
   const activeIntelligence = intelligenceByProvider[activeProvider];
   const activeSessionNeedsParallelAdoption =
     activeSession ? needsParallelAdoption(activeSession) : false;
+
+  useEffect(() => {
+    setLastTurnReviewFilesOverride(null);
+  }, [selectedThread]);
 
   const allWorkspaceOptions = useMemo(
     () =>
@@ -219,6 +266,28 @@ export default function App() {
   const currentCwd = activeSession
     ? sessionWorkspaceCwd(activeSession) ?? selectedWorkspace?.cwd
     : selectedWorkspace?.cwd;
+
+  useEffect(() => {
+    setReviewBranchRefs([]);
+    setReviewBranchRefsError(null);
+    setReviewBranchComparison(null);
+    setWorkspaceFiles([]);
+    setWorkspaceFilesError(null);
+  }, [currentCwd]);
+
+  useEffect(() => {
+    if (
+      !filePreviewTabOpen ||
+      !currentCwd ||
+      workspaceFiles.length > 0 ||
+      workspaceFilesLoading
+    ) {
+      return;
+    }
+
+    void loadWorkspaceFiles(currentCwd);
+  }, [filePreviewTabOpen, currentCwd, workspaceFiles.length, workspaceFilesLoading]);
+
   const workspaceName =
     selectedWorkspace?.label ??
     agentServer?.workspaceName ??
@@ -528,8 +597,45 @@ export default function App() {
     setActiveNav("New session");
   }, [location.pathname, sessions]);
 
+  function setClampedSidebarWidth(value: number) {
+    setSidebarWidth(clampSidebarWidth(value));
+  }
+
   function setClampedReviewContentWidth(value: number) {
     setReviewContentWidth(clampReviewContentWidth(value));
+  }
+
+  function startSidebarResize(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    event.currentTarget.setPointerCapture(event.pointerId);
+    setSidebarResizing(true);
+
+    const onPointerMove = (moveEvent: globalThis.PointerEvent) => {
+      setClampedSidebarWidth(moveEvent.clientX);
+    };
+    const onPointerUp = () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      setSidebarResizing(false);
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp, { once: true });
+  }
+
+  function resizeSidebarWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+
+    event.preventDefault();
+    setClampedSidebarWidth(
+      sidebarWidth + (event.key === "ArrowRight" ? 24 : -24)
+    );
   }
 
   function startInspectorResize(event: PointerEvent<HTMLDivElement>) {
@@ -823,12 +929,15 @@ export default function App() {
     files?: ReviewDiffFile[];
   } = {}) {
     const { filePath, files } = request;
-    setInspectorOpen(true);
-    setFilePreview(null);
-    setFilePreviewError(null);
-    setFilePreviewLoading(false);
+    const nextScope: ReviewDiffScope = files?.length ? "last-turn" : reviewScope;
+    const nextLastTurnFiles = files?.length ? files : lastTurnReviewFiles;
 
-    if (files) {
+    setInspectorOpen(true);
+    setInspectorTab("review");
+    setReviewScope(nextScope);
+
+    if (files?.length) {
+      setLastTurnReviewFilesOverride(files);
       setReviewDiff(reviewDiffFromFiles(files, currentCwd));
     }
 
@@ -836,21 +945,66 @@ export default function App() {
       setSelectedReviewPath(filePath);
     }
 
-    await loadReviewDiff(filePath, files);
+    await loadReviewDiff({
+      scope: nextScope,
+      filePath,
+      fallbackFiles: nextScope === "last-turn" ? nextLastTurnFiles ?? undefined : undefined
+    });
   }
 
-  async function loadReviewDiff(
-    filePath?: string,
-    fallbackFiles?: ReviewDiffFile[]
-  ) {
+  async function loadReviewDiff({
+    scope = reviewScope,
+    filePath,
+    fallbackFiles,
+    branchComparison
+  }: {
+    scope?: ReviewDiffScope;
+    filePath?: string;
+    fallbackFiles?: ReviewDiffFile[];
+    branchComparison?: ReviewBranchComparison;
+  } = {}) {
     const cwd = currentCwd;
     const requestId = reviewRequestIdRef.current + 1;
     reviewRequestIdRef.current = requestId;
+    const requestedBranchComparison =
+      scope === "branch" ? branchComparison ?? reviewBranchComparison ?? undefined : undefined;
+    const scopedFallbackFiles =
+      scope === "last-turn"
+        ? fallbackFiles ?? lastTurnReviewFiles ?? undefined
+        : fallbackFiles;
+
+    if (scope === "last-turn") {
+      setReviewLoading(false);
+      setReviewError(
+        scopedFallbackFiles?.length
+          ? null
+          : "No last-turn changes are available for this thread."
+      );
+      const resolvedDiff = scopedFallbackFiles?.length
+        ? reviewDiffFromFiles(scopedFallbackFiles, cwd)
+        : null;
+
+      setReviewDiff(resolvedDiff);
+      setSelectedReviewPath((current) => {
+        if (filePath) {
+          return resolvedDiff?.files.find((file) => file.path === filePath)?.path ??
+            resolvedDiff?.files[0]?.path ??
+            filePath;
+        }
+
+        if (current && resolvedDiff?.files.some((file) => file.path === current)) {
+          return current;
+        }
+
+        return null;
+      });
+      return;
+    }
 
     if (!agentServer?.httpUrl || !cwd) {
-      setReviewDiff(fallbackFiles ? reviewDiffFromFiles(fallbackFiles, cwd) : null);
+      setReviewDiff(scopedFallbackFiles ? reviewDiffFromFiles(scopedFallbackFiles, cwd) : null);
       setReviewError(
-        fallbackFiles
+        scopedFallbackFiles
           ? null
           : "Review is available after the agent server connects."
       );
@@ -867,8 +1021,11 @@ export default function App() {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           cwd,
+          scope,
           filePath,
-          filePaths: fallbackFiles?.map((file) => file.path)
+          filePaths: scopedFallbackFiles?.map((file) => file.path),
+          branchHeadRef: requestedBranchComparison?.headRef,
+          branchBaseRef: requestedBranchComparison?.baseRef
         })
       });
 
@@ -883,10 +1040,13 @@ export default function App() {
       }
 
       const resolvedDiff =
-        nextDiff.files.length > 0 || !fallbackFiles
+        nextDiff.files.length > 0 || !scopedFallbackFiles
           ? nextDiff
-          : reviewDiffFromFiles(fallbackFiles, cwd);
+          : reviewDiffFromFiles(scopedFallbackFiles, cwd);
       setReviewDiff(resolvedDiff);
+      if (scope === "branch" && resolvedDiff.comparison) {
+        setReviewBranchComparison(resolvedDiff.comparison);
+      }
       setSelectedReviewPath((current) => {
         if (filePath) {
           return resolvedDiff.files.find((file) => file.path === filePath)?.path ??
@@ -898,7 +1058,7 @@ export default function App() {
           return current;
         }
 
-        return resolvedDiff.files[0]?.path ?? null;
+        return null;
       });
     } catch (error) {
       if (reviewRequestIdRef.current !== requestId) {
@@ -906,11 +1066,49 @@ export default function App() {
       }
 
       setReviewError(error instanceof Error ? error.message : String(error));
-      setReviewDiff(fallbackFiles ? reviewDiffFromFiles(fallbackFiles, cwd) : null);
+      setReviewDiff(scopedFallbackFiles ? reviewDiffFromFiles(scopedFallbackFiles, cwd) : null);
     } finally {
       if (reviewRequestIdRef.current === requestId) {
         setReviewLoading(false);
       }
+    }
+  }
+
+  async function loadReviewBranches() {
+    const cwd = currentCwd;
+
+    if (!agentServer?.httpUrl || !cwd) {
+      setReviewBranchRefs([]);
+      setReviewBranchRefsError("Branches are available after the agent server connects.");
+      setReviewBranchRefsLoading(false);
+      return;
+    }
+
+    setReviewBranchRefsLoading(true);
+    setReviewBranchRefsError(null);
+
+    try {
+      const response = await fetch(`${agentServer.httpUrl}/api/review/branches`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ cwd })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Branch request failed with ${response.status}`);
+      }
+
+      const data = (await response.json()) as ReviewBranchList;
+      setReviewBranchRefs(data.branches);
+      setReviewBranchComparison((current) => current ?? (
+        data.defaultBaseRef
+          ? { headRef: data.currentRef, baseRef: data.defaultBaseRef }
+          : null
+      ));
+    } catch (error) {
+      setReviewBranchRefsError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReviewBranchRefsLoading(false);
     }
   }
 
@@ -923,9 +1121,68 @@ export default function App() {
     void openReview();
   }
 
+  function selectReviewScope(scope: ReviewDiffScope) {
+    setInspectorTab("review");
+    setReviewScope(scope);
+    setSelectedReviewPath(null);
+    if (scope === "branch") {
+      void loadReviewBranches();
+    }
+    void loadReviewDiff({
+      scope,
+      fallbackFiles: scope === "last-turn" ? lastTurnReviewFiles ?? undefined : undefined
+    });
+  }
+
+  function selectBranchComparison(branchComparison: ReviewBranchComparison) {
+    setReviewBranchComparison(branchComparison);
+    setSelectedReviewPath(null);
+    void loadReviewDiff({ scope: "branch", branchComparison });
+  }
+
+  async function loadWorkspaceFiles(cwd = currentCwd) {
+    if (!cwd) {
+      setWorkspaceFiles([]);
+      return;
+    }
+
+    const requestId = workspaceFilesRequestIdRef.current + 1;
+    workspaceFilesRequestIdRef.current = requestId;
+    setWorkspaceFilesLoading(true);
+    setWorkspaceFilesError(null);
+
+    try {
+      if (!window.composer?.listWorkspaceFiles) {
+        throw new Error("Workspace files are available in the desktop app.");
+      }
+
+      const files = await window.composer.listWorkspaceFiles(cwd);
+
+      if (workspaceFilesRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setWorkspaceFiles(files);
+    } catch (error) {
+      if (workspaceFilesRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setWorkspaceFilesError(error instanceof Error ? error.message : String(error));
+    } finally {
+      if (workspaceFilesRequestIdRef.current === requestId) {
+        setWorkspaceFilesLoading(false);
+      }
+    }
+  }
+
   async function openFile(filePath: string) {
     setInspectorOpen(true);
+    setFilePreviewTabOpen(true);
+    setInspectorTab("file-preview");
+    setFilePreviewPath(filePath);
     openPreview();
+    void loadWorkspaceFiles();
 
     try {
       if (!window.composer?.readTextFile) {
@@ -938,6 +1195,30 @@ export default function App() {
     } finally {
       setFilePreviewLoading(false);
     }
+  }
+
+  function selectInspectorTab(tab: InspectorPanelTab) {
+    setInspectorOpen(true);
+    setInspectorTab(tab);
+    if (tab === "file-preview") {
+      setFilePreviewTabOpen(true);
+    }
+  }
+
+  function addFilePreviewTab() {
+    setInspectorOpen(true);
+    setFilePreviewTabOpen(true);
+    setInspectorTab("file-preview");
+    void loadWorkspaceFiles();
+  }
+
+  function closeFilePreviewTab() {
+    setInspectorTab("review");
+    setFilePreviewTabOpen(false);
+    setFilePreviewPath(null);
+    setFilePreview(null);
+    setFilePreviewError(null);
+    setFilePreviewLoading(false);
   }
 
   const composerControls = {
@@ -1009,12 +1290,18 @@ export default function App() {
 
   return (
     <div
-      className="grid h-screen min-h-0 overflow-hidden bg-app-shell text-app-text transition-[grid-template-columns] duration-[220ms] ease-in-out motion-reduce:transition-none"
+      className={cn(
+        "relative grid h-screen min-h-0 overflow-hidden bg-app-shell text-app-text motion-reduce:transition-none",
+        sidebarResizing
+          ? "transition-none"
+          : "transition-[grid-template-columns] duration-[220ms] ease-in-out"
+      )}
       style={
         {
           gridTemplateColumns: sidebarOpen
-            ? "244px minmax(0, 1fr)"
+            ? "var(--sidebar-width) minmax(0, 1fr)"
             : "0 minmax(0, 1fr)",
+          "--sidebar-width": `${sidebarWidth}px`,
           "--review-content-width": `${reviewContentWidth}px`
         } as CSSProperties
       }
@@ -1042,7 +1329,30 @@ export default function App() {
         onNavigateForward={navigateForward}
         onSearch={() => setSearchOpen(true)}
         onSettings={() => setSettingsOpen(true)}
+        onFeedback={() => setFeedbackOpen(true)}
       />
+
+      <div
+        role="separator"
+        aria-label="Resize sidebar"
+        aria-orientation="vertical"
+        aria-valuemin={minSidebarWidth}
+        aria-valuemax={maxSidebarWidth}
+        aria-valuenow={sidebarWidth}
+        tabIndex={sidebarOpen ? 0 : -1}
+        className={cn(
+          "app-no-drag group/sidebar-resize absolute inset-y-0 z-30 w-1.5 -translate-x-1/2 cursor-col-resize bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70 motion-reduce:transition-none max-[900px]:hidden",
+          sidebarResizing
+            ? "transition-none"
+            : "transition-[left,opacity] duration-[220ms] ease-in-out",
+          !sidebarOpen && "pointer-events-none opacity-0"
+        )}
+        style={{ left: sidebarOpen ? "var(--sidebar-width)" : 0 }}
+        onPointerDown={startSidebarResize}
+        onKeyDown={resizeSidebarWithKeyboard}
+      >
+        <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-app-line-strong transition-colors group-hover/sidebar-resize:bg-app-accent/55" />
+      </div>
 
       <main
         className={cn(
@@ -1171,16 +1481,35 @@ export default function App() {
         <ReviewPanel
           open={inspectorOpen}
           present={inspectorOpen}
+          activeTab={inspectorTab}
           review={reviewDiff}
+          reviewScope={reviewScope}
+          lastTurnAvailable={Boolean(lastTurnReviewFiles?.length)}
           reviewLoading={reviewLoading}
           reviewError={reviewError}
+          branchRefs={reviewBranchRefs}
+          branchRefsLoading={reviewBranchRefsLoading}
+          branchRefsError={reviewBranchRefsError}
+          branchComparison={reviewBranchComparison}
           selectedReviewPath={selectedReviewPath}
+          filePreviewTabOpen={filePreviewTabOpen}
+          filePreviewPath={filePreviewPath}
           filePreview={filePreview}
           filePreviewError={filePreviewError}
           filePreviewLoading={filePreviewLoading}
-          onSelectReviewFile={(filePath) => setSelectedReviewPath(filePath)}
+          workspaceCwd={currentCwd}
+          workspaceName={workspaceName}
+          workspaceFiles={workspaceFiles}
+          workspaceFilesLoading={workspaceFilesLoading}
+          workspaceFilesError={workspaceFilesError}
+          onTabChange={selectInspectorTab}
+          onAddFilePreviewTab={addFilePreviewTab}
+          onCloseFilePreviewTab={closeFilePreviewTab}
+          onOpenFile={openFile}
+          onReviewScopeChange={selectReviewScope}
+          onBranchComparisonChange={selectBranchComparison}
           onAddReviewComment={addReviewCommentAttachment}
-          onRefreshReview={() => void loadReviewDiff(selectedReviewPath ?? undefined)}
+          onRefreshReview={() => void loadReviewDiff({ scope: reviewScope })}
           onClose={() => setInspectorOpen(false)}
         />
       </main>
@@ -1193,6 +1522,192 @@ export default function App() {
         onClose={() => setSearchOpen(false)}
         onSelectThread={selectThread}
       />
+      <FeedbackModal
+        open={feedbackOpen}
+        onClose={() => setFeedbackOpen(false)}
+      />
+    </div>
+  );
+}
+
+function FeedbackModal({
+  open,
+  onClose
+}: {
+  open: boolean;
+  onClose: () => void;
+}) {
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [message, setMessage] = useState("");
+  const [includeLogs, setIncludeLogs] = useState(false);
+  const [files, setFiles] = useState<File[]>([]);
+  const [sent, setSent] = useState(false);
+  const canSend = message.trim().length > 0;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setSent(false);
+    const frame = requestAnimationFrame(() => textareaRef.current?.focus());
+
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open, onClose]);
+
+  if (!open) {
+    return null;
+  }
+
+  function submitFeedback() {
+    if (!canSend) {
+      return;
+    }
+
+    console.info("[feedback]", {
+      message,
+      includeLogs,
+      attachments: files.map((file) => file.name)
+    });
+    setSent(true);
+    setMessage("");
+    setIncludeLogs(false);
+    setFiles([]);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-app-bg/72 px-4 backdrop-blur-md"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <section
+        aria-label="Feedback"
+        aria-modal="true"
+        className="relative w-full max-w-[620px] rounded-[18px] border border-app-line bg-app-panel-2 p-6 text-app-text shadow-[0_28px_90px_color-mix(in_srgb,var(--color-app-bg)_55%,transparent)]"
+        role="dialog"
+      >
+        <button
+          className="absolute right-4 top-4 inline-flex size-8 items-center justify-center rounded-lg text-app-dim transition-colors hover:bg-app-text/[0.08] hover:text-app-text"
+          type="button"
+          aria-label="Close feedback"
+          onClick={onClose}
+        >
+          <X size={16} />
+        </button>
+
+        <div className="pointer-events-none absolute inset-x-0 top-4 -z-0 flex justify-center overflow-hidden opacity-[0.045]">
+          <div className="font-mono text-[86px] font-semibold uppercase tracking-[0.08em]">
+            Composer
+          </div>
+        </div>
+
+        <div className="relative z-10">
+          <h2 className="text-[22px] font-semibold tracking-tight">Feedback</h2>
+          <p className="mt-1 text-[14px] text-app-dim">
+            You can also reach us at atemjohn@stanford.edu
+          </p>
+
+          <label className="mt-6 grid gap-2 text-[14px] font-medium text-app-muted">
+            Message
+            <textarea
+              ref={textareaRef}
+              className="min-h-[150px] resize-none rounded-xl border border-app-line bg-app-bg/30 p-3 text-[14px] font-normal leading-6 text-app-text outline-none placeholder:text-app-dim focus:border-[color:color-mix(in_srgb,var(--color-app-orange)_58%,transparent)]"
+              placeholder="Tell us about your experience, bugs you've found, or features you'd like to see..."
+              value={message}
+              onChange={(event) => {
+                setMessage(event.target.value);
+                setSent(false);
+              }}
+              onKeyDown={(event) => {
+                if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+                  event.preventDefault();
+                  submitFeedback();
+                }
+              }}
+            />
+          </label>
+
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 text-[13px] text-app-dim">
+            <label className="flex min-w-0 items-center gap-2">
+              <input
+                className="size-4 rounded border-app-line bg-app-bg accent-app-accent"
+                type="checkbox"
+                checked={includeLogs}
+                onChange={(event) => setIncludeLogs(event.target.checked)}
+              />
+              <span>Include recent app logs (may include personal data)</span>
+            </label>
+            <button
+              className="text-app-muted transition-colors hover:text-app-text"
+              type="button"
+            >
+              View
+            </button>
+          </div>
+
+          <div className="mt-7 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-3">
+              <input
+                ref={fileInputRef}
+                className="hidden"
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={(event) => {
+                  setFiles(Array.from(event.target.files ?? []));
+                  event.target.value = "";
+                }}
+              />
+              <button
+                className="inline-flex items-center gap-2 rounded-lg px-2 py-1.5 text-[14px] text-app-muted transition-colors hover:bg-app-text/[0.08] hover:text-app-text"
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Paperclip size={15} />
+                Attach images
+              </button>
+              {files.length > 0 && (
+                <span className="max-w-[220px] truncate text-[13px] text-app-dim">
+                  {files.map((file) => file.name).join(", ")}
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-3">
+              {sent && (
+                <span className="inline-flex items-center gap-1.5 text-[13px] text-app-muted">
+                  <Check size={14} />
+                  Feedback noted
+                </span>
+              )}
+              <button
+                className="inline-flex h-9 items-center justify-center rounded-lg bg-app-text px-4 text-[14px] font-medium text-app-bg transition-colors hover:bg-app-text/90 disabled:cursor-not-allowed disabled:opacity-45"
+                type="button"
+                disabled={!canSend}
+                onClick={submitFeedback}
+              >
+                Send feedback ⌘↵
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }
@@ -1233,6 +1748,61 @@ function displayWorkspaceCwd(cwd?: string) {
   }
 
   return normalized;
+}
+
+function latestReviewFilesFromItems(items: ConversationItem[]): ReviewDiffFile[] | null {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+
+    if (item.type === "tool_group") {
+      for (let detailIndex = item.details.length - 1; detailIndex >= 0; detailIndex -= 1) {
+        const reviewFiles = item.details[detailIndex].reviewFiles;
+
+        if (reviewFiles?.length) {
+          return reviewFiles;
+        }
+      }
+      continue;
+    }
+
+    if (item.type === "assistant_message") {
+      const attachments = item.attachments ?? [];
+
+      for (let attachmentIndex = attachments.length - 1; attachmentIndex >= 0; attachmentIndex -= 1) {
+        const attachment = attachments[attachmentIndex];
+
+        if (attachment.type === "file_change_summary" && attachment.files.length) {
+          return attachment.files.map(fileChangeRowToReviewFile);
+        }
+      }
+      continue;
+    }
+
+    if (item.type === "file_change_summary" && item.files.length) {
+      return item.files.map(fileChangeRowToReviewFile);
+    }
+
+    if (item.type === "parallel_thread_group") {
+      for (let columnIndex = item.columns.length - 1; columnIndex >= 0; columnIndex -= 1) {
+        const reviewFiles = latestReviewFilesFromItems(item.columns[columnIndex].items);
+
+        if (reviewFiles?.length) {
+          return reviewFiles;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function fileChangeRowToReviewFile(file: FileChangeRow): ReviewDiffFile {
+  return {
+    path: file.path,
+    additions: file.additions,
+    deletions: file.deletions,
+    hunks: []
+  };
 }
 
 function reviewDiffFromFiles(
