@@ -60,7 +60,7 @@ export const primaryIconButton =
   `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-app-text text-app-bg transition-colors hover:bg-app-text/95 disabled:cursor-not-allowed disabled:opacity-45 ${focusRing}`;
 
 export const pillButton =
-  `inline-flex items-center rounded-full border ${appSoftBorder} bg-transparent text-app-muted ${appInsetHighlight} transition-colors hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
+  `inline-flex items-center rounded-full border border-transparent bg-transparent text-app-muted ${appInsetHighlight} transition-colors hover:border-app-line hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
 
 export const cardSurface =
   `rounded-[18px] border ${appSoftBorder} bg-app-panel-2/85 ${appPanelShadowSoft}`;

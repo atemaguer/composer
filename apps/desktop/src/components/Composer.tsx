@@ -453,7 +453,7 @@ export function PromptComposer({
             <TooltipButton
               className={cn(
                 "composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
-                appWarningBorder,
+                "border-transparent hover:border-[color:color-mix(in_srgb,var(--color-app-orange)_25%,transparent)]",
                 "bg-transparent",
                 appWarningText,
                 appWarningHoverSurface,
@@ -698,7 +698,7 @@ function ProviderDropdown({
       <TooltipButton
         className={cn(
           "composer-provider-button inline-flex h-[30px] min-w-0 max-w-[132px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] text-app-text shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
-          appSoftBorder,
+          "border-transparent hover:border-app-line",
           "bg-transparent",
           appHoverSurface
         )}
