@@ -1,5 +1,13 @@
 import Image from "next/image";
 import Link from "next/link";
+import {
+  ArrowRightLeft,
+  ClipboardX,
+  GitBranch,
+  Repeat2,
+  Split,
+  Terminal
+} from "lucide-react";
 
 export default function Home() {
   return (
@@ -7,12 +15,13 @@ export default function Home() {
       <LandingHeader />
 
       <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-8 sm:pb-24 sm:pt-24">
-        <h1 className="max-w-3xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
-          Give Codex and Claude the same working context.
+        <h1 className="max-w-5xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
+          Seamless Claude and Codex handoff.
         </h1>
-        <p className="mt-5 max-w-2xl text-base leading-7 text-[#657188] sm:text-lg">
-          Compose teams of Codex and Claude around shared sessions, threads, and
-          codebase context for easier handoff between agents.
+        <p className="mt-5 max-w-3xl text-base leading-7 text-[#657188] sm:text-lg">
+          Start in Claude, continue in Codex, then switch back on the next
+          prompt. Composer carries the context so you do not have to re-explain
+          the work in another terminal.
         </p>
 
         <a
@@ -63,100 +72,135 @@ export default function Home() {
 
       <section
         id="use-cases"
-        className="mx-auto w-full max-w-6xl px-5 pb-16 sm:px-8 sm:pb-24"
+        className="bg-[#eaf0f8] px-5 py-16 text-[#172033] sm:px-8 sm:py-24"
       >
-        <div className="border-y border-[#d8dee8]">
-          <div className="grid lg:grid-cols-[minmax(280px,0.82fr)_minmax(0,1.18fr)]">
-            <div className="flex min-h-[500px] flex-col justify-between border-b border-[#d8dee8] py-12 lg:border-b-0 lg:border-r lg:pr-12">
-              <div>
-                <p className="font-mono text-sm text-[#657188]">Use cases</p>
-                <h2 className="mt-5 max-w-xl text-5xl font-semibold leading-[0.98] tracking-tight text-balance sm:text-6xl">
-                  From hard stops to clean handoffs.
-                </h2>
-                <p className="mt-6 max-w-md text-base leading-7 text-[#657188]">
-                  Composer keeps Codex and Claude attached to the same codebase,
-                  so changing agents feels like continuing the work instead of
-                  starting over.
-                </p>
-              </div>
-              <div className="mt-12 border-t border-[#d8dee8] pt-6">
-                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 font-mono text-sm text-[#657188]">
-                  <div className="border border-[#d8dee8] px-3 py-2 text-[#172033]">
-                    Codex
-                  </div>
-                  <div aria-hidden="true">↔</div>
-                  <div className="border border-[#d8dee8] px-3 py-2 text-[#172033]">
-                    Claude
-                  </div>
-                </div>
-                <p className="mt-4 max-w-sm font-mono text-sm leading-6 text-[#657188]">
-                  Shared branch, diffs, terminal output, session history, and
-                  review notes.
-                </p>
-              </div>
+        <div className="mx-auto w-full max-w-6xl">
+          <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-end">
+            <div>
+              <p className="font-mono text-sm text-[#657188]">Workflows</p>
+              <h2 className="mt-5 max-w-3xl text-4xl font-semibold leading-none tracking-tight text-balance sm:text-6xl">
+                The handoffs people already do by hand.
+              </h2>
             </div>
+            <p className="max-w-xl text-base leading-7 text-[#657188] lg:justify-self-end">
+              Composer turns the copy-paste relay between Claude and Codex
+              terminals into one continuous agent thread.
+            </p>
+          </div>
 
-            <div className="grid">
-              {[
-                {
-                  step: "01",
-                  title: "Switch when usage limits hit",
-                  description:
-                    "Move from Claude Code to Codex, or from Codex to Claude, while keeping the branch, thread history, diffs, and tool output nearby.",
-                  trigger: "One bucket runs out",
-                  outcome: "Continue in the other agent"
-                },
-                {
-                  step: "02",
-                  title: "Plan, implement, review",
-                  description:
-                    "Use one agent for architecture, another for code changes, and either one for critique without rebuilding project context each time.",
-                  trigger: "A task needs multiple passes",
-                  outcome: "Keep each pass grounded"
-                },
-                {
-                  step: "03",
-                  title: "Compare parallel approaches",
-                  description:
-                    "Run different agents against the same problem and compare their diffs, notes, failures, and tradeoffs in one workspace.",
-                  trigger: "There are multiple plausible paths",
-                  outcome: "Compare work, not summaries"
-                }
-              ].map((item) => (
-                <div
-                  key={item.title}
-                  className="group grid gap-6 border-b border-[#d8dee8] py-9 transition last:border-b-0 lg:grid-cols-[72px_1fr] lg:px-12"
-                >
-                  <div className="font-mono text-sm text-[#657188]">
-                    <span className="inline-flex size-10 items-center justify-center border border-[#d8dee8] transition group-hover:border-[#aab4c3] group-hover:text-[#172033]">
-                      {item.step}
-                    </span>
+          <div className="mt-12 bg-[#172033] p-5 text-white sm:p-6">
+            <div className="grid gap-5 lg:grid-cols-[1fr_auto_1fr_auto_minmax(220px,0.75fr)] lg:items-center">
+              <div className="bg-[#f0a07b] p-4 text-[#2d160d]">
+                <Terminal className="size-5" aria-hidden="true" />
+                <p className="mt-8 font-mono text-sm">Claude terminal</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight">
+                  Plan
+                </p>
+              </div>
+              <ArrowRightLeft
+                className="mx-auto size-5 text-[#d8dee8] max-lg:rotate-90"
+                aria-hidden="true"
+              />
+              <div className="bg-[#8fb7ff] p-4 text-[#0d1b35]">
+                <Terminal className="size-5" aria-hidden="true" />
+                <p className="mt-8 font-mono text-sm">Codex terminal</p>
+                <p className="mt-2 text-2xl font-semibold tracking-tight">
+                  Review
+                </p>
+              </div>
+              <div className="hidden h-24 w-px bg-white/14 lg:block" />
+              <div className="grid gap-3 border border-white/12 bg-white/5 p-4">
+                <div className="flex items-center gap-3 text-[#d8dee8]">
+                  <ClipboardX
+                    className="size-5 text-[#ffb4a0]"
+                    aria-hidden="true"
+                  />
+                  <span className="font-mono text-sm">No pasted summary</span>
+                </div>
+                <p className="text-sm leading-6 text-[#aab4c3]">
+                  Same task, next agent, no terminal-to-terminal reconstruction.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-6 grid gap-4 md:grid-cols-2">
+            {[
+              {
+                step: "01",
+                title: "Plan, then review",
+                left: "Plan",
+                right: "Review",
+                description:
+                  "Have one agent sketch the approach and the other challenge it before code changes start.",
+                outcome: "Second pass before code",
+                Icon: GitBranch,
+                color: "bg-[#f0a07b]"
+              },
+              {
+                step: "02",
+                title: "Plan, then execute",
+                left: "Plan",
+                right: "Execute",
+                description:
+                  "Hand a plan from Claude to Codex, or from Codex to Claude, and let the next agent run with it.",
+                outcome: "Another agent runs with it",
+                Icon: ArrowRightLeft,
+                color: "bg-[#8fb7ff]"
+              },
+              {
+                step: "03",
+                title: "Start both, pick one",
+                left: "First pass",
+                right: "First pass",
+                description:
+                  "Send the same first prompt to Claude and Codex, compare the first pass, then continue from the thread you trust.",
+                outcome: "Continue the better start",
+                Icon: Split,
+                color: "bg-[#9ee6b4]"
+              },
+              {
+                step: "04",
+                title: "Switch the next turn",
+                left: "Next prompt",
+                right: "Switch back",
+                description:
+                  "Send the next prompt to whichever agent fits the moment, then switch back without starting a new terminal conversation.",
+                outcome: "One working thread",
+                Icon: Repeat2,
+                color: "bg-[#d9b7ff]"
+              }
+            ].map((item) => (
+              <article
+                key={item.title}
+                className="group grid gap-5 bg-white p-5 shadow-[inset_0_0_0_1px_rgba(23,32,51,0.08)] transition hover:shadow-[inset_0_0_0_1px_rgba(23,32,51,0.18)]"
+              >
+                <div className="flex items-start gap-4">
+                  <div
+                    className={`${item.color} flex size-12 shrink-0 items-center justify-center text-[#172033]`}
+                  >
+                    <item.Icon className="size-5" aria-hidden="true" />
                   </div>
-                  <div>
-                    <div className="grid gap-6 xl:grid-cols-[1fr_220px]">
-                      <div>
-                        <h3 className="text-3xl font-semibold tracking-tight text-balance">
-                          {item.title}
-                        </h3>
-                        <p className="mt-4 max-w-xl text-sm leading-6 text-[#657188]">
-                          {item.description}
-                        </p>
-                      </div>
-                      <dl className="grid gap-4 border-t border-[#d8dee8] pt-5 font-mono text-sm xl:border-l xl:border-t-0 xl:pl-6 xl:pt-0">
-                        <div>
-                          <dt className="text-[#9aa3b2]">Trigger</dt>
-                          <dd className="mt-1 text-[#172033]">{item.trigger}</dd>
-                        </div>
-                        <div>
-                          <dt className="text-[#9aa3b2]">Outcome</dt>
-                          <dd className="mt-1 text-[#172033]">{item.outcome}</dd>
-                        </div>
-                      </dl>
-                    </div>
+                  <div className="flex items-center gap-3 font-mono text-sm text-[#657188]">
+                    <span>{item.step}</span>
+                    <span>{item.left}</span>
+                    <span aria-hidden="true">→</span>
+                    <span>{item.right}</span>
                   </div>
                 </div>
-              ))}
-            </div>
+                <div>
+                  <h3 className="mt-2 text-2xl font-semibold tracking-tight text-balance">
+                    {item.title}
+                  </h3>
+                  <p className="mt-2 max-w-xl text-sm leading-6 text-[#657188]">
+                    {item.description}
+                  </p>
+                  <div className="mt-4 inline-flex bg-[#f5f7fb] px-3 py-2 font-mono text-sm text-[#172033]">
+                    {item.outcome}
+                  </div>
+                </div>
+              </article>
+            ))}
           </div>
         </div>
       </section>
