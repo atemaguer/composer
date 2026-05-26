@@ -60,7 +60,7 @@ export const primaryIconButton =
   `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-app-text text-app-bg transition-colors hover:bg-app-text/95 disabled:cursor-not-allowed disabled:opacity-45 ${focusRing}`;
 
 export const pillButton =
-  `inline-flex items-center rounded-full border border-transparent bg-transparent text-app-muted ${appInsetHighlight} transition-colors hover:border-app-line hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
+  `inline-flex items-center rounded-full border border-transparent bg-transparent text-app-muted transition-colors hover:border-app-line hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
 
 export const cardSurface =
   `rounded-[18px] border ${appSoftBorder} bg-app-panel-2/85 ${appPanelShadowSoft}`;
@@ -69,7 +69,7 @@ export const subtleCardSurface =
   `rounded-[14px] border ${appSubtleDivider} bg-app-text/[0.045] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3%,transparent)]`;
 
 export const menuSurface =
-  `rounded-[18px] border ${appSoftBorder} bg-app-panel-2/95 p-3 ${appPanelShadow} backdrop-blur`;
+  "rounded-[18px] bg-app-panel-2/95 p-3 backdrop-blur";
 
 export const menuItem =
   `rounded-lg text-left transition-colors ${appHoverSurface} ${focusRing}`;

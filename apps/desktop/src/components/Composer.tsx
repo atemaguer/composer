@@ -4,6 +4,7 @@ import {
   useState,
   type ChangeEvent,
   type ClipboardEvent,
+  type ComponentProps,
   type DragEvent,
   type ElementType,
   type KeyboardEvent
@@ -452,7 +453,7 @@ export function PromptComposer({
             </TooltipButton>
             <TooltipButton
               className={cn(
-                "composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
+                "composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] transition-colors",
                 "border-transparent hover:border-[color:color-mix(in_srgb,var(--color-app-orange)_25%,transparent)]",
                 "bg-transparent",
                 appWarningText,
@@ -643,6 +644,34 @@ const providerOptions = [
   { value: "meta", label: "Compose" }
 ] satisfies Array<{ value: ComposerProvider; label: string }>;
 
+function ComposerMenuSurface({
+  className,
+  ...props
+}: ComponentProps<"div">) {
+  return <div className={cn(menuSurface, className)} {...props} />;
+}
+
+function ComposerMenuButton({
+  className,
+  selected,
+  ...props
+}: ComponentProps<typeof TooltipButton> & { selected?: boolean }) {
+  return (
+    <TooltipButton
+      className={cn(
+        menuItem,
+        className,
+        selected && `${appActiveSurface} text-app-text`
+      )}
+      {...props}
+    />
+  );
+}
+
+function ComposerMenuDivider() {
+  return <div className="my-1 h-px bg-app-line" />;
+}
+
 function ProviderDropdown({
   provider,
   setProvider
@@ -660,23 +689,17 @@ function ProviderDropdown({
   return (
     <div className="relative min-w-0 shrink-0">
       {open && (
-        <div
+        <ComposerMenuSurface
           id={menuId}
-          className={cn(
-            "absolute bottom-[38px] left-0 z-20 grid min-w-[180px] gap-1",
-            menuSurface
-          )}
+          className="absolute bottom-[38px] left-0 z-20 grid min-w-[180px] gap-1"
           role="menu"
           aria-label="Provider"
         >
           {providerOptions.map(({ value, label }) => (
-            <TooltipButton
+            <ComposerMenuButton
               key={value}
-              className={cn(
-                "grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-[14px] text-app-text",
-                menuItem,
-                visibleProvider === value && `${appActiveSurface} text-app-text`
-              )}
+              className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-[14px] text-app-text"
+              selected={visibleProvider === value}
               onClick={() => {
                 setProvider(value);
                 setOpen(false);
@@ -691,13 +714,13 @@ function ProviderDropdown({
                 {label}
               </span>
               {visibleProvider === value && <Check size={14} />}
-            </TooltipButton>
+            </ComposerMenuButton>
           ))}
-        </div>
+        </ComposerMenuSurface>
       )}
       <TooltipButton
         className={cn(
-          "composer-provider-button inline-flex h-[30px] min-w-0 max-w-[132px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] text-app-text shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
+          "composer-provider-button inline-flex h-[30px] min-w-0 max-w-[132px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] text-app-text transition-colors",
           "border-transparent hover:border-app-line",
           "bg-transparent",
           appHoverSurface
@@ -1067,10 +1090,9 @@ function ComposerFooterButton({
       </TooltipButton>
 
       {open && (
-        <div
+        <ComposerMenuSurface
           className={cn(
             "absolute left-0 z-30 grid w-[min(430px,calc(100vw-48px))] gap-1 text-[14px]",
-            menuSurface,
             menuPlacement === "up"
               ? "bottom-[calc(100%+8px)]"
               : "top-[calc(100%+8px)]"
@@ -1112,13 +1134,10 @@ function ComposerFooterButton({
                   const selected = option.id === selectedOptionId;
 
                   return (
-                    <TooltipButton
+                    <ComposerMenuButton
                       key={option.id}
-                      className={cn(
-                        "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-app-text",
-                        menuItem,
-                        selected ? `${appActiveSurface} text-app-text` : ""
-                      )}
+                      className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-app-text"
+                      selected={selected}
                       onClick={() => {
                         onSelect?.(option);
                         setOpen(false);
@@ -1138,7 +1157,7 @@ function ComposerFooterButton({
                         )}
                       </span>
                       {selected && <Check size={15} />}
-                    </TooltipButton>
+                    </ComposerMenuButton>
                   );
                 })}
 
@@ -1150,21 +1169,21 @@ function ComposerFooterButton({
               </div>
 
               {onCreate && (
-                <TooltipButton
-                  className={cn(
-                    "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 border-t border-app-line px-2 pt-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60",
-                    menuItem
-                  )}
-                  disabled={creating}
-                  onClick={() => void handleCreate()}
-                  tooltip={creating ? "Creating project" : createActionLabel}
-                  type="button"
-                >
-                  <Plus className="text-app-muted" size={16} />
-                  <span className="truncate">
-                    {creating ? "Creating project..." : createActionLabel}
-                  </span>
-                </TooltipButton>
+                <>
+                  <ComposerMenuDivider />
+                  <ComposerMenuButton
+                    className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={creating}
+                    onClick={() => void handleCreate()}
+                    tooltip={creating ? "Creating project" : createActionLabel}
+                    type="button"
+                  >
+                    <Plus className="text-app-muted" size={16} />
+                    <span className="truncate">
+                      {creating ? "Creating project..." : createActionLabel}
+                    </span>
+                  </ComposerMenuButton>
+                </>
               )}
 
               {error && (
@@ -1174,7 +1193,7 @@ function ComposerFooterButton({
               )}
             </>
           )}
-        </div>
+        </ComposerMenuSurface>
       )}
     </div>
   );
@@ -1201,42 +1220,42 @@ function ComposerFooterCustomMenu({
             item.trailingIcon ?? (item.checked ? Check : undefined);
 
           return (
-            <TooltipButton
-              key={item.label}
-              className={cn(
-                "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-[14px]",
-                menuItem,
-                item.separatorBefore ? "mt-1 border-t border-app-line pt-2" : "",
-                item.disabled
-                  ? "cursor-not-allowed text-app-dim/60"
-                  : "text-app-text hover:bg-app-text/[0.06]"
-              )}
-              disabled={item.disabled}
-              onClick={() => {
-                if (item.disabled) {
-                  return;
-                }
+            <div key={item.label} className="grid gap-0.5">
+              {item.separatorBefore && <ComposerMenuDivider />}
+              <ComposerMenuButton
+                className={cn(
+                  "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-[14px]",
+                  item.disabled
+                    ? "cursor-not-allowed text-app-dim/60"
+                    : "text-app-text hover:bg-app-text/[0.06]"
+                )}
+                disabled={item.disabled}
+                onClick={() => {
+                  if (item.disabled) {
+                    return;
+                  }
 
-                item.onSelect?.();
-                onClose();
-              }}
-              role={item.checked ? "menuitemradio" : "menuitem"}
-              aria-checked={item.checked}
-              tooltip={item.label}
-              type="button"
-            >
-              <Icon
-                className={item.disabled ? "text-app-dim/60" : "text-app-muted"}
-                size={16}
-              />
-              <span className="truncate">{item.label}</span>
-              {TrailingIcon && (
-                <TrailingIcon
+                  item.onSelect?.();
+                  onClose();
+                }}
+                role={item.checked ? "menuitemradio" : "menuitem"}
+                aria-checked={item.checked}
+                tooltip={item.label}
+                type="button"
+              >
+                <Icon
                   className={item.disabled ? "text-app-dim/60" : "text-app-muted"}
                   size={16}
                 />
-              )}
-            </TooltipButton>
+                <span className="truncate">{item.label}</span>
+                {TrailingIcon && (
+                  <TrailingIcon
+                    className={item.disabled ? "text-app-dim/60" : "text-app-muted"}
+                    size={16}
+                  />
+                )}
+              </ComposerMenuButton>
+            </div>
           );
         })}
       </div>
@@ -1260,20 +1279,17 @@ function PermissionMenu({
   ];
 
   return (
-    <div
+    <ComposerMenuSurface
       id={id}
-      className={cn("absolute bottom-[108px] left-[74px] z-20 grid min-w-[220px] gap-1", menuSurface)}
+      className="absolute bottom-[108px] left-[74px] z-20 grid min-w-[220px] gap-1"
       role="menu"
       aria-label="Permission mode"
     >
       {options.map(([label, Icon]) => (
-        <TooltipButton
+        <ComposerMenuButton
           key={label}
-          className={cn(
-            "grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-[14px] text-app-text",
-            menuItem,
-            permission === label && `${appActiveSurface} text-app-text`
-          )}
+          className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-[14px] text-app-text"
+          selected={permission === label}
           onClick={() => setPermission(label)}
           role="menuitemradio"
           aria-checked={permission === label}
@@ -1282,9 +1298,9 @@ function PermissionMenu({
           <Icon size={14} />
           <span>{label}</span>
           {permission === label && <Check size={14} />}
-        </TooltipButton>
+        </ComposerMenuButton>
       ))}
-    </div>
+    </ComposerMenuSurface>
   );
 }
 
@@ -1326,9 +1342,9 @@ function ModelSettingsMenu({
         ];
 
   return (
-    <div
+    <ComposerMenuSurface
       id={id}
-      className={cn("absolute -right-2 bottom-[64px] z-20 grid min-w-[280px] gap-1", menuSurface)}
+      className="absolute -right-2 bottom-[64px] z-20 grid min-w-[280px] gap-1"
       role="menu"
       aria-label={`${providerLabel} model settings`}
     >
@@ -1336,13 +1352,10 @@ function ModelSettingsMenu({
         {providerLabel} model
       </div>
       {models.map((option) => (
-        <TooltipButton
+        <ComposerMenuButton
           key={option.value}
-          className={cn(
-            "grid min-h-11 grid-cols-[minmax(0,1fr)_18px] items-center px-2 text-[14px] text-app-text",
-            menuItem,
-            selectedModel.value === option.value && appActiveSurface
-          )}
+          className="grid min-h-11 grid-cols-[minmax(0,1fr)_18px] items-center px-2 text-[14px] text-app-text"
+          selected={selectedModel.value === option.value}
           onClick={() => setModel(option.value)}
           role="menuitemradio"
           aria-checked={selectedModel.value === option.value}
@@ -1355,9 +1368,9 @@ function ModelSettingsMenu({
             </span>
           </span>
           {selectedModel.value === option.value && <Check size={14} />}
-        </TooltipButton>
+        </ComposerMenuButton>
       ))}
-      <div className="my-1 h-px bg-app-line" />
+      <ComposerMenuDivider />
       <div className="px-3 pb-2 pt-1 text-[14px] text-app-muted">
         {effortLabel}
       </div>
@@ -1374,13 +1387,10 @@ function ModelSettingsMenu({
         </div>
       ) : (
         efforts.map((label) => (
-          <TooltipButton
+          <ComposerMenuButton
             key={label}
-            className={cn(
-              "grid min-h-9 grid-cols-[minmax(0,1fr)_18px] items-center px-2 text-[14px] text-app-text",
-              menuItem,
-              intelligence === label && appActiveSurface
-            )}
+            className="grid min-h-9 grid-cols-[minmax(0,1fr)_18px] items-center px-2 text-[14px] text-app-text"
+            selected={intelligence === label}
             onClick={() => setIntelligence(label)}
             role="menuitemradio"
             aria-checked={intelligence === label}
@@ -1388,10 +1398,10 @@ function ModelSettingsMenu({
           >
             <span>{label}</span>
             {intelligence === label && <Check size={14} />}
-          </TooltipButton>
+          </ComposerMenuButton>
         ))
       )}
-    </div>
+    </ComposerMenuSurface>
   );
 }
 
