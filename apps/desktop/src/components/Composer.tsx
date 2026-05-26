@@ -53,11 +53,9 @@ import {
   appHoverSurface,
   appInsetHighlight,
   appSoftBorder,
-  appSoftSurface,
   appWarningBorder,
   appWarningBorderStrong,
   appWarningHoverSurface,
-  appWarningSurface,
   appWarningText,
   cardSurface,
   menuItem,
@@ -433,7 +431,7 @@ export function PromptComposer({
           onKeyDown={handleTextareaKeyDown}
           onPaste={handlePaste}
         />
-        <div className="composer-action-row grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5">
+        <div className="composer-action-row mt-3 grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5">
           <div className="composer-left-controls flex min-w-0 flex-nowrap items-center gap-2 overflow-visible">
             <input
               ref={fileInputRef}
@@ -456,7 +454,7 @@ export function PromptComposer({
               className={cn(
                 "composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
                 appWarningBorder,
-                appWarningSurface,
+                "bg-transparent",
                 appWarningText,
                 appWarningHoverSurface,
                 warningFocusRing
@@ -701,7 +699,7 @@ function ProviderDropdown({
         className={cn(
           "composer-provider-button inline-flex h-[30px] min-w-0 max-w-[132px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] text-app-text shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3.5%,transparent)] transition-colors",
           appSoftBorder,
-          appSoftSurface,
+          "bg-transparent",
           appHoverSurface
         )}
         onClick={() => setOpen(!open)}
