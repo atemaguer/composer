@@ -22,6 +22,10 @@ export async function loadReviewDiff(
     branchBaseRef?: string;
   } = {}
 ): Promise<ReviewDiff> {
+  if (!(await isGitRepository(cwd))) {
+    return emptyReviewDiff(cwd, false);
+  }
+
   const scope = options.scope ?? "unstaged";
   const relativePaths = normalizeGitPaths(cwd, options.filePath);
   const { raw, comparison } = await loadRawDiff(cwd, scope, relativePaths, {
@@ -37,13 +41,19 @@ export async function loadReviewDiff(
     additions: files.reduce((sum, file) => sum + file.additions, 0),
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
     raw,
+    gitAvailable: true,
     comparison
   };
 }
 
 export async function loadReviewBranches(cwd: string): Promise<ReviewBranchList> {
   if (!(await isGitRepository(cwd))) {
-    throw new Error("This folder is not a git repository.");
+    return {
+      currentRef: "",
+      defaultBaseRef: null,
+      branches: [],
+      gitAvailable: false
+    };
   }
 
   const [currentRef, defaultBaseRef, refsOutput] = await Promise.all([
@@ -92,7 +102,8 @@ export async function loadReviewBranches(cwd: string): Promise<ReviewBranchList>
   return {
     currentRef: currentRef ?? "HEAD",
     defaultBaseRef,
-    branches
+    branches,
+    gitAvailable: true
   };
 }
 
@@ -202,6 +213,18 @@ async function loadRawDiff(
   ]);
 
   return { raw: [unstaged, untracked].filter(Boolean).join("\n") };
+}
+
+function emptyReviewDiff(cwd: string, gitAvailable: boolean): ReviewDiff {
+  return {
+    cwd,
+    generatedAt: new Date().toISOString(),
+    files: [],
+    additions: 0,
+    deletions: 0,
+    raw: "",
+    gitAvailable
+  };
 }
 
 async function loadBranchDiff(

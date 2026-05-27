@@ -53,8 +53,11 @@ export const iconButton =
 export const subtleIconButton =
   `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
 
+export const nestedIconButton =
+  `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:text-app-text ${focusRing}`;
+
 export const titlebarControlRow =
-  "flex min-w-0 translate-y-[3px] items-center gap-1.5 py-0 pl-[var(--app-titlebar-control-left-inset)] transition-[padding-left] duration-[180ms] ease-out motion-reduce:transition-none";
+  "flex min-w-0 items-center gap-1.5 py-0 pl-[var(--app-titlebar-control-left-inset)] transition-[padding-left] duration-[180ms] ease-out motion-reduce:transition-none";
 
 export const primaryIconButton =
   `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-app-text text-app-bg transition-colors hover:bg-app-text/95 disabled:cursor-not-allowed disabled:opacity-45 ${focusRing}`;
@@ -69,7 +72,7 @@ export const subtleCardSurface =
   `rounded-[14px] border ${appSubtleDivider} bg-app-text/[0.045] shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_3%,transparent)]`;
 
 export const menuSurface =
-  "rounded-[18px] bg-app-panel-2/95 p-3 backdrop-blur";
+  `rounded-[18px] border ${appSoftBorder} bg-app-panel-2/95 p-2 backdrop-blur ${appPanelShadow}`;
 
 export const menuItem =
   `rounded-lg text-left transition-colors ${appHoverSurface} ${focusRing}`;

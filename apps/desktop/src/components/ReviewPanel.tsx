@@ -53,6 +53,7 @@ import type {
 import { CodeEditor } from "./CodeEditor";
 import {
   cardSurface,
+  nestedIconButton,
   pillButton,
   subtleIconButton
 } from "./style-tokens";
@@ -87,6 +88,7 @@ type ReviewPanelProps = {
   workspaceFilesLoading?: boolean;
   workspaceFilesError?: string | null;
   fullscreen?: boolean;
+  reserveTitlebarControls?: boolean;
   onTabChange?: (tab: InspectorPanelTab) => void;
   onAddFilePreviewTab?: () => void;
   onCloseFilePreviewTab?: (filePath?: string) => void;
@@ -164,6 +166,7 @@ export function ReviewPanel({
   workspaceFilesLoading = false,
   workspaceFilesError,
   fullscreen = false,
+  reserveTitlebarControls = false,
   onTabChange,
   onAddFilePreviewTab,
   onCloseFilePreviewTab,
@@ -340,7 +343,12 @@ export function ReviewPanel({
         )}
       >
         <div className={cn("top-0 z-10 bg-app-shell/95", !showingBoundedPanel && "sticky")}>
-          <div className="grid h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-app-line px-3">
+          <div
+            className={cn(
+              "grid h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-app-line pr-3",
+              reserveTitlebarControls ? "pl-[210px]" : "pl-3"
+            )}
+          >
             <div
               className="flex min-w-0 items-center gap-1.5 overflow-hidden"
               role="tablist"
@@ -617,7 +625,8 @@ function TerminalIconTabButton({
       {closable && (
         <TooltipButton
           className={cn(
-            "inline-flex size-[18px] items-center justify-center rounded-md text-app-dim transition-opacity hover:bg-app-text/[0.12] hover:text-app-text focus-visible:opacity-100",
+            nestedIconButton,
+            "!size-[18px] rounded-md text-app-dim transition-opacity focus-visible:opacity-100",
             active ? "opacity-100" : "opacity-0 group-hover/terminal-tab:opacity-100"
           )}
           aria-label={`Close ${label}`}
@@ -792,7 +801,7 @@ function FilePreviewTabPill({
       {onClose && (
         <TooltipButton
           className={cn(
-            subtleIconButton,
+            nestedIconButton,
             "text-app-muted transition-opacity focus-visible:opacity-100",
             active ? "opacity-100" : "opacity-0 group-hover/file-tab:opacity-100"
           )}
@@ -1328,7 +1337,10 @@ function ReviewDiffPreview({
   }
 
   if (!review || review.files.length === 0) {
-    const emptyState = emptyReviewStateByScope[reviewScope];
+    const emptyState =
+      review?.gitAvailable === false
+        ? nonGitReviewState
+        : emptyReviewStateByScope[reviewScope];
 
     return (
       <div className="grid min-h-[520px] place-items-center p-6 text-center text-[14px] text-app-dim">
@@ -1406,6 +1418,11 @@ const emptyReviewStateByScope: Record<
     title: "No branch changes",
     description: "This branch matches the selected base."
   }
+};
+
+const nonGitReviewState = {
+  title: "Git is not initialized",
+  description: "Review changes are available after this folder is initialized as a git repository."
 };
 
 function orderReviewFiles(files: ReviewDiffFile[], selectedPath?: string | null) {

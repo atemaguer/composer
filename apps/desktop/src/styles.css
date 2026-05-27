@@ -96,7 +96,7 @@
   --app-font-mono: "SF Mono", "Menlo", "Monaco", "Cascadia Code", "Roboto Mono", monospace;
   --app-ui-font-size: 14px;
   --app-code-font-size: 12px;
-  --app-titlebar-control-left-inset: 96px;
+  --app-titlebar-control-left-inset: 84px;
   --app-font-smoothing: auto;
   --app-text-rendering: auto;
   --app-editor-bg: transparent;

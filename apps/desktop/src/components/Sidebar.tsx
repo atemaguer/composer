@@ -37,6 +37,7 @@ import {
   dimIcon,
   focusRing,
   mutedIcon,
+  nestedIconButton,
   sidebarItem,
   subtleIconButton,
   titlebarControlRow
@@ -416,7 +417,7 @@ export function Sidebar({
                     appHoverSurface,
                     focusRing,
                     providerFilter === option.value &&
-                      `${appActiveSurface} text-app-text`
+                      "text-app-text"
                   )}
                   role="menuitemradio"
                   aria-checked={providerFilter === option.value}
@@ -524,7 +525,7 @@ export function Sidebar({
                         aria-label={`New session in ${project.name}`}
                         className={cn(
                           "mr-1 opacity-0 transition-opacity group-hover/workspace:opacity-100 focus-visible:opacity-100",
-                          subtleIconButton
+                          nestedIconButton
                         )}
                         tooltip={`New session in ${project.name}`}
                         onClick={() => onNewSession?.(project)}
@@ -777,7 +778,7 @@ function ThreadActionButton({
     <TooltipButton
       aria-label={label}
       className={cn(
-        subtleIconButton,
+        nestedIconButton,
         "opacity-0 transition-opacity focus-visible:opacity-100 group-hover/thread:opacity-100",
         "text-app-muted"
       )}

@@ -1,6 +1,6 @@
 import { useEffect, type ReactNode } from "react";
 
-const visibleTrafficLightInset = "96px";
+const visibleTrafficLightInset = "84px";
 const hiddenTrafficLightInset = "12px";
 
 type WindowFrameProviderProps = {

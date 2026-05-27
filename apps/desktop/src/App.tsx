@@ -301,6 +301,11 @@ export default function App() {
     : selectedWorkspace?.cwd;
 
   useEffect(() => {
+    reviewRequestIdRef.current += 1;
+    setReviewDiff(null);
+    setReviewLoading(false);
+    setReviewError(null);
+    setSelectedReviewPath(null);
     setReviewBranchRefs([]);
     setReviewBranchRefsError(null);
     setCurrentBranchRef(null);
@@ -315,7 +320,22 @@ export default function App() {
     setFilePreview(null);
     setFilePreviewError(null);
     setFilePreviewLoading(false);
-  }, [currentCwd]);
+  }, [currentCwd, selectedThread]);
+
+  useEffect(() => {
+    if (!inspectorOpen || inspectorTab !== "review") {
+      return;
+    }
+
+    void loadReviewDiff({
+      scope: reviewScope,
+      fallbackFiles:
+        reviewScope === "last-turn"
+          ? activeSessionLastTurnReviewFiles ?? undefined
+          : undefined,
+      ignoreCachedGitAvailability: true
+    });
+  }, [currentCwd, inspectorOpen, inspectorTab, selectedThread]);
 
   useEffect(() => {
     if (workspaceGitAvailable === false) {
@@ -1063,12 +1083,14 @@ export default function App() {
     scope = reviewScope,
     filePath,
     fallbackFiles,
-    branchComparison
+    branchComparison,
+    ignoreCachedGitAvailability = false
   }: {
     scope?: ReviewDiffScope;
     filePath?: string;
     fallbackFiles?: ReviewDiffFile[];
     branchComparison?: ReviewBranchComparison;
+    ignoreCachedGitAvailability?: boolean;
   } = {}) {
     const cwd = currentCwd;
     const requestId = reviewRequestIdRef.current + 1;
@@ -1108,6 +1130,15 @@ export default function App() {
       return;
     }
 
+    if (workspaceGitAvailable === false && !ignoreCachedGitAvailability) {
+      setReviewLoading(false);
+      setReviewError(null);
+      setReviewBranchComparison(null);
+      setReviewDiff(cwd ? emptyReviewDiff(cwd, false) : null);
+      setSelectedReviewPath(null);
+      return;
+    }
+
     if (!agentServer?.httpUrl || !cwd) {
       setReviewDiff(scopedFallbackFiles ? reviewDiffFromFiles(scopedFallbackFiles, cwd) : null);
       setReviewError(
@@ -1136,11 +1167,9 @@ export default function App() {
         })
       });
 
-      if (!response.ok) {
-        throw new Error(`Review request failed with ${response.status}`);
-      }
-
-      const nextDiff = (await response.json()) as ReviewDiff;
+      const nextDiff = response.ok
+        ? (await response.json()) as ReviewDiff
+        : await reviewDiffFromErrorResponse(response, cwd);
 
       if (reviewRequestIdRef.current !== requestId) {
         return;
@@ -1151,6 +1180,7 @@ export default function App() {
           ? nextDiff
           : reviewDiffFromFiles(scopedFallbackFiles, cwd);
       setReviewDiff(resolvedDiff);
+      setWorkspaceGitAvailable(nextDiff.gitAvailable === false ? false : true);
       if (scope === "branch" && resolvedDiff.comparison) {
         setReviewBranchComparison(resolvedDiff.comparison);
       }
@@ -1172,8 +1202,18 @@ export default function App() {
         return;
       }
 
-      setReviewError(error instanceof Error ? error.message : String(error));
-      setReviewDiff(scopedFallbackFiles ? reviewDiffFromFiles(scopedFallbackFiles, cwd) : null);
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (isNonGitReviewError(message)) {
+        setReviewError(null);
+        setWorkspaceGitAvailable(false);
+        setReviewBranchComparison(null);
+        setReviewDiff(emptyReviewDiff(cwd, false));
+        setSelectedReviewPath(null);
+      } else {
+        setReviewError(message);
+        setReviewDiff(scopedFallbackFiles ? reviewDiffFromFiles(scopedFallbackFiles, cwd) : null);
+      }
     } finally {
       if (reviewRequestIdRef.current === requestId) {
         setReviewLoading(false);
@@ -1203,27 +1243,31 @@ export default function App() {
         body: JSON.stringify({ cwd })
       });
 
-      if (!response.ok) {
-        throw new Error(`Branch request failed with ${response.status}`);
-      }
-
-      const data = (await response.json()) as ReviewBranchList;
+      const data = response.ok
+        ? (await response.json()) as ReviewBranchList
+        : await branchListFromErrorResponse(response);
       setReviewBranchRefs(data.branches);
-      setCurrentBranchRef(data.currentRef);
-      setWorkspaceGitAvailable(true);
+      setCurrentBranchRef(data.gitAvailable === false ? null : data.currentRef);
+      setWorkspaceGitAvailable(data.gitAvailable !== false);
       setReviewBranchComparison((current) => current ?? (
-        data.defaultBaseRef
+        data.gitAvailable !== false && data.defaultBaseRef
           ? { headRef: data.currentRef, baseRef: data.defaultBaseRef }
           : null
       ));
     } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
       setReviewBranchRefs([]);
       setCurrentBranchRef(null);
-      setWorkspaceGitAvailable(false);
       setReviewBranchComparison(null);
-      setReviewBranchRefsError(
-        error instanceof Error ? error.message : String(error)
-      );
+
+      if (isNonGitReviewError(message)) {
+        setWorkspaceGitAvailable(false);
+        setReviewBranchRefsError(null);
+      } else {
+        setWorkspaceGitAvailable(false);
+        setReviewBranchRefsError(message);
+      }
     } finally {
       setReviewBranchRefsLoading(false);
     }
@@ -1273,9 +1317,9 @@ export default function App() {
         : null;
 
       setReviewBranchRefs(data.branches);
-      setCurrentBranchRef(data.currentRef);
-      setWorkspaceGitAvailable(true);
-      setReviewBranchComparison(nextComparison);
+      setCurrentBranchRef(data.gitAvailable === false ? null : data.currentRef);
+      setWorkspaceGitAvailable(data.gitAvailable !== false);
+      setReviewBranchComparison(data.gitAvailable === false ? null : nextComparison);
 
       if (reviewScope === "branch") {
         void loadReviewDiff({
@@ -1304,7 +1348,7 @@ export default function App() {
     setInspectorTab("review");
     setReviewScope(scope);
     setSelectedReviewPath(null);
-    if (scope === "branch") {
+    if (scope === "branch" && workspaceGitAvailable !== false) {
       void loadReviewBranches();
     }
     void loadReviewDiff({
@@ -1720,56 +1764,58 @@ export default function App() {
         <section
           className={cn(
             "grid min-h-0 min-w-0 grid-rows-[44px_minmax(0,1fr)] overflow-hidden",
-            inspectorFullscreen && "pointer-events-none"
+            inspectorFullscreen && "invisible pointer-events-none"
           )}
           aria-hidden={inspectorFullscreen}
         >
-          <AppChrome
-            className="h-11"
-            mode={shouldShowConversation ? "session" : "new"}
-            sidebarOpen={sidebarOpen}
-            setSidebarOpen={setSidebarOpen}
-            inspectorOpen={inspectorOpen}
-            setInspectorOpen={showInspector}
-            selectedThread={activeSession?.title ?? ""}
-            onNewSession={() => startNewSession()}
-            canNavigateBack={navigationAvailability.canGoBack}
-            canNavigateForward={navigationAvailability.canGoForward}
-            onNavigateBack={navigateBack}
-            onNavigateForward={navigateForward}
-            threadViewMode={threadViewMode}
-            onThreadViewModeChange={setThreadViewMode}
-            centerSlot={shouldShowConversation ? (
-              <div className="flex h-full min-w-0 flex-1 items-center gap-3">
-                {!showThreadTabs && (
-                  <div className="flex min-w-0 shrink-0 items-center gap-2">
-                    <span className="max-w-[220px] truncate">
-                      {activeSession?.title ?? workspaceName}
-                    </span>
-                    <MoreHorizontal size={13} />
-                  </div>
-                )}
-                {showThreadTabs && (
-                  <ThreadTabs
-                    className="min-w-0"
-                    variant="header"
-                    threads={threadTabs}
-                    selectedThread={selectedThread}
-                    workspaceName={workspaceName}
-                    onThreadSelect={selectThread}
-                    onThreadClose={() => {
-                      setSelectedThread("");
-                      setActiveNav("New session");
-                      navigateAppRoute("/new");
-                    }}
-                    onThreadArchive={(threadId) =>
-                      void archiveThread(threadId)
-                    }
-                  />
-                )}
-              </div>
-            ) : null}
-          />
+          {!inspectorFullscreen && (
+            <AppChrome
+              className="h-11"
+              mode={shouldShowConversation ? "session" : "new"}
+              sidebarOpen={sidebarOpen}
+              setSidebarOpen={setSidebarOpen}
+              inspectorOpen={inspectorOpen}
+              setInspectorOpen={showInspector}
+              selectedThread={activeSession?.title ?? ""}
+              onNewSession={() => startNewSession()}
+              canNavigateBack={navigationAvailability.canGoBack}
+              canNavigateForward={navigationAvailability.canGoForward}
+              onNavigateBack={navigateBack}
+              onNavigateForward={navigateForward}
+              threadViewMode={threadViewMode}
+              onThreadViewModeChange={setThreadViewMode}
+              centerSlot={shouldShowConversation ? (
+                <div className="flex h-full min-w-0 flex-1 items-center gap-3">
+                  {!showThreadTabs && (
+                    <div className="flex min-w-0 shrink-0 items-center gap-2">
+                      <span className="max-w-[220px] truncate">
+                        {activeSession?.title ?? workspaceName}
+                      </span>
+                      <MoreHorizontal size={13} />
+                    </div>
+                  )}
+                  {showThreadTabs && (
+                    <ThreadTabs
+                      className="min-w-0"
+                      variant="header"
+                      threads={threadTabs}
+                      selectedThread={selectedThread}
+                      workspaceName={workspaceName}
+                      onThreadSelect={selectThread}
+                      onThreadClose={() => {
+                        setSelectedThread("");
+                        setActiveNav("New session");
+                        navigateAppRoute("/new");
+                      }}
+                      onThreadArchive={(threadId) =>
+                        void archiveThread(threadId)
+                      }
+                    />
+                  )}
+                </div>
+              ) : null}
+            />
+          )}
 
           <div className="h-full min-h-0 min-w-0 overflow-hidden">
             {shouldShowConversation && activeSession ? (
@@ -1836,6 +1882,27 @@ export default function App() {
           <div className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-app-line-strong transition-colors group-hover/resize:bg-app-accent/55" />
         </div>
 
+        {inspectorFullscreen && !sidebarOpen && (
+          <AppChrome
+            className="pointer-events-auto absolute left-0 top-0 z-40 h-11 w-[210px] [--app-titlebar-control-left-inset:84px]"
+            mode={shouldShowConversation ? "session" : "new"}
+            sidebarOpen={sidebarOpen}
+            setSidebarOpen={setSidebarOpen}
+            inspectorOpen={inspectorOpen}
+            setInspectorOpen={showInspector}
+            selectedThread={activeSession?.title ?? ""}
+            onNewSession={() => startNewSession()}
+            canNavigateBack={navigationAvailability.canGoBack}
+            canNavigateForward={navigationAvailability.canGoForward}
+            onNavigateBack={navigateBack}
+            onNavigateForward={navigateForward}
+            threadViewMode={threadViewMode}
+            onThreadViewModeChange={setThreadViewMode}
+            centerSlot={<span aria-hidden="true" />}
+            rightSlot={<span aria-hidden="true" />}
+          />
+        )}
+
         <ReviewPanel
           open={inspectorOpen}
           present={inspectorOpen}
@@ -1867,6 +1934,7 @@ export default function App() {
           workspaceFilesLoading={workspaceFilesLoading}
           workspaceFilesError={workspaceFilesError}
           fullscreen={inspectorFullscreen}
+          reserveTitlebarControls={inspectorFullscreen && !sidebarOpen}
           onTabChange={selectInspectorTab}
           onAddFilePreviewTab={addFilePreviewTab}
           onCloseFilePreviewTab={closeFilePreviewTab}
@@ -2327,6 +2395,70 @@ function reviewDiffFromFiles(
     deletions: files.reduce((sum, file) => sum + file.deletions, 0),
     raw: ""
   };
+}
+
+function emptyReviewDiff(cwd: string, gitAvailable: boolean): ReviewDiff {
+  return {
+    cwd,
+    generatedAt: new Date().toISOString(),
+    files: [],
+    additions: 0,
+    deletions: 0,
+    raw: "",
+    gitAvailable
+  };
+}
+
+async function reviewDiffFromErrorResponse(response: Response, cwd: string) {
+  const message =
+    await readErrorResponseMessage(response) ??
+    `Review request failed with ${response.status}`;
+
+  if (isNonGitReviewError(message)) {
+    return emptyReviewDiff(cwd, false);
+  }
+
+  throw new Error(message);
+}
+
+async function branchListFromErrorResponse(response: Response) {
+  const message =
+    await readErrorResponseMessage(response) ??
+    `Branch request failed with ${response.status}`;
+
+  if (isNonGitReviewError(message)) {
+    return {
+      currentRef: "",
+      defaultBaseRef: null,
+      branches: [],
+      gitAvailable: false
+    } satisfies ReviewBranchList;
+  }
+
+  throw new Error(message);
+}
+
+async function readErrorResponseMessage(response: Response) {
+  try {
+    const body = await response.json() as { error?: unknown; message?: unknown };
+    return typeof body.error === "string"
+      ? body.error
+      : typeof body.message === "string"
+        ? body.message
+        : null;
+  } catch {
+    return null;
+  }
+}
+
+function isNonGitReviewError(message: string) {
+  return (
+    /not a git repository|not a git repo|outside work tree|not a git worktree/i.test(
+      message
+    ) ||
+    /git diff --no-index/i.test(message) ||
+    /unknown option [`']cached[`']/i.test(message)
+  );
 }
 
 function appendErrorMessage(

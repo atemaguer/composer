@@ -44,6 +44,7 @@ export function NewSessionPage({
       options: workspaceOptions,
       selectedOptionId: selectedWorkspaceId,
       searchPlaceholder: "Search projects",
+      showOptionDetails: false,
       createLabel: "New project",
       menuPlacement: "down",
       onSelect: onWorkspaceSelect,
@@ -76,7 +77,7 @@ export function NewSessionPage({
             {...composer}
             className="max-w-[760px]"
             footerItems={footerItems}
-            placeholder="Ask Composer anything. @ to use plugins or mention files"
+            placeholder="Ask Composer anything. Mention files when needed"
             textareaRows={2}
           />
         </div>

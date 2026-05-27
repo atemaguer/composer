@@ -146,6 +146,7 @@ export type ReviewDiff = {
   deletions: number;
   raw: string;
   comparison?: ReviewBranchComparison;
+  gitAvailable?: boolean;
 };
 
 export type ReviewDiffScope =
@@ -169,6 +170,7 @@ export type ReviewBranchList = {
   currentRef: string;
   defaultBaseRef: string | null;
   branches: ReviewBranchRef[];
+  gitAvailable?: boolean;
 };
 
 export type ProjectThread = {

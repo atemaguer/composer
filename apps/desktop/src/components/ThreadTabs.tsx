@@ -14,7 +14,7 @@ import {
   appHoverSurface,
   appSuccessText,
   appWarningText,
-  subtleIconButton
+  nestedIconButton
 } from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
 
@@ -204,7 +204,7 @@ function ThreadTab({
       </TooltipButton>
       <TooltipButton
         className={cn(
-          subtleIconButton,
+          nestedIconButton,
           "text-app-muted opacity-0 transition-opacity focus-visible:opacity-100 group-hover/tab:opacity-100"
         )}
         aria-label={`Archive ${thread.name}`}
@@ -216,8 +216,8 @@ function ThreadTab({
       {active && (
         <TooltipButton
           className={cn(
-            subtleIconButton,
-            `text-app-muted opacity-100 transition-all focus-visible:opacity-100 ${appHoverSurface}`
+            nestedIconButton,
+            "text-app-muted opacity-100 transition-all focus-visible:opacity-100"
           )}
           aria-label={`Close ${thread.name}`}
           tooltip={`Close ${thread.name}`}

@@ -50,7 +50,6 @@ import type {
 import { cn } from "../lib/cn";
 import { ProviderLogo } from "./ProviderLogo";
 import {
-  appActiveSurface,
   appDangerText,
   appHoverSurface,
   appInsetHighlight,
@@ -178,6 +177,7 @@ export type PromptComposerFooterItem = {
   menuPlacement?: "up" | "down";
   selectedOptionId?: string;
   searchPlaceholder?: string;
+  showOptionDetails?: boolean;
   createLabel?: string;
   emptyLabel?: string;
   loading?: boolean;
@@ -540,6 +540,7 @@ export function PromptComposer({
               menuTitle={item.menuTitle}
               menuPlacement={item.menuPlacement}
               selectedOptionId={item.selectedOptionId}
+              showOptionDetails={item.showOptionDetails}
               optionIcon={item.optionIcon}
               searchPlaceholder={item.searchPlaceholder}
               createLabel={item.createLabel}
@@ -688,8 +689,9 @@ const ComposerMenuButton = forwardRef<
       ref={ref}
       className={cn(
         menuItem,
+        "px-2",
         className,
-        selected && `${appActiveSurface} text-app-text`
+        selected && "text-app-text"
       )}
       {...props}
     />
@@ -719,14 +721,14 @@ function ProviderDropdown({
       {open && (
         <ComposerMenuSurface
           id={menuId}
-          className="absolute bottom-[38px] left-0 z-20 grid min-w-[180px] gap-1"
+          className="absolute bottom-[38px] left-0 z-20 grid w-max max-w-[calc(100vw-48px)] gap-1"
           role="menu"
           aria-label="Provider"
         >
           {providerOptions.map(({ value, label }) => (
             <ComposerMenuButton
               key={value}
-              className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-[14px] text-app-text"
+              className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
               selected={visibleProvider === value}
               onClick={() => {
                 setProvider(value);
@@ -976,6 +978,16 @@ function InlineApproval({
   );
 }
 
+function menuWidthForLabels(labels: string[]) {
+  const longest = labels.reduce(
+    (max, label) => Math.max(max, label.trim().length),
+    0
+  );
+  const widthCh = Math.max(16, Math.min(longest, 52));
+
+  return `min(calc(${widthCh}ch + 88px), calc(100vw - 48px))`;
+}
+
 function ComposerFooterButton({
   icon: Icon,
   label,
@@ -986,6 +998,7 @@ function ComposerFooterButton({
   menuPlacement = "up",
   selectedOptionId,
   searchPlaceholder = "Search",
+  showOptionDetails = true,
   createLabel = "New project",
   emptyLabel = "No projects found",
   loading = false,
@@ -1004,6 +1017,7 @@ function ComposerFooterButton({
   menuPlacement?: "up" | "down";
   selectedOptionId?: string;
   searchPlaceholder?: string;
+  showOptionDetails?: boolean;
   createLabel?: string;
   emptyLabel?: string;
   loading?: boolean;
@@ -1044,6 +1058,28 @@ function ComposerFooterButton({
   const createActionLabel = query.trim()
     ? `Create "${query.trim()}"`
     : createLabel;
+  const menuWidth = menuWidthForLabels(
+    hasCustomMenu
+      ? menuItems?.map((item) => item.label) ?? []
+      : [
+          searchPlaceholder,
+          emptyLabel,
+          createActionLabel,
+          ...(options ?? []).flatMap((option) =>
+            showOptionDetails && option.detail
+              ? [option.label, option.detail]
+              : [option.label]
+          )
+        ]
+  );
+  const menuStyle = {
+    width: menuWidth,
+    ...(menuMaxHeight === null ? {} : { maxHeight: `${menuMaxHeight}px` })
+  };
+  const createMenuWidth = menuWidthForLabels([
+    creating ? "Creating project..." : "Start from scratch",
+    usingExistingFolder ? "Opening folder..." : "Use an existing folder"
+  ]);
 
   function setCreateMenuPositionFromRect(rect: DOMRect) {
     const viewport = window.visualViewport;
@@ -1283,16 +1319,12 @@ function ComposerFooterButton({
       {open && (
         <ComposerMenuSurface
           className={cn(
-            "absolute left-0 z-30 flex w-[min(430px,calc(100vw-48px))] flex-col overflow-visible text-[14px]",
+            "absolute left-0 z-30 flex max-w-[calc(100vw-48px)] flex-col overflow-visible text-[14px]",
             menuPlacement === "up"
               ? "bottom-[calc(100%+8px)]"
               : "top-[calc(100%+8px)]"
           )}
-          style={
-            menuMaxHeight === null
-              ? undefined
-              : { maxHeight: `${menuMaxHeight}px` }
-          }
+          style={menuStyle}
           role="menu"
           aria-label={label}
         >
@@ -1325,9 +1357,9 @@ function ComposerFooterButton({
                 />
               </label>
 
-              <div className="min-h-0 flex-1 overflow-y-auto border-t border-app-line pt-1">
+              <div className="min-h-0 flex-1 overflow-y-auto">
                 {loading && (
-                  <div className="px-2 py-3 text-[13px] text-app-dim">
+                  <div className="grid min-h-10 items-center px-2 text-[13px] text-app-dim">
                     Loading...
                   </div>
                 )}
@@ -1338,7 +1370,7 @@ function ComposerFooterButton({
                   return (
                     <ComposerMenuButton
                       key={option.id}
-                      className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-app-text"
+                      className="grid min-h-10 w-full grid-cols-[24px_minmax(0,max-content)_20px] items-center gap-2 text-app-text"
                       selected={selected}
                       onClick={() => {
                         onSelect?.(option);
@@ -1350,9 +1382,9 @@ function ComposerFooterButton({
                       type="button"
                     >
                       <OptionIcon className="text-app-muted" size={16} />
-                      <span className="grid min-w-0">
+                      <span className="grid min-w-0 max-w-[calc(100vw-140px)]">
                         <span className="truncate">{option.label}</span>
-                        {option.detail && (
+                        {showOptionDetails && option.detail && (
                           <span className="truncate text-[12px] text-app-dim">
                             {option.detail}
                           </span>
@@ -1364,7 +1396,7 @@ function ComposerFooterButton({
                 })}
 
                 {!loading && filteredOptions.length === 0 && (
-                  <div className="px-2 py-3 text-[13px] text-app-dim">
+                  <div className="grid min-h-10 items-center px-2 text-[13px] text-app-dim">
                     {emptyLabel}
                   </div>
                 )}
@@ -1380,7 +1412,7 @@ function ComposerFooterButton({
                     >
                       <ComposerMenuButton
                         ref={addProjectButtonRef}
-                        className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+                        className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_18px] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={creating || usingExistingFolder}
                         onClick={(event) =>
                           openCreateMenuFromElement(event.currentTarget)
@@ -1401,7 +1433,7 @@ function ComposerFooterButton({
                     </div>
                   ) : (
                     <ComposerMenuButton
-                      className="grid min-h-10 w-full shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+                      className="grid min-h-10 w-full shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={creating}
                       onClick={() => void handleCreate()}
                       tooltip={creating ? "Creating project" : createActionLabel}
@@ -1431,8 +1463,9 @@ function ComposerFooterButton({
         onUseExistingFolder &&
         createMenuPosition && (
           <ComposerMenuSurface
-            className="fixed z-50 grid w-72 gap-1 text-[14px]"
+            className="fixed z-50 grid max-w-[calc(100vw-48px)] gap-1 text-[14px]"
             style={{
+              width: createMenuWidth,
               left: `${createMenuPosition.left}px`,
               top: `${createMenuPosition.top}px`
             }}
@@ -1441,7 +1474,7 @@ function ComposerFooterButton({
             onMouseEnter={() => setCreateMenuOpen(true)}
           >
             <ComposerMenuButton
-              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
               disabled={creating}
               onClick={() => void handleCreate()}
               tooltip={creating ? "Creating project" : "Start from scratch"}
@@ -1453,7 +1486,7 @@ function ComposerFooterButton({
               </span>
             </ComposerMenuButton>
             <ComposerMenuButton
-              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
               disabled={usingExistingFolder}
               onClick={() => void handleUseExistingFolder()}
               tooltip={
@@ -1485,7 +1518,7 @@ function ComposerFooterCustomMenu({
 }) {
   return (
     <>
-      <div className="shrink-0 px-3 pb-2 pt-1 text-[14px] font-medium text-app-dim">
+      <div className="shrink-0 px-2 text-[14px] font-medium text-app-dim">
         {title}
       </div>
       <div className="grid min-h-0 gap-0.5 overflow-y-auto">
@@ -1499,7 +1532,7 @@ function ComposerFooterCustomMenu({
               {item.separatorBefore && <ComposerMenuDivider />}
               <ComposerMenuButton
                 className={cn(
-                  "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 px-2 text-[14px]",
+                  "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 text-[14px]",
                   item.disabled
                     ? "cursor-not-allowed text-app-dim/60"
                     : "text-app-text hover:bg-app-text/[0.06]"
@@ -1557,14 +1590,14 @@ function PermissionMenu({
   return (
     <ComposerMenuSurface
       id={id}
-      className="absolute bottom-[108px] left-[74px] z-20 grid min-w-[220px] gap-1"
+      className="absolute bottom-[108px] left-[74px] z-20 grid w-max max-w-[calc(100vw-48px)] gap-1"
       role="menu"
       aria-label="Permission mode"
     >
       {options.map(([label, Icon]) => (
         <ComposerMenuButton
           key={label}
-          className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-[14px] text-app-text"
+          className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
           selected={permission === label}
           onClick={() => setPermission(label)}
           role="menuitemradio"
@@ -1620,17 +1653,17 @@ function ModelSettingsMenu({
   return (
     <ComposerMenuSurface
       id={id}
-      className="absolute -right-2 bottom-[64px] z-20 grid min-w-[280px] gap-1"
+      className="absolute -right-2 bottom-[64px] z-20 grid w-max max-w-[calc(100vw-48px)] gap-1"
       role="menu"
       aria-label={`${providerLabel} model settings`}
     >
-      <div className="px-3 pb-2.5 pt-1 text-[14px] text-app-muted">
+      <div className="px-2 text-[14px] text-app-muted">
         {providerLabel} model
       </div>
       {models.map((option) => (
         <ComposerMenuButton
           key={option.value}
-          className="grid min-h-11 grid-cols-[minmax(0,1fr)_18px] items-center px-2 text-[14px] text-app-text"
+          className="grid min-h-11 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
           selected={selectedModel.value === option.value}
           onClick={() => setModel(option.value)}
           role="menuitemradio"
@@ -1639,7 +1672,7 @@ function ModelSettingsMenu({
         >
           <span className="grid min-w-0">
             <span className="truncate">{option.label}</span>
-            <span className="truncate text-[12px] text-app-dim">
+            <span className="max-w-[calc(100vw-140px)] truncate text-[12px] text-app-dim">
               {option.detail}
             </span>
           </span>
@@ -1647,7 +1680,7 @@ function ModelSettingsMenu({
         </ComposerMenuButton>
       ))}
       <ComposerMenuDivider />
-      <div className="px-3 pb-2 pt-1 text-[14px] text-app-muted">
+      <div className="px-2 text-[14px] text-app-muted">
         {effortLabel}
       </div>
       {provider === "meta" ? (
@@ -1665,7 +1698,7 @@ function ModelSettingsMenu({
         efforts.map((label) => (
           <ComposerMenuButton
             key={label}
-            className="grid min-h-9 grid-cols-[minmax(0,1fr)_18px] items-center px-2 text-[14px] text-app-text"
+            className="grid min-h-9 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
             selected={intelligence === label}
             onClick={() => setIntelligence(label)}
             role="menuitemradio"
