@@ -13,7 +13,11 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      "@": path.resolve(__dirname, "./src")
+      "@": path.resolve(__dirname, "./src"),
+      "@composer/client": path.resolve(
+        __dirname,
+        "../../packages/composer-client/src/index.ts"
+      )
     }
   },
   server: {

@@ -43,6 +43,7 @@ import type {
   SessionProvider,
   ToolDetail
 } from "../types";
+import { providerLabel } from "../provider-registry";
 import { Composer, type ComposerProps } from "./Composer";
 import { ProviderLogo } from "./ProviderLogo";
 import {
@@ -719,14 +720,6 @@ function pluralize(count: number, verb: string, noun: string) {
 
 function capitalizeFirst(value: string) {
   return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function providerLabel(provider: SessionProvider) {
-  if (provider === "meta") {
-    return "Compose";
-  }
-
-  return provider === "claude" ? "Claude" : "Codex";
 }
 
 export function ConversationTimeline({

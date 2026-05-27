@@ -33,7 +33,9 @@ import { SearchModal } from "./components/SearchModal";
 import { SettingsPage } from "./components/SettingsPage";
 import { Sidebar } from "./components/Sidebar";
 import { ThreadTabs, type ThreadTabItem } from "./components/ThreadTabs";
+import { ComposerClient, type ComposerEventSocket } from "@composer/client";
 import { cn } from "./lib/cn";
+import { providerStatusLabel as providerLabel } from "./provider-registry";
 import { useComposerStore } from "./state/composer-store";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { useRuntimeStore } from "./state/runtime-store";
@@ -65,10 +67,10 @@ import type {
   Project,
   ProjectThread,
   ReviewDiff,
+  ReviewBranchList,
   ReviewDiffFile,
   ReviewDiffScope,
   ReviewBranchComparison,
-  ReviewBranchList,
   ReviewBranchRef,
   SessionContent,
   SessionProvider,
@@ -146,6 +148,18 @@ export default function App() {
 
   const agentServer = useRuntimeStore((state) => state.agentServer);
   const setAgentServer = useRuntimeStore((state) => state.setAgentServer);
+  const agentClient = useMemo(
+    () =>
+      agentServer?.httpUrl
+        ? new ComposerClient<
+            LiveAgentEvent,
+            SessionSnapshot,
+            ReviewDiff,
+            ReviewBranchList
+          >(agentServer)
+        : null,
+    [agentServer]
+  );
 
   const prompt = useComposerStore((state) => state.prompt);
   const setPrompt = useComposerStore((state) => state.setPrompt);
@@ -211,7 +225,7 @@ export default function App() {
     (state) => state.setFilePreviewLoading
   );
 
-  const socketRef = useRef<WebSocket | null>(null);
+  const socketRef = useRef<ComposerEventSocket<LiveAgentEvent> | null>(null);
   const processedAgentEventsRef = useRef<Set<string>>(new Set());
   const expectingNewSessionRef = useRef(false);
   const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
@@ -347,12 +361,12 @@ export default function App() {
   }, [workspaceGitAvailable]);
 
   useEffect(() => {
-    if (!agentServer?.httpUrl || !currentCwd) {
+    if (!agentClient || !currentCwd) {
       return;
     }
 
     void loadReviewBranches();
-  }, [agentServer?.httpUrl, currentCwd]);
+  }, [agentClient, currentCwd]);
 
   useEffect(() => {
     if (
@@ -543,35 +557,31 @@ export default function App() {
   );
 
   useEffect(() => {
-    if (!agentServer?.wsUrl) {
+    if (!agentClient || !agentServer?.wsUrl) {
       return undefined;
     }
 
-    const socket = new WebSocket(agentServer.wsUrl);
-    socketRef.current = socket;
-
-    socket.onmessage = (message) => {
-      try {
-        applyAgentEvent(JSON.parse(String(message.data)) as LiveAgentEvent);
-      } catch (error) {
+    const eventSocket = agentClient.openEventSocket({
+      onEvent: applyAgentEvent,
+      onMalformedEvent: (error) => {
         console.warn("Ignoring malformed agent event", error);
+      },
+      onClose: () => {
+        if (socketRef.current === eventSocket) {
+          socketRef.current = null;
+        }
+        setSessionsLoading(false);
       }
-    };
-
-    socket.onclose = () => {
-      if (socketRef.current === socket) {
-        socketRef.current = null;
-      }
-      setSessionsLoading(false);
-    };
+    });
+    socketRef.current = eventSocket;
 
     return () => {
-      if (socketRef.current === socket) {
+      if (socketRef.current === eventSocket) {
         socketRef.current = null;
       }
-      socket.close();
+      eventSocket.close();
     };
-  }, [agentServer?.wsUrl, applyAgentEvent]);
+  }, [agentClient, agentServer?.wsUrl, applyAgentEvent]);
 
   useEffect(() => {
     let cancelled = false;
@@ -776,7 +786,7 @@ export default function App() {
     const sessionId = activeSession?.id;
     const requestProvider = activeProvider;
 
-    if (!agentServer?.httpUrl) {
+    if (!agentClient) {
       createOfflineSession(promptWithComments, requestProvider);
       return;
     }
@@ -789,37 +799,27 @@ export default function App() {
     clearComposer();
 
     try {
-      const response = await fetch(`${agentServer.httpUrl}/api/chat`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          requestId,
-          sessionId,
-          provider: requestProvider,
-          prompt: promptWithComments,
-          cwd: currentCwd,
-          workTarget: sessionId ? undefined : resolvedNewSessionWorkTarget,
-          branch:
-            sessionId || workspaceGitAvailable === false
-              ? undefined
-              : currentBranchRef,
-          permissionMode: permission,
-          intelligence: activeIntelligence,
-          model: activeModel,
-          imageAttachments: imageAttachments.map((attachment) => ({
-            name: attachment.name,
-            mediaType: attachment.mediaType,
-            dataUrl: attachment.dataUrl,
-            path: attachment.path
-          }))
-        })
-      });
-
-      if (!response.ok) {
-        throw new Error(`Agent request failed with ${response.status}`);
-      }
-
-      await drainResponse(response, applyAgentEvent);
+      await agentClient.chat({
+        requestId,
+        sessionId,
+        provider: requestProvider,
+        prompt: promptWithComments,
+        cwd: currentCwd,
+        workTarget: sessionId ? undefined : resolvedNewSessionWorkTarget,
+        branch:
+          sessionId || workspaceGitAvailable === false
+            ? undefined
+            : currentBranchRef ?? undefined,
+        permissionMode: permission,
+        intelligence: activeIntelligence,
+        model: activeModel,
+        imageAttachments: imageAttachments.map((attachment) => ({
+          name: attachment.name,
+          mediaType: attachment.mediaType,
+          dataUrl: attachment.dataUrl,
+          path: attachment.path
+        }))
+      }, applyAgentEvent);
     } catch (error) {
       if (!sessionId) {
         expectingNewSessionRef.current = false;
@@ -834,7 +834,7 @@ export default function App() {
   }
 
   async function stopActiveRun() {
-    if (!agentServer?.httpUrl) {
+    if (!agentClient) {
       setPendingNewRequestId(null);
       return;
     }
@@ -850,11 +850,7 @@ export default function App() {
     }
 
     try {
-      await fetch(`${agentServer.httpUrl}/api/interrupt`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(body)
-      });
+      await agentClient.interrupt(body);
     } catch (error) {
       console.warn("Could not stop active run", error);
     }
@@ -868,8 +864,8 @@ export default function App() {
     }
 
     try {
-      const snapshot = agentServer?.httpUrl
-        ? await archiveThreadViaServer(agentServer.httpUrl, sessionId)
+      const snapshot = agentClient
+        ? await agentClient.updateSessionVisibility(sessionId, "archive")
         : await window.composer?.updateSessionVisibility?.({
             sessionId,
             action: "archive"
@@ -892,28 +888,15 @@ export default function App() {
   }
 
   async function adoptParallelThread(provider: DelegateSessionProvider) {
-    if (!activeSession || !agentServer?.httpUrl) {
+    if (!activeSession || !agentClient) {
       return;
     }
 
     try {
-      const response = await fetch(`${agentServer.httpUrl}/api/sessions/adopt-parallel`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          sessionId: activeSession.id,
-          provider
-        })
-      });
+      const snapshot = await agentClient.adoptParallelThread(activeSession.id, provider);
 
-      if (!response.ok) {
-        throw new Error(`Parallel thread adoption failed with ${response.status}`);
-      }
-
-      const data = await response.json() as { snapshot?: SessionSnapshot };
-
-      if (data.snapshot) {
-        setSessionSnapshot(data.snapshot);
+      if (snapshot) {
+        setSessionSnapshot(snapshot);
       }
 
       setSelectedThread(activeSession.id);
@@ -925,13 +908,7 @@ export default function App() {
   }
 
   function resolveApproval(approvalId: string, decision: ApprovalDecision) {
-    socketRef.current?.send(
-      JSON.stringify({
-        type: "approval.resolve",
-        approvalId,
-        decision
-      })
-    );
+    socketRef.current?.resolveApproval(approvalId, decision);
     removeApproval(approvalId);
   }
 
@@ -1143,7 +1120,7 @@ export default function App() {
       return;
     }
 
-    if (!agentServer?.httpUrl || !cwd) {
+    if (!agentClient || !cwd) {
       setReviewDiff(scopedFallbackFiles ? reviewDiffFromFiles(scopedFallbackFiles, cwd) : null);
       setReviewError(
         scopedFallbackFiles
@@ -1158,22 +1135,14 @@ export default function App() {
     setReviewError(null);
 
     try {
-      const response = await fetch(`${agentServer.httpUrl}/api/review/diff`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          cwd,
-          scope,
-          filePath,
-          filePaths: scopedFallbackFiles?.map((file) => file.path),
-          branchHeadRef: requestedBranchComparison?.headRef,
-          branchBaseRef: requestedBranchComparison?.baseRef
-        })
+      const nextDiff = await agentClient.loadReviewDiff({
+        cwd,
+        scope,
+        filePath,
+        filePaths: scopedFallbackFiles?.map((file) => file.path),
+        branchHeadRef: requestedBranchComparison?.headRef,
+        branchBaseRef: requestedBranchComparison?.baseRef
       });
-
-      const nextDiff = response.ok
-        ? (await response.json()) as ReviewDiff
-        : await reviewDiffFromErrorResponse(response, cwd);
 
       if (reviewRequestIdRef.current !== requestId) {
         return;
@@ -1228,7 +1197,7 @@ export default function App() {
   async function loadReviewBranches() {
     const cwd = currentCwd;
 
-    if (!agentServer?.httpUrl || !cwd) {
+    if (!agentClient || !cwd) {
       setReviewBranchRefs([]);
       setCurrentBranchRef(null);
       setWorkspaceGitAvailable(null);
@@ -1241,15 +1210,7 @@ export default function App() {
     setReviewBranchRefsError(null);
 
     try {
-      const response = await fetch(`${agentServer.httpUrl}/api/review/branches`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ cwd })
-      });
-
-      const data = response.ok
-        ? (await response.json()) as ReviewBranchList
-        : await branchListFromErrorResponse(response);
+      const data = await agentClient.loadReviewBranches(cwd);
       setReviewBranchRefs(data.branches);
       setCurrentBranchRef(data.gitAvailable === false ? null : data.currentRef);
       setWorkspaceGitAvailable(data.gitAvailable !== false);
@@ -1280,7 +1241,7 @@ export default function App() {
   async function selectComposerBranch(option: PromptComposerFooterOption) {
     const cwd = currentCwd;
 
-    if (!agentServer?.httpUrl || !cwd) {
+    if (!agentClient || !cwd) {
       setReviewBranchRefsError("Branches are available after the agent server connects.");
       return;
     }
@@ -1293,29 +1254,7 @@ export default function App() {
     setReviewBranchRefsError(null);
 
     try {
-      const response = await fetch(
-        `${agentServer.httpUrl}/api/git/checkout-branch`,
-        {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ cwd, branch: option.id })
-        }
-      );
-
-      if (!response.ok) {
-        let message = `Branch checkout failed with ${response.status}`;
-
-        try {
-          const body = (await response.json()) as { error?: string };
-          message = body.error ?? message;
-        } catch {
-          // Keep the HTTP status fallback if the server did not return JSON.
-        }
-
-        throw new Error(message);
-      }
-
-      const data = (await response.json()) as ReviewBranchList;
+      const data = await agentClient.checkoutBranch(cwd, option.id);
       const nextComparison = data.defaultBaseRef
         ? { headRef: data.currentRef, baseRef: data.defaultBaseRef }
         : null;
@@ -2412,48 +2351,6 @@ function emptyReviewDiff(cwd: string, gitAvailable: boolean): ReviewDiff {
   };
 }
 
-async function reviewDiffFromErrorResponse(response: Response, cwd: string) {
-  const message =
-    await readErrorResponseMessage(response) ??
-    `Review request failed with ${response.status}`;
-
-  if (isNonGitReviewError(message)) {
-    return emptyReviewDiff(cwd, false);
-  }
-
-  throw new Error(message);
-}
-
-async function branchListFromErrorResponse(response: Response) {
-  const message =
-    await readErrorResponseMessage(response) ??
-    `Branch request failed with ${response.status}`;
-
-  if (isNonGitReviewError(message)) {
-    return {
-      currentRef: "",
-      defaultBaseRef: null,
-      branches: [],
-      gitAvailable: false
-    } satisfies ReviewBranchList;
-  }
-
-  throw new Error(message);
-}
-
-async function readErrorResponseMessage(response: Response) {
-  try {
-    const body = await response.json() as { error?: unknown; message?: unknown };
-    return typeof body.error === "string"
-      ? body.error
-      : typeof body.message === "string"
-        ? body.message
-        : null;
-  } catch {
-    return null;
-  }
-}
-
 function isNonGitReviewError(message: string) {
   return (
     /not a git repository|not a git repo|outside work tree|not a git worktree/i.test(
@@ -2686,125 +2583,6 @@ function formatPromptWithReviewComments(
   }
 
   return `${prompt}\n\n${reviewSection}`;
-}
-
-async function drainResponse(
-  response: Response,
-  onAgentEvent?: (event: LiveAgentEvent) => void
-) {
-  if (!response.body) {
-    await response.text();
-    return;
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  while (true) {
-    const { done, value } = await reader.read();
-
-    if (done) {
-      parseAgentEventsFromStreamChunk(buffer, onAgentEvent);
-      return;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    const lastLineBreak = buffer.lastIndexOf("\n");
-
-    if (lastLineBreak === -1) {
-      continue;
-    }
-
-    parseAgentEventsFromStreamChunk(
-      buffer.slice(0, lastLineBreak + 1),
-      onAgentEvent
-    );
-    buffer = buffer.slice(lastLineBreak + 1);
-  }
-}
-
-function parseAgentEventsFromStreamChunk(
-  chunk: string,
-  onAgentEvent?: (event: LiveAgentEvent) => void
-) {
-  if (!onAgentEvent) {
-    return;
-  }
-
-  for (const line of chunk.split(/\r?\n/)) {
-    const trimmed = line.trim();
-
-    if (!trimmed.startsWith("data:")) {
-      continue;
-    }
-
-    const payload = trimmed.slice("data:".length).trim();
-
-    if (!payload || payload === "[DONE]") {
-      continue;
-    }
-
-    try {
-      const message = JSON.parse(payload) as unknown;
-
-      if (isDataComposerStreamPart(message)) {
-        onAgentEvent(message.data);
-      } else if (isLiveAgentEvent(message)) {
-        onAgentEvent(message);
-      }
-    } catch {
-      // Ignore non-JSON stream control frames.
-    }
-  }
-}
-
-function isDataComposerStreamPart(
-  value: unknown
-): value is { type: "data-composer"; data: LiveAgentEvent } {
-  return (
-    isRecord(value) &&
-    value.type === "data-composer" &&
-    isLiveAgentEvent(value.data)
-  );
-}
-
-function isLiveAgentEvent(value: unknown): value is LiveAgentEvent {
-  return (
-    isRecord(value) &&
-    typeof value.id === "string" &&
-    typeof value.type === "string"
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
-async function archiveThreadViaServer(
-  serverUrl: string,
-  sessionId: string
-) {
-  const response = await fetch(`${serverUrl}/api/sessions/visibility`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ sessionId, action: "archive" })
-  });
-
-  if (!response.ok) {
-    throw new Error(`Session archive failed with ${response.status}`);
-  }
-
-  const body = await response.json() as { snapshot?: SessionSnapshot };
-  return body.snapshot;
-}
-
-function providerLabel(provider: SessionProvider) {
-  if (provider === "meta") {
-    return "Compose agent";
-  }
-
-  return provider === "claude" ? "Claude" : "Codex";
 }
 
 function titleFromPrompt(prompt: string) {

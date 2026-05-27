@@ -9,10 +9,10 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "concurrently -k \"vite --host 127.0.0.1 --port 5173 --strictPort\" \"tsc -p tsconfig.electron.json --watch\" \"tsc -p tsconfig.server.json --watch\" \"wait-on tcp:5173 file:dist-electron/main.js file:dist-server/server/index.js && electron .\"",
-    "server:dev": "tsc -p tsconfig.server.json --watch",
-    "server:build": "tsc -p tsconfig.server.json",
-    "build": "tsc -p tsconfig.electron.json && tsc -p tsconfig.server.json && vite build",
+    "dev": "npm --workspace @composer/client run build && concurrently -k \"vite --host 127.0.0.1 --port 5173 --strictPort\" \"tsc -p tsconfig.electron.json --watch\" \"tsc -p tsconfig.server.json --watch\" \"wait-on tcp:5173 file:dist-electron/main.js file:dist-server/server/index.js && electron .\"",
+    "server:dev": "npm --workspace @composer/client run build && tsc -p tsconfig.server.json --watch",
+    "server:build": "npm --workspace @composer/client run build && tsc -p tsconfig.server.json",
+    "build": "npm --workspace @composer/client run build && tsc -p tsconfig.electron.json && tsc -p tsconfig.server.json && vite build",
     "install-app-deps": "electron-builder install-app-deps",
     "electron:build:win": "electron-builder --win",
     "electron:build:mac": "electron-builder --mac",
@@ -25,10 +25,11 @@
     "build:mac:dev": "run-s build electron:build:mac:dev",
     "build:linux": "run-s build electron:build:linux",
     "preview": "vite preview --host 127.0.0.1",
-    "typecheck": "tsc --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "npm --workspace @composer/client run build && tsc --noEmit && tsc -p tsconfig.electron.json --noEmit && tsc -p tsconfig.server.json --noEmit",
     "test:server": "npm run server:build && node --test test/*.test.mjs"
   },
   "dependencies": {
+    "@composer/client": "file:../../packages/composer-client",
     "@ai-sdk/react": "^3.0.177",
     "@anthropic-ai/claude-agent-sdk": "^0.2.128",
     "@base-ui/react": "^1.4.1",

@@ -2,23 +2,22 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
+import { createRuntimeProviders } from "./provider-factories.js";
 import {
-  updateLocalSessionVisibility,
-  type LocalSessionAction
-} from "../electron/session-loader.js";
-import {
-  adoptComposerParallelProvider,
-  upsertComposerProviderSessions,
-  upsertComposerSessionFromRuntime
-} from "../electron/composer-session-registry.js";
-import { ClaudeProvider } from "./providers/claude.js";
-import { CodexProvider } from "./providers/codex.js";
-import { MetaProvider } from "./providers/meta.js";
+  noopRuntimePersistence,
+  type RuntimePersistence,
+  type RuntimeSessionVisibilityAction
+} from "./runtime-persistence.js";
 import {
   checkoutSessionBranch,
   createSessionWorktree,
   type SessionWorktree
 } from "./session-worktrees.js";
+import {
+  isRuntimeProviderId,
+  providerModelDisplayLabel,
+  providerStatusLabel
+} from "../src/provider-registry.js";
 import type {
   AgentSettings,
   AgentImageAttachment,
@@ -86,6 +85,11 @@ export interface AgentProvider {
 type ApprovalResolver = (decision: ApprovalDecision) => void;
 type RuntimeSessionProvider = SessionProvider;
 
+export type AgentRuntimeOptions = {
+  persistence?: RuntimePersistence;
+  providers?: Partial<Record<RuntimeSessionProvider, AgentProvider>>;
+};
+
 type RestoredRuntimeSessions = {
   sessions: Record<string, SessionContent>;
   staleSessions: SessionContent[];
@@ -150,20 +154,19 @@ export class AgentRuntime {
   private requestSessions = new Map<string, string>();
   private interruptedRequestIds = new Set<string>();
   private interruptedSessions = new Set<string>();
+  private persistence: RuntimePersistence;
 
-  constructor(snapshot: SessionSnapshot) {
+  constructor(snapshot: SessionSnapshot, options: AgentRuntimeOptions = {}) {
     const restored = restoreRuntimeSessions(snapshot.sessions);
 
     this.sessions = restored.sessions;
-    this.providers = {
-      meta: new MetaProvider(),
-      codex: new CodexProvider(),
-      claude: new ClaudeProvider()
-    };
+    this.persistence = options.persistence ?? noopRuntimePersistence;
+    this.providers = createRuntimeProviders({ persistence: this.persistence });
+    Object.assign(this.providers, options.providers);
 
     for (const session of restored.staleSessions) {
       try {
-        upsertComposerSessionFromRuntime(session);
+        this.persistence.upsertSession(session);
       } catch (error) {
         console.warn("Could not persist restored session state", error);
       }
@@ -227,7 +230,7 @@ export class AgentRuntime {
     };
 
     this.sessions[id] = session;
-    upsertComposerSessionFromRuntime(session);
+    this.persistence.upsertSession(session);
     if (request.requestId) {
       this.requestSessions.set(request.requestId, id);
     }
@@ -289,7 +292,7 @@ export class AgentRuntime {
         status: "running"
       }
     ];
-    upsertComposerSessionFromRuntime(session);
+    this.persistence.upsertSession(session);
     this.emitToSink(sink, { id: randomUUID(), type: "session.updated", session });
 
     this.startProviderRun(provider, {
@@ -334,14 +337,14 @@ export class AgentRuntime {
     await this.interrupt(sessionId);
   }
 
-  updateSessionVisibility(sessionId: string, action: LocalSessionAction) {
+  updateSessionVisibility(sessionId: string, action: RuntimeSessionVisibilityAction) {
     const session = this.sessions[sessionId];
 
     if (!session) {
       throw new Error(`Unknown session ${sessionId}`);
     }
 
-    updateLocalSessionVisibility(session, action);
+    this.persistence.updateSessionVisibility(session, action);
     delete this.sessions[sessionId];
 
     const snapshot = this.snapshot();
@@ -373,7 +376,7 @@ export class AgentRuntime {
     session.renderMode = "single";
     session.model = providerModel(provider);
     session.updatedAt = new Date().toISOString();
-    upsertComposerSessionFromRuntime(session);
+    this.persistence.upsertSession(session);
 
     const adoptedProviderState = session.providerSessions?.[provider] ?? {};
     const providerSessions: SessionContent["providerSessions"] = {
@@ -387,13 +390,13 @@ export class AgentRuntime {
     session.providerSessionId = providerSessionId;
     session.items = adoptedParallelItems(session.items, provider);
     session.pendingItems = [];
-    adoptComposerParallelProvider({
+    this.persistence.adoptParallelProvider({
       composerSessionId: session.id,
       provider,
       providerSessionId,
       activeCwd: session.cwd
     });
-    upsertComposerSessionFromRuntime(session);
+    this.persistence.upsertSession(session);
 
     this.broadcast({
       id: randomUUID(),
@@ -457,7 +460,7 @@ export class AgentRuntime {
         emit: (event) => request.emit(stampToolEventProvider(event, provider))
       });
 
-      syncProviderState(parentSession, provider, providerSession);
+      syncProviderState(parentSession, provider, providerSession, this.persistence);
       this.apply({
         id: randomUUID(),
         type: "session.updated",
@@ -565,7 +568,7 @@ export class AgentRuntime {
       }, previousProvider));
     }
 
-    syncProviderState(session, previousProvider, providerSession);
+    syncProviderState(session, previousProvider, providerSession, this.persistence);
     this.apply({
       id: randomUUID(),
       type: "session.updated",
@@ -608,7 +611,7 @@ export class AgentRuntime {
   private apply(event: LiveAgentEvent) {
     if (event.type === "session.started" || event.type === "session.updated") {
       this.sessions[event.session.id] = event.session;
-      upsertComposerSessionFromRuntime(event.session);
+      this.persistence.upsertSession(event.session);
       this.broadcast(event);
       return;
     }
@@ -618,7 +621,7 @@ export class AgentRuntime {
 
       if (session) {
         applySessionEvent(session, event);
-        upsertComposerSessionFromRuntime(session);
+        this.persistence.upsertSession(session);
         this.broadcast({
           id: randomUUID(),
           type: "session.updated",
@@ -643,7 +646,7 @@ export class AgentRuntime {
         this.activeRunProviders.delete(event.sessionId);
       }
       if (shouldPersistRuntimeEvent(event)) {
-        upsertComposerSessionFromRuntime(session);
+        this.persistence.upsertSession(session);
       }
       this.broadcast(event);
       return;
@@ -1049,7 +1052,8 @@ function isParallelDelegateToolWrapper(
 function syncProviderState(
   session: SessionContent,
   provider: RuntimeSessionProvider,
-  providerSession: SessionContent
+  providerSession: SessionContent,
+  persistence: RuntimePersistence
 ) {
   const providerSessions = {
     ...(session.providerSessions ?? {}),
@@ -1073,7 +1077,7 @@ function syncProviderState(
     (provider === "codex" || provider === "claude") &&
     providerSession.providerSessionId
   ) {
-    upsertComposerProviderSessions([
+    persistence.upsertProviderSessions([
       {
         composerSessionId: session.id,
         provider,
@@ -1240,15 +1244,11 @@ function displayWorkspaceCwd(cwd?: string) {
 function isRuntimeProvider(
   provider: SessionProvider
 ): provider is RuntimeSessionProvider {
-  return provider === "codex" || provider === "claude" || provider === "meta";
+  return isRuntimeProviderId(provider);
 }
 
 function providerLabel(provider: SessionProvider) {
-  if (provider === "meta") {
-    return "Compose agent";
-  }
-
-  return provider === "codex" ? "Codex" : "Claude";
+  return providerStatusLabel(provider);
 }
 
 function stampToolEventProvider(
@@ -1267,26 +1267,7 @@ function stampToolEventProvider(
 }
 
 function providerModel(provider: SessionProvider, model?: string) {
-  if (
-    provider === "meta" &&
-    (model === "meta-claude-opus-codex-mini" || model === "meta-planner-review")
-  ) {
-    return "Opus plan -> GPT-5.4 Mini";
-  }
-
-  if (provider === "meta" && model === "meta-parallel-initial") {
-    return "Codex + Claude parallel";
-  }
-
-  if (model) {
-    return model;
-  }
-
-  if (provider === "meta") {
-    return "Compose supervisor";
-  }
-
-  return provider === "codex" ? "Codex" : "Claude Code";
+  return providerModelDisplayLabel(provider, model);
 }
 
 function titleFromPrompt(prompt: string) {

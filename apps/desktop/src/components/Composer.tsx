@@ -47,6 +47,13 @@ import type {
   PermissionMode,
   SessionProvider
 } from "../types";
+import {
+  providerLabel,
+  providerModelOption,
+  providerModelOptions,
+  runtimeProviderDefinitions,
+  type ProviderModelOption
+} from "../provider-registry";
 import { cn } from "../lib/cn";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { ProviderLogo } from "./ProviderLogo";
@@ -73,64 +80,6 @@ import {
 import { TooltipButton } from "./ui/tooltip-button";
 
 type ComposerProvider = SessionProvider;
-
-type ModelOption = {
-  value: AgentModel;
-  label: string;
-  detail: string;
-  efforts: IntelligenceMode[];
-};
-
-const providerModels: Record<ComposerProvider, ModelOption[]> = {
-  codex: [
-    {
-      value: "gpt-5.5",
-      label: "GPT-5.5",
-      detail: "Frontier coding model",
-      efforts: ["Low", "Medium", "High", "Extra High"]
-    },
-    {
-      value: "gpt-5.4",
-      label: "GPT-5.4",
-      detail: "Balanced coding model",
-      efforts: ["Low", "Medium", "High", "Extra High"]
-    },
-    {
-      value: "gpt-5.4-mini",
-      label: "GPT-5.4 Mini",
-      detail: "Fast lightweight model",
-      efforts: ["Low", "Medium", "High"]
-    }
-  ],
-  claude: [
-    {
-      value: "claude-sonnet-4-6",
-      label: "Claude Sonnet 4.6",
-      detail: "Balanced Claude Code model",
-      efforts: ["Low", "Medium", "High"]
-    },
-    {
-      value: "claude-opus-4-7",
-      label: "Claude Opus 4.7",
-      detail: "Deep reasoning model",
-      efforts: ["Low", "Medium", "High", "Extra High"]
-    }
-  ],
-  meta: [
-    {
-      value: "meta-planner-review",
-      label: "Planner review",
-      detail: "Claude plans high, Codex executes low",
-      efforts: ["High"]
-    },
-    {
-      value: "meta-parallel-initial",
-      label: "Parallel initial",
-      detail: "Codex and Claude start together",
-      efforts: ["High"]
-    }
-  ]
-};
 
 export type ComposerProps = {
   permission: PermissionMode;
@@ -723,11 +672,10 @@ export function Composer({
   );
 }
 
-const providerOptions = [
-  { value: "codex", label: "Codex" },
-  { value: "claude", label: "Claude" },
-  { value: "meta", label: "Compose" }
-] satisfies Array<{ value: ComposerProvider; label: string }>;
+const providerOptions = runtimeProviderDefinitions.map((definition) => ({
+  value: definition.id,
+  label: definition.label
+})) satisfies Array<{ value: ComposerProvider; label: string }>;
 
 const ComposerMenuSurface = forwardRef<
   HTMLDivElement,
@@ -1687,11 +1635,10 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
   intelligence,
   setIntelligence
 }, ref) {
-  const models = providerModels[provider];
+  const models = providerModelOptions(provider);
   const selectedModel = modelOption(provider, model);
   const efforts = selectedModel.efforts;
-  const providerLabel =
-    provider === "meta" ? "Compose" : provider === "codex" ? "Codex" : "Claude";
+  const label = providerLabel(provider);
   const effortLabel =
     provider === "meta"
       ? "Planner and executor"
@@ -1715,10 +1662,10 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
       id={id}
       className="absolute -right-2 bottom-[64px] z-20 grid w-max max-w-[calc(100vw-48px)] gap-1"
       role="menu"
-      aria-label={`${providerLabel} model settings`}
+      aria-label={`${label} model settings`}
     >
       <div className="px-2 text-[14px] text-app-muted">
-        {providerLabel} model
+        {label} model
       </div>
       {models.map((option) => (
         <ComposerMenuButton
@@ -1775,13 +1722,10 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
 });
 
 function modelOption(provider: ComposerProvider, value: AgentModel) {
-  return (
-    providerModels[provider].find((option) => option.value === value) ??
-    providerModels[provider][0]
-  );
+  return providerModelOption(provider, value);
 }
 
-function compactModelOptionLabel(option: ModelOption) {
+function compactModelOptionLabel(option: ProviderModelOption) {
   if (option.value.startsWith("gpt-")) {
     return option.label.replace(/^GPT-/, "");
   }
@@ -1801,7 +1745,7 @@ function compactModelOptionLabel(option: ModelOption) {
   return option.label;
 }
 
-function defaultEffort(option: ModelOption) {
+function defaultEffort(option: ProviderModelOption) {
   return option.efforts.includes("High")
     ? "High"
     : option.efforts[option.efforts.length - 1];

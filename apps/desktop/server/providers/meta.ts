@@ -1,7 +1,11 @@
 import { randomUUID } from "node:crypto";
 
 import { defaultCwd, type AgentProvider } from "../runtime.js";
-import { upsertComposerProviderSessions } from "../../electron/composer-session-registry.js";
+import {
+  noopRuntimePersistence,
+  type RuntimePersistence,
+  type RuntimeProviderSessionRecord
+} from "../runtime-persistence.js";
 import { createCodexParallelWorktree } from "../parallel-worktrees.js";
 import { ClaudeProvider } from "./claude.js";
 import { CodexProvider } from "./codex.js";
@@ -16,6 +20,9 @@ import type {
 
 type DelegateProvider = "codex" | "claude";
 type MetaStrategy = "planner-review" | "parallel-initial";
+type MetaProviderOptions = {
+  persistence?: Pick<RuntimePersistence, "upsertProviderSessions">;
+};
 
 type MetaProviderState = {
   codex?: string;
@@ -65,6 +72,11 @@ export class MetaProvider implements AgentProvider {
   private codex = new CodexProvider();
   private claude = new ClaudeProvider();
   private activeDelegates = new Map<string, Partial<Record<DelegateProvider, string>>>();
+  private persistence: Pick<RuntimePersistence, "upsertProviderSessions">;
+
+  constructor(options: MetaProviderOptions = {}) {
+    this.persistence = options.persistence ?? noopRuntimePersistence;
+  }
 
   async run(request: Parameters<AgentProvider["run"]>[0]) {
     const turnId = randomUUID();
@@ -152,7 +164,7 @@ export class MetaProvider implements AgentProvider {
         state.claudeCwd = delegateSessions.claude.cwd ?? state.claudeCwd;
         writeMetaState(request.session, state);
         writeParallelProviderSessions(request.session, state);
-        writeComposerDelegateMetadata(composerSessionId, strategy, state);
+        writeComposerDelegateMetadata(this.persistence, composerSessionId, strategy, state);
 
         const failures = results
           .filter((result): result is PromiseRejectedResult => result.status === "rejected")
@@ -197,7 +209,7 @@ export class MetaProvider implements AgentProvider {
       state[META_PLANNER.provider] =
         delegateSessions[META_PLANNER.provider].providerSessionId;
       writeMetaState(request.session, state);
-      writeComposerDelegateMetadata(composerSessionId, strategy, state);
+      writeComposerDelegateMetadata(this.persistence, composerSessionId, strategy, state);
       emitSupervisorMessage(
         request,
         turnId,
@@ -221,7 +233,7 @@ export class MetaProvider implements AgentProvider {
       state[META_EXECUTOR.provider] =
         delegateSessions[META_EXECUTOR.provider].providerSessionId;
       writeMetaState(request.session, state);
-      writeComposerDelegateMetadata(composerSessionId, strategy, state);
+      writeComposerDelegateMetadata(this.persistence, composerSessionId, strategy, state);
 
       emitSupervisorMessage(
         request,
@@ -689,11 +701,12 @@ function strategyDescription(strategy: MetaStrategy) {
 }
 
 function writeComposerDelegateMetadata(
+  persistence: Pick<RuntimePersistence, "upsertProviderSessions">,
   parentSessionId: string,
   mode: MetaStrategy,
   state: MetaProviderState
 ) {
-  const records: Parameters<typeof upsertComposerProviderSessions>[0] = [];
+  const records: RuntimeProviderSessionRecord[] = [];
 
   if (state.codex) {
     records.push({
@@ -719,5 +732,5 @@ function writeComposerDelegateMetadata(
     });
   }
 
-  upsertComposerProviderSessions(records);
+  persistence.upsertProviderSessions(records);
 }
