@@ -16,6 +16,7 @@ import {
   ExternalLink,
   History,
   Maximize2,
+  Pencil,
   Square,
   TerminalSquare
 } from "lucide-react";
@@ -626,17 +627,16 @@ function summarizeToolActivityBatch(batch: ToolGroupItem[]) {
   const otherToolCount = callDetails.filter(
     (detail) => detail.action === "other" || !detail.action
   ).length;
-  const outputCount = details.filter(
-    (detail) => detail.kind === "output" && isInformativeToolDetail(detail)
-  ).length;
+  const exploredParts = [
+    bareCount(readCount, "file"),
+    bareCount(searchCount, "search", "searches")
+  ].filter(Boolean);
 
   const parts = [
-    pluralize(readCount, "read", "file"),
     pluralize(editCount, "edited", "file"),
-    pluralize(searchCount, "searched", "query"),
+    exploredParts.length > 0 ? `explored ${exploredParts.join(", ")}` : "",
     pluralize(commandCount, "ran", "command"),
     pluralize(otherToolCount, "used", "tool"),
-    pluralize(outputCount, "", "output"),
     pluralize(generatedCount, "generated", "image")
   ].filter(Boolean);
 
@@ -647,9 +647,17 @@ function summarizeToolActivityBatch(batch: ToolGroupItem[]) {
   return capitalizeFirst(parts.join(", "));
 }
 
+function bareCount(count: number, noun: string, plural = `${noun}s`) {
+  if (count === 0) {
+    return "";
+  }
+
+  return `${count} ${count === 1 ? noun : plural}`;
+}
+
 function isInformativeToolDetail(detail: ToolDetail) {
   if (detail.kind === "output") {
-    return Boolean(detail.output?.trim()) && detail.label !== "Output returned";
+    return Boolean(visibleToolOutput(detail)) && detail.label !== "Output returned";
   }
 
   if (detail.kind === "call") {
@@ -1476,20 +1484,23 @@ export function ToolActivityGroup({
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
-  const [open, setOpen] = useState(Boolean(item.defaultOpen));
+  const [open, setOpen] = useState(item.defaultOpen ?? true);
   const active =
     item.status === "running" ||
     item.id === activeToolId ||
     matchesActiveToolLabel(item, activeToolLabels);
-  const defaultExpandedCommandIndex = item.details.findIndex(
-    (detail) => detail.tone === "command"
+  const renderItems = toolDetailRenderItems(
+    item.details.filter(isRenderableToolDetail)
+  );
+  const defaultExpandedCommandIndex = renderItems.findIndex(
+    (renderItem) => isCommandToolDetail(renderItem.detail)
   );
 
   return (
-    <div className="grid max-w-[820px] gap-2.5" data-tool-activity-group>
+    <div className="grid max-w-[820px] gap-2.5 py-0.5" data-tool-activity-group>
       <TooltipButton
         className={cn(
-          "grid w-fit max-w-full items-center gap-2 text-left text-[13.5px] text-app-dim transition-colors hover:text-app-muted",
+          "grid w-fit max-w-full items-center gap-2.5 text-left text-[15px] leading-6 text-app-dim transition-colors hover:text-app-muted",
           item.provider
             ? "grid-cols-[16px_18px_minmax(0,1fr)_18px]"
             : "grid-cols-[18px_minmax(0,1fr)_18px]"
@@ -1501,7 +1512,7 @@ export function ToolActivityGroup({
         {item.provider && (
           <ProviderLogo provider={item.provider} className="h-3.5 w-3.5 text-app-muted" />
         )}
-        <TerminalSquare size={13} className={dimIcon} />
+        <ToolGroupIcon item={item} />
         {active ? (
           <Shimmer as="span" className="truncate font-medium" duration={1.5} spread={3}>
             {item.summary}
@@ -1521,11 +1532,12 @@ export function ToolActivityGroup({
       </TooltipButton>
 
       {open && (
-        <div className="grid gap-2 text-[13px] text-app-dim">
-          {item.details.map((detail, index) => (
+        <div className="grid gap-1.5 text-[15px] leading-7 text-app-dim">
+          {renderItems.map((renderItem, index) => (
             <ToolDetailRow
-              key={detail.id}
-              detail={detail}
+              key={renderItem.id}
+              detail={renderItem.detail}
+              outputDetail={renderItem.outputDetail}
               cwd={cwd}
               onOpenFile={onOpenFile}
               onReviewChanges={onReviewChanges}
@@ -1533,7 +1545,7 @@ export function ToolActivityGroup({
                 Boolean(item.defaultOpen) &&
                 index === defaultExpandedCommandIndex
               }
-              active={active && isActiveToolDetail(detail, index, item.details)}
+              active={active && isActiveToolRenderItem(renderItem, index, renderItems)}
             />
           ))}
         </div>
@@ -1542,12 +1554,87 @@ export function ToolActivityGroup({
   );
 }
 
-function isActiveToolDetail(
-  detail: ToolDetail,
+type ToolDetailRenderItem = {
+  id: string;
+  detail: ToolDetail;
+  outputDetail?: ToolDetail;
+};
+
+function toolDetailRenderItems(details: ToolDetail[]): ToolDetailRenderItem[] {
+  const items: ToolDetailRenderItem[] = [];
+
+  for (const detail of details) {
+    if (detail.kind === "output") {
+      const ownerItem = findLastOutputOwnerRenderItem(items);
+
+      if (ownerItem && !ownerItem.outputDetail) {
+        ownerItem.id = `${ownerItem.detail.id}-${detail.id}`;
+        ownerItem.outputDetail = detail;
+      }
+
+      continue;
+    }
+
+    items.push({ id: detail.id, detail });
+  }
+
+  return items;
+}
+
+function findLastOutputOwnerRenderItem(items: ToolDetailRenderItem[]) {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+
+    if (canOwnToolOutput(item.detail)) {
+      return item;
+    }
+  }
+
+  return undefined;
+}
+
+function isActiveToolRenderItem(
+  item: ToolDetailRenderItem,
   index: number,
-  details: ToolDetail[]
+  items: ToolDetailRenderItem[]
 ) {
-  return detail.status === "running" || index === details.length - 1;
+  return (
+    item.detail.status === "running" ||
+    item.outputDetail?.status === "running" ||
+    index === items.length - 1
+  );
+}
+
+function isCommandToolDetail(detail: ToolDetail) {
+  return detail.tone === "command" || detail.action === "command";
+}
+
+function canOwnToolOutput(detail: ToolDetail) {
+  return (
+    isCommandToolDetail(detail) ||
+    detail.action === "search" ||
+    detail.action === "generate" ||
+    detail.action === "other" ||
+    (detail.kind === "call" &&
+      detail.action !== "read" &&
+      Boolean(detail.args && Object.keys(detail.args).length > 0))
+  );
+}
+
+function ToolGroupIcon({ item }: { item: ToolGroupItem }) {
+  const Icon = item.details.some((detail) => detail.action === "edit")
+    ? Pencil
+    : TerminalSquare;
+
+  return <Icon size={16} className={dimIcon} />;
+}
+
+function isRenderableToolDetail(detail: ToolDetail) {
+  if (detail.kind !== "output") {
+    return isInformativeToolDetail(detail);
+  }
+
+  return Boolean(visibleToolOutput(detail));
 }
 
 function matchesActiveToolLabel(item: ToolGroupItem, labels: string[]) {
@@ -1562,7 +1649,7 @@ function matchesActiveToolLabel(item: ToolGroupItem, labels: string[]) {
       detail.toolName,
       detail.command,
       detail.path,
-      detail.output
+      visibleToolOutput(detail)
     ])
   ]);
 
@@ -1591,6 +1678,7 @@ function normalizeToolMatchText(values: Array<string | undefined>) {
 
 function ToolDetailRow({
   detail,
+  outputDetail,
   cwd,
   onOpenFile,
   onReviewChanges,
@@ -1598,6 +1686,7 @@ function ToolDetailRow({
   active = false
 }: {
   detail: ToolDetail;
+  outputDetail?: ToolDetail;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
@@ -1607,7 +1696,7 @@ function ToolDetailRow({
   const reviewFiles = detail.reviewFiles ?? [];
   const expandable =
     reviewFiles.length > 0 ||
-    detail.tone === "command" ||
+    isCommandToolDetail(detail) ||
     detail.tone === "output" ||
     (detail.kind === "call" &&
       detail.action !== "read" &&
@@ -1615,6 +1704,7 @@ function ToolDetailRow({
   const [open, setOpen] = useState(defaultOpen);
   const rowLabel = formatToolDetailLabel(detail);
   const filePath = resolveToolDetailFilePath(detail, cwd);
+  const tooltip = rowLabel || detail.label;
 
   if (reviewFiles.length > 0) {
     return (
@@ -1622,6 +1712,7 @@ function ToolDetailRow({
         detail={detail}
         files={reviewFiles}
         defaultOpen={defaultOpen}
+        active={active}
         onReviewChanges={onReviewChanges}
       />
     );
@@ -1634,15 +1725,12 @@ function ToolDetailRow({
           className="grid min-w-0 grid-cols-[minmax(0,1fr)_18px] items-center gap-2 text-left text-app-muted transition-colors hover:text-app-text"
           onClick={() => setOpen(!open)}
           aria-expanded={open}
-          tooltip={detail.label}
+          tooltip={tooltip}
         >
           {active ? (
             <Shimmer
               as="span"
-              className={cn(
-                "truncate",
-                detail.tone === "command" && "font-mono text-[12px]"
-              )}
+              className="truncate"
               duration={1.35}
               spread={3}
             >
@@ -1652,7 +1740,6 @@ function ToolDetailRow({
             <span
               className={cn(
                 "truncate",
-                detail.tone === "command" && "font-mono text-[12px]",
                 detail.tone === "output" && "text-app-dim",
                 detail.action === "edit" && "text-app-muted"
               )}
@@ -1665,7 +1752,7 @@ function ToolDetailRow({
             size={15}
           />
         </TooltipButton>
-        {open && <ToolPayloadCard detail={detail} />}
+        {open && <ToolPayloadCard detail={detail} outputDetail={outputDetail} />}
       </div>
     );
   }
@@ -1681,7 +1768,7 @@ function ToolDetailRow({
       type="button"
       disabled={!filePath || !onOpenFile}
       onClick={() => filePath && onOpenFile?.(filePath)}
-      tooltip={detail.label}
+      tooltip={tooltip}
     >
       {active ? (
         <Shimmer as="span" className="truncate" duration={1.35} spread={3}>
@@ -1697,34 +1784,50 @@ function ToolDetailRow({
 function ToolReviewDetail({
   files,
   defaultOpen,
+  active = false,
   onReviewChanges
 }: {
   detail: ToolDetail;
   files: ReviewDiffFile[];
   defaultOpen: boolean;
+  active?: boolean;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   const [open, setOpen] = useState(defaultOpen);
+  const summary = reviewFilesSummary(files);
+  const openReview = () => {
+    onReviewChanges?.({ files });
+  };
+
   return (
     <div className="grid gap-2">
-      <div className="grid gap-1">
-        {files.map((file) => (
-          <ToolReviewFileLink
-            key={file.path}
-            file={file}
-            allFiles={files}
-            onReviewChanges={onReviewChanges}
-          />
-        ))}
-      </div>
-      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_18px] items-center gap-2">
+      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_30px_18px] items-center gap-2">
         <TooltipButton
           className="min-w-0 truncate text-left text-app-muted transition-colors hover:text-app-text"
           type="button"
           tooltip={open ? "Collapse edit diff" : "Expand edit diff"}
           onClick={() => setOpen(!open)}
         >
-          <span className="truncate">Edited file</span>
+          {active ? (
+            <Shimmer as="span" className="truncate" duration={1.35} spread={3}>
+              {summary.label}
+            </Shimmer>
+          ) : (
+            <span className="truncate">
+              {summary.label}{" "}
+              <span className={appSuccessText}>+{summary.additions}</span>{" "}
+              <span className={appDangerText}>-{summary.deletions}</span>
+            </span>
+          )}
+        </TooltipButton>
+        <TooltipButton
+          className={subtleIconButton}
+          aria-label="Open diff review"
+          tooltip="Open diff review"
+          onClick={openReview}
+          type="button"
+        >
+          <Maximize2 size={14} />
         </TooltipButton>
         <TooltipButton
           className={subtleIconButton}
@@ -1755,35 +1858,15 @@ function ToolReviewDetail({
   );
 }
 
-function ToolReviewFileLink({
-  file,
-  allFiles,
-  onReviewChanges
-}: {
-  file: ReviewDiffFile;
-  allFiles: ReviewDiffFile[];
-  onReviewChanges?: (request?: ReviewChangeRequest) => void;
-}) {
-  return (
-    <div className="min-w-0 text-app-muted">
-      <span>Edited </span>
-      <TooltipButton
-        className={cn("max-w-[320px] truncate align-bottom text-left", appAccentHoverText)}
-        tooltip={`Open ${file.path} in review`}
-        onClick={() =>
-          onReviewChanges?.({
-            filePath: file.path,
-            files: allFiles
-          })
-        }
-        type="button"
-      >
-        {displayPath(file.path)}
-      </TooltipButton>{" "}
-      <span className={appSuccessText}>+{file.additions}</span>{" "}
-      <span className={appDangerText}>-{file.deletions}</span>
-    </div>
-  );
+function reviewFilesSummary(files: ReviewDiffFile[]) {
+  const additions = files.reduce((total, file) => total + file.additions, 0);
+  const deletions = files.reduce((total, file) => total + file.deletions, 0);
+  const label =
+    files.length === 1
+      ? `Edited ${displayPath(files[0].path)}`
+      : `Edited ${files.length} files`;
+
+  return { label, additions, deletions };
 }
 
 function ToolReviewFileCard({
@@ -1862,25 +1945,71 @@ function displayPath(filePath: string) {
   return normalized.split("/").filter(Boolean).at(-1) ?? filePath;
 }
 
-function ToolPayloadCard({ detail }: { detail: ToolDetail }) {
-  const isCommand = detail.tone === "command";
+function ToolPayloadCard({
+  detail,
+  outputDetail
+}: {
+  detail: ToolDetail;
+  outputDetail?: ToolDetail;
+}) {
+  const [copied, setCopied] = useState(false);
+  const isCommand = isCommandToolDetail(detail);
   const isOutput = detail.kind === "output";
-  const payload = isCommand
-    ? detail.command ?? commandPayload(detail.label)
+  const command = detail.command ?? commandPayload(detail.label);
+  const output = outputDetail ? visibleToolOutput(outputDetail) : "";
+  const inputPayload = isCommand
+    ? command
     : isOutput
-      ? detail.output ?? detail.label
+      ? visibleToolOutput(detail)
       : formatToolArgs(detail.args);
+  const payload = isCommand
+    ? [command ? `$ ${command}` : "", output].filter(Boolean).join("\n\n")
+    : isOutput
+      ? visibleToolOutput(detail)
+      : [inputPayload, output].filter(Boolean).join("\n\n");
+  const copyPayload = () => {
+    void navigator.clipboard?.writeText(payload).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
+  };
+  const status = outputDetail?.status ?? detail.status;
 
   return (
     <div className={cn("overflow-hidden px-4 py-3 text-app-muted", cardSurface)}>
-      <div className="mb-3 text-[12px] text-app-dim">
+      <div className="mb-3 text-[15px] leading-6 text-app-dim">
         {isCommand ? "Shell" : isOutput ? "Output" : "Details"}
       </div>
-      <pre className="thin-scrollbar max-h-[260px] overflow-auto whitespace-pre-wrap break-words font-mono text-[12.5px] leading-5 text-app-text">
-        {isCommand ? `$ ${payload}` : payload}
-      </pre>
-      <div className="mt-3 flex justify-end text-[12px] text-app-dim">
-        <span>{detail.status === "failed" ? "Failed" : "Success"}</span>
+      {isCommand || isOutput || !output ? (
+        <pre className="thin-scrollbar max-h-[260px] overflow-auto whitespace-pre-wrap break-words font-mono text-[15px] leading-7 text-app-text">
+          {payload}
+        </pre>
+      ) : (
+        <div className="grid gap-4">
+          {inputPayload && (
+            <pre className="thin-scrollbar max-h-[180px] overflow-auto whitespace-pre-wrap break-words font-mono text-[15px] leading-7 text-app-text">
+              {inputPayload}
+            </pre>
+          )}
+          <div className="border-t border-app-line pt-3">
+            <div className="mb-3 text-[15px] leading-6 text-app-dim">Output</div>
+            <pre className="thin-scrollbar max-h-[260px] overflow-auto whitespace-pre-wrap break-words font-mono text-[15px] leading-7 text-app-text">
+              {output}
+            </pre>
+          </div>
+        </div>
+      )}
+      <div className="mt-4 flex items-center justify-end gap-4 text-[14px] text-app-dim">
+        <TooltipButton
+          className={subtleIconButton}
+          aria-label={copied ? "Copied shell output" : "Copy shell output"}
+          tooltip={copied ? "Copied" : "Copy"}
+          onClick={copyPayload}
+          type="button"
+        >
+          {copied ? <Check size={15} /> : <Copy size={15} />}
+        </TooltipButton>
+        <span>{status === "failed" ? "Failed" : "✓ Success"}</span>
       </div>
     </div>
   );
@@ -1891,17 +2020,125 @@ function formatToolDetailLabel(detail: ToolDetail) {
     return detail.label;
   }
 
-  if (detail.tone === "command") {
-    return detail.label.startsWith("Ran ")
-      ? detail.label
-      : `Ran ${commandPayload(detail.label)}`;
+  if (isCommandToolDetail(detail)) {
+    return "Ran command";
   }
 
   if (detail.kind === "output") {
-    return detail.label || "Output returned";
+    return meaningfulOutputLabel(visibleToolOutput(detail)) || "Output returned";
   }
 
   return detail.label;
+}
+
+function visibleToolOutput(detail: ToolDetail) {
+  if (detail.kind !== "output") {
+    return "";
+  }
+
+  return decodeToolOutput(detail.output ?? detail.label).trim();
+}
+
+function meaningfulOutputLabel(output: string) {
+  const firstLine = output.trim().split("\n").find(Boolean);
+  return firstLine ? trimToolText(firstLine) : "";
+}
+
+function decodeToolOutput(output: string) {
+  const cleaned = cleanToolOutputEnvelope(output);
+
+  if (!cleaned) {
+    return "";
+  }
+
+  try {
+    const parsed = JSON.parse(cleaned) as unknown;
+    return extractVisibleJsonText(parsed);
+  } catch {
+    if (/^\s*[{[]/.test(cleaned)) {
+      return extractPartialJsonOutput(cleaned);
+    }
+
+    return cleaned;
+  }
+}
+
+function cleanToolOutputEnvelope(output: string) {
+  return output
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .filter((line) => {
+      const trimmed = line.trim();
+
+      if (!trimmed) {
+        return true;
+      }
+
+      return !(
+        /^Chunk ID:/i.test(trimmed) ||
+        /^Wall time:/i.test(trimmed) ||
+        /^Process exited with code/i.test(trimmed) ||
+        /^Process running with session ID/i.test(trimmed) ||
+        /^Original token count:/i.test(trimmed) ||
+        /^Output:\s*$/i.test(trimmed)
+      );
+    })
+    .join("\n")
+    .trim();
+}
+
+function extractVisibleJsonText(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map(extractVisibleJsonText).filter(Boolean).join("\n\n");
+  }
+
+  if (!value || typeof value !== "object") {
+    return "";
+  }
+
+  const record = value as Record<string, unknown>;
+  const preferredKeys = [
+    "output",
+    "text",
+    "message",
+    "error",
+    "content",
+    "result",
+    "stdout",
+    "stderr"
+  ];
+
+  for (const key of preferredKeys) {
+    const text = extractVisibleJsonText(record[key]);
+
+    if (text) {
+      return text;
+    }
+  }
+
+  return "";
+}
+
+function extractPartialJsonOutput(value: string) {
+  const match = value.match(/"output"\s*:\s*"((?:\\.|[^"\\])*)/s);
+
+  if (!match) {
+    return "";
+  }
+
+  try {
+    return JSON.parse(`"${match[1]}"`) as string;
+  } catch {
+    return match[1].replace(/\\n/g, "\n").replace(/\\"/g, '"');
+  }
+}
+
+function trimToolText(value: string) {
+  return value.length > 240 ? `${value.slice(0, 237)}...` : value;
 }
 
 function commandPayload(value: string) {
