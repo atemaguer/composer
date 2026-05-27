@@ -216,6 +216,11 @@ export default function Home() {
           <div className="mt-8 grid gap-8 sm:grid-cols-2">
             {[
               {
+                question: "What is Composer?",
+                answer:
+                  "Composer is a meta-harness that orchestrates harnesses like Codex, Claude, and others into one unified harness across shared context, sessions, and agents."
+              },
+              {
                 question: "What does shared context mean?",
                 answer:
                   "Composer keeps the active codebase, session history, tool results, diffs, and review notes together so Codex and Claude can work from the same picture."
