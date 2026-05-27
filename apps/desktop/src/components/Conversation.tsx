@@ -168,7 +168,7 @@ export function Conversation({
           onJump={scrollToLatest}
         />
       )}
-      <Composer {...composer} pendingItems={pendingItems} />
+      <Composer {...composer} pendingItems={pendingItems} footerItems={[]} />
     </section>
   );
 }

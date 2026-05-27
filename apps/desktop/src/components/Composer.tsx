@@ -1,5 +1,7 @@
 import {
+  forwardRef,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type ChangeEvent,
@@ -25,7 +27,6 @@ import {
   GitPullRequestCreateArrow,
   Laptop,
   MessageSquare,
-  Mic,
   Plus,
   Search,
   Shield,
@@ -152,6 +153,9 @@ export type ComposerProps = {
   onStop?: () => void;
   submitMode?: "send" | "stop";
   submitDisabled?: boolean;
+  layout?: "overlay" | "inline";
+  footerItems?: PromptComposerFooterItem[];
+  branchFooterItem?: PromptComposerFooterItem;
   imageAttachments?: ComposerImageAttachment[];
   reviewCommentAttachments?: ComposerReviewCommentAttachment[];
   onAddImageAttachments?: (files: File[]) => void;
@@ -168,14 +172,20 @@ export type PromptComposerFooterItem = {
   icon: ElementType;
   label: string;
   options?: PromptComposerFooterOption[];
+  optionIcon?: ElementType;
   menuItems?: PromptComposerFooterMenuItem[];
   menuTitle?: string;
   menuPlacement?: "up" | "down";
   selectedOptionId?: string;
   searchPlaceholder?: string;
   createLabel?: string;
+  emptyLabel?: string;
+  loading?: boolean;
+  error?: string | null;
   onSelect?: (option: PromptComposerFooterOption) => void;
   onCreate?: (query: string) => void | Promise<void>;
+  onUseExistingFolder?: () => void | Promise<void>;
+  onOpen?: () => void;
 };
 
 export type PromptComposerFooterMenuItem = {
@@ -211,13 +221,6 @@ export const startInFooterMenuItems: PromptComposerFooterMenuItem[] = [
   {
     icon: GitPullRequestCreateArrow,
     label: "New worktree"
-  },
-  ...localWorkMenuBaseItems.slice(1),
-  {
-    icon: Gauge,
-    label: "Rate limits remaining",
-    separatorBefore: true,
-    trailingIcon: ChevronRight
   }
 ];
 
@@ -478,7 +481,6 @@ export function PromptComposer({
           </div>
 
           <div className="composer-right-controls flex min-w-0 flex-nowrap items-center justify-end gap-2">
-            <span className="h-3.5 w-3.5 shrink-0 rounded-full border-[3px] border-app-text/10 border-t-app-text/35" />
             <TooltipButton
               className={cn(
                 "composer-model-button h-[30px] min-w-0 max-w-[164px] gap-1.5 px-2.5 text-[13px]",
@@ -509,13 +511,6 @@ export function PromptComposer({
               <ChevronDown className="shrink-0" size={13} />
             </TooltipButton>
             <TooltipButton
-              className={subtleIconButton}
-              aria-label="Voice"
-              tooltip="Voice input"
-            >
-              <Mic size={14} />
-            </TooltipButton>
-            <TooltipButton
               className={primaryIconButton}
               aria-label={submitLabel}
               disabled={submitDisabled}
@@ -533,24 +528,32 @@ export function PromptComposer({
         </div>
       </div>
 
-      <div className="composer-footer-row flex items-center gap-5 px-3.5 pt-2">
-        {footerItems.map((item) => (
-          <ComposerFooterButton
-            key={item.label}
-            icon={item.icon}
-            label={item.label}
-            options={item.options}
-            menuItems={item.menuItems}
-            menuTitle={item.menuTitle}
-            menuPlacement={item.menuPlacement}
-            selectedOptionId={item.selectedOptionId}
-            searchPlaceholder={item.searchPlaceholder}
-            createLabel={item.createLabel}
-            onSelect={item.onSelect}
-            onCreate={item.onCreate}
-          />
-        ))}
-      </div>
+      {footerItems.length > 0 && (
+        <div className="composer-footer-row flex items-center gap-5 px-3.5 pt-2">
+          {footerItems.map((item) => (
+            <ComposerFooterButton
+              key={item.label}
+              icon={item.icon}
+              label={item.label}
+              options={item.options}
+              menuItems={item.menuItems}
+              menuTitle={item.menuTitle}
+              menuPlacement={item.menuPlacement}
+              selectedOptionId={item.selectedOptionId}
+              optionIcon={item.optionIcon}
+              searchPlaceholder={item.searchPlaceholder}
+              createLabel={item.createLabel}
+              emptyLabel={item.emptyLabel}
+              loading={item.loading}
+              error={item.error}
+              onSelect={item.onSelect}
+              onCreate={item.onCreate}
+              onUseExistingFolder={item.onUseExistingFolder}
+              onOpen={item.onOpen}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -619,9 +622,33 @@ function ReviewCommentAttachmentPill({
   );
 }
 
-export function Composer({ pendingItems = [], ...controls }: ComposerProps) {
+export function Composer({
+  pendingItems = [],
+  layout = "overlay",
+  footerItems,
+  branchFooterItem,
+  ...controls
+}: ComposerProps) {
+  const resolvedFooterItems = footerItems ?? [
+    {
+      icon: Laptop,
+      label: "Work locally",
+      menuTitle: "Continue in",
+      menuItems: continueInFooterMenuItems,
+      menuPlacement: "up" as const
+    },
+    branchFooterItem ?? { icon: GitBranch, label: "main" }
+  ];
+
   return (
-    <div className="composer-fade pointer-events-none absolute inset-x-0 bottom-0 z-10 px-5 pb-4 pt-10">
+    <div
+      className={cn(
+        "composer-fade pointer-events-none z-10 px-5 pb-4",
+        layout === "overlay"
+          ? "absolute inset-x-0 bottom-0 pt-10"
+          : "relative pt-3"
+      )}
+    >
       <div className="pointer-events-auto relative mx-auto w-full max-w-[820px]">
         <PendingTerminalStack
           items={pendingItems}
@@ -631,6 +658,7 @@ export function Composer({ pendingItems = [], ...controls }: ComposerProps) {
         />
         <PromptComposer
           {...controls}
+          footerItems={resolvedFooterItems}
           placeholder="Ask Composer to build, debug, or review"
         />
       </div>
@@ -651,13 +679,13 @@ function ComposerMenuSurface({
   return <div className={cn(menuSurface, className)} {...props} />;
 }
 
-function ComposerMenuButton({
-  className,
-  selected,
-  ...props
-}: ComponentProps<typeof TooltipButton> & { selected?: boolean }) {
+const ComposerMenuButton = forwardRef<
+  HTMLButtonElement,
+  ComponentProps<typeof TooltipButton> & { selected?: boolean }
+>(function ComposerMenuButton({ className, selected, ...props }, ref) {
   return (
     <TooltipButton
+      ref={ref}
       className={cn(
         menuItem,
         className,
@@ -666,7 +694,7 @@ function ComposerMenuButton({
       {...props}
     />
   );
-}
+});
 
 function ComposerMenuDivider() {
   return <div className="my-1 h-px bg-app-line" />;
@@ -952,34 +980,61 @@ function ComposerFooterButton({
   icon: Icon,
   label,
   options,
+  optionIcon: OptionIcon = Folder,
   menuItems,
   menuTitle,
   menuPlacement = "up",
   selectedOptionId,
   searchPlaceholder = "Search",
   createLabel = "New project",
+  emptyLabel = "No projects found",
+  loading = false,
+  error: externalError,
   onSelect,
-  onCreate
+  onCreate,
+  onUseExistingFolder,
+  onOpen
 }: {
   icon: ElementType;
   label: string;
   options?: PromptComposerFooterOption[];
+  optionIcon?: ElementType;
   menuItems?: PromptComposerFooterMenuItem[];
   menuTitle?: string;
   menuPlacement?: "up" | "down";
   selectedOptionId?: string;
   searchPlaceholder?: string;
   createLabel?: string;
+  emptyLabel?: string;
+  loading?: boolean;
+  error?: string | null;
   onSelect?: (option: PromptComposerFooterOption) => void;
   onCreate?: (query: string) => void | Promise<void>;
+  onUseExistingFolder?: () => void | Promise<void>;
+  onOpen?: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [creating, setCreating] = useState(false);
+  const [usingExistingFolder, setUsingExistingFolder] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [createMenuPosition, setCreateMenuPosition] = useState<{
+    left: number;
+    top: number;
+  } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [menuMaxHeight, setMenuMaxHeight] = useState<number | null>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const addProjectButtonRef = useRef<HTMLButtonElement>(null);
   const hasCustomMenu = Boolean(menuItems?.length);
-  const hasMenu = Boolean(hasCustomMenu || options?.length || onCreate);
+  const hasMenu = Boolean(
+    hasCustomMenu ||
+    options?.length ||
+    onCreate ||
+    onOpen ||
+    loading ||
+    externalError
+  );
   const normalizedQuery = query.trim().toLowerCase();
   const filteredOptions = (options ?? []).filter((option) =>
     `${option.label} ${option.detail ?? ""} ${option.cwd ?? ""}`
@@ -989,6 +1044,35 @@ function ComposerFooterButton({
   const createActionLabel = query.trim()
     ? `Create "${query.trim()}"`
     : createLabel;
+
+  function setCreateMenuPositionFromRect(rect: DOMRect) {
+    const viewport = window.visualViewport;
+    const viewportLeft = viewport?.offsetLeft ?? 0;
+    const viewportTop = viewport?.offsetTop ?? 0;
+    const viewportWidth = viewport?.width ?? window.innerWidth;
+    const viewportHeight = viewport?.height ?? window.innerHeight;
+    const margin = 8;
+    const gap = 8;
+    const submenuWidth = 288;
+    const submenuHeight = 112;
+    const viewportRight = viewportLeft + viewportWidth;
+    const viewportBottom = viewportTop + viewportHeight;
+    const openRight = rect.right + gap + submenuWidth <= viewportRight - margin;
+    const left = openRight
+      ? rect.right + gap
+      : Math.max(viewportLeft + margin, rect.left - gap - submenuWidth);
+    const top = Math.min(
+      Math.max(viewportTop + margin, rect.top - 6),
+      viewportBottom - submenuHeight - margin
+    );
+
+    setCreateMenuPosition({ left: Math.round(left), top: Math.round(top) });
+  }
+
+  function openCreateMenuFromElement(element: HTMLElement) {
+    setCreateMenuPositionFromRect(element.getBoundingClientRect());
+    setCreateMenuOpen(true);
+  }
 
   async function handleCreate() {
     if (!onCreate || creating) {
@@ -1010,10 +1094,34 @@ function ComposerFooterButton({
     }
   }
 
+  async function handleUseExistingFolder() {
+    if (!onUseExistingFolder || usingExistingFolder) {
+      return;
+    }
+
+    setUsingExistingFolder(true);
+    setError(null);
+
+    try {
+      await onUseExistingFolder();
+      setOpen(false);
+    } catch (useExistingFolderError) {
+      setError(
+        useExistingFolderError instanceof Error
+          ? useExistingFolderError.message
+          : String(useExistingFolderError)
+      );
+    } finally {
+      setUsingExistingFolder(false);
+    }
+  }
+
   useEffect(() => {
     if (!open) {
       setQuery("");
       setError(null);
+      setMenuMaxHeight(null);
+      setCreateMenuOpen(false);
       return;
     }
 
@@ -1039,6 +1147,89 @@ function ComposerFooterButton({
       document.removeEventListener("keydown", onKeyDown);
     };
   }, [open]);
+
+  useLayoutEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    function updateMenuMaxHeight() {
+      const rect = menuRef.current?.getBoundingClientRect();
+
+      if (!rect) {
+        return;
+      }
+
+      const viewport = window.visualViewport;
+      const viewportTop = viewport?.offsetTop ?? 0;
+      const viewportHeight = viewport?.height ?? window.innerHeight;
+      const gap = 8;
+      const margin = 16;
+      const availableHeight =
+        menuPlacement === "down"
+          ? viewportTop + viewportHeight - rect.bottom - gap - margin
+          : rect.top - viewportTop - gap - margin;
+
+      setMenuMaxHeight(Math.max(180, Math.floor(availableHeight)));
+    }
+
+    updateMenuMaxHeight();
+    window.addEventListener("resize", updateMenuMaxHeight);
+    window.addEventListener("scroll", updateMenuMaxHeight, true);
+    window.visualViewport?.addEventListener("resize", updateMenuMaxHeight);
+
+    return () => {
+      window.removeEventListener("resize", updateMenuMaxHeight);
+      window.removeEventListener("scroll", updateMenuMaxHeight, true);
+      window.visualViewport?.removeEventListener("resize", updateMenuMaxHeight);
+    };
+  }, [menuPlacement, open]);
+
+  useLayoutEffect(() => {
+    if (!open || !createMenuOpen) {
+      setCreateMenuPosition(null);
+      return;
+    }
+
+    function updateCreateMenuPosition() {
+      const rect = addProjectButtonRef.current?.getBoundingClientRect();
+
+      if (!rect) {
+        return;
+      }
+
+      setCreateMenuPositionFromRect(rect);
+    }
+
+    updateCreateMenuPosition();
+    window.addEventListener("resize", updateCreateMenuPosition);
+    window.addEventListener("scroll", updateCreateMenuPosition, true);
+    window.visualViewport?.addEventListener("resize", updateCreateMenuPosition);
+    window.visualViewport?.addEventListener("scroll", updateCreateMenuPosition);
+
+    return () => {
+      window.removeEventListener("resize", updateCreateMenuPosition);
+      window.removeEventListener("scroll", updateCreateMenuPosition, true);
+      window.visualViewport?.removeEventListener(
+        "resize",
+        updateCreateMenuPosition
+      );
+      window.visualViewport?.removeEventListener(
+        "scroll",
+        updateCreateMenuPosition
+      );
+    };
+  }, [createMenuOpen, open]);
+
+  function toggleOpen() {
+    const nextOpen = !open;
+
+    setOpen(nextOpen);
+
+    if (nextOpen) {
+      onOpen?.();
+    }
+  }
 
   if (!hasMenu) {
     return (
@@ -1074,7 +1265,7 @@ function ComposerFooterButton({
         aria-label={label}
         aria-expanded={open}
         aria-haspopup="menu"
-        onClick={() => setOpen((current) => !current)}
+        onClick={toggleOpen}
         tooltip={label}
         type="button"
       >
@@ -1092,11 +1283,16 @@ function ComposerFooterButton({
       {open && (
         <ComposerMenuSurface
           className={cn(
-            "absolute left-0 z-30 grid w-[min(430px,calc(100vw-48px))] gap-1 text-[14px]",
+            "absolute left-0 z-30 flex w-[min(430px,calc(100vw-48px))] flex-col overflow-visible text-[14px]",
             menuPlacement === "up"
               ? "bottom-[calc(100%+8px)]"
               : "top-[calc(100%+8px)]"
           )}
+          style={
+            menuMaxHeight === null
+              ? undefined
+              : { maxHeight: `${menuMaxHeight}px` }
+          }
           role="menu"
           aria-label={label}
         >
@@ -1108,7 +1304,7 @@ function ComposerFooterButton({
             />
           ) : (
             <>
-              <label className="grid h-9 grid-cols-[22px_minmax(0,1fr)] items-center gap-1 rounded-lg px-2 text-app-dim">
+              <label className="grid h-9 shrink-0 grid-cols-[22px_minmax(0,1fr)] items-center gap-1 rounded-lg px-2 text-app-dim">
                 <Search size={15} />
                 <input
                   className="h-full min-w-0 bg-transparent text-[14px] text-app-text outline-none placeholder:text-app-dim"
@@ -1129,8 +1325,14 @@ function ComposerFooterButton({
                 />
               </label>
 
-              <div className="max-h-[260px] overflow-y-auto border-t border-app-line pt-1">
-                {filteredOptions.map((option) => {
+              <div className="min-h-0 flex-1 overflow-y-auto border-t border-app-line pt-1">
+                {loading && (
+                  <div className="px-2 py-3 text-[13px] text-app-dim">
+                    Loading...
+                  </div>
+                )}
+
+                {!loading && filteredOptions.map((option) => {
                   const selected = option.id === selectedOptionId;
 
                   return (
@@ -1147,7 +1349,7 @@ function ComposerFooterButton({
                       tooltip={`Select ${option.label}`}
                       type="button"
                     >
-                      <Folder className="text-app-muted" size={16} />
+                      <OptionIcon className="text-app-muted" size={16} />
                       <span className="grid min-w-0">
                         <span className="truncate">{option.label}</span>
                         {option.detail && (
@@ -1161,9 +1363,9 @@ function ComposerFooterButton({
                   );
                 })}
 
-                {filteredOptions.length === 0 && (
+                {!loading && filteredOptions.length === 0 && (
                   <div className="px-2 py-3 text-[13px] text-app-dim">
-                    No projects found
+                    {emptyLabel}
                   </div>
                 )}
               </div>
@@ -1171,30 +1373,103 @@ function ComposerFooterButton({
               {onCreate && (
                 <>
                   <ComposerMenuDivider />
-                  <ComposerMenuButton
-                    className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={creating}
-                    onClick={() => void handleCreate()}
-                    tooltip={creating ? "Creating project" : createActionLabel}
-                    type="button"
-                  >
-                    <Plus className="text-app-muted" size={16} />
-                    <span className="truncate">
-                      {creating ? "Creating project..." : createActionLabel}
-                    </span>
-                  </ComposerMenuButton>
+                  {onUseExistingFolder ? (
+                    <div
+                      className="relative shrink-0"
+                      onMouseEnter={() => setCreateMenuOpen(true)}
+                    >
+                      <ComposerMenuButton
+                        ref={addProjectButtonRef}
+                        className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_18px] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+                        disabled={creating || usingExistingFolder}
+                        onClick={(event) =>
+                          openCreateMenuFromElement(event.currentTarget)
+                        }
+                        onFocus={(event) =>
+                          openCreateMenuFromElement(event.currentTarget)
+                        }
+                        onPointerEnter={(event) =>
+                          openCreateMenuFromElement(event.currentTarget)
+                        }
+                        tooltip="Add new project"
+                        type="button"
+                      >
+                        <Plus className="text-app-muted" size={16} />
+                        <span className="truncate">Add new project</span>
+                        <ChevronRight className="text-app-muted" size={16} />
+                      </ComposerMenuButton>
+                    </div>
+                  ) : (
+                    <ComposerMenuButton
+                      className="grid min-h-10 w-full shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={creating}
+                      onClick={() => void handleCreate()}
+                      tooltip={creating ? "Creating project" : createActionLabel}
+                      type="button"
+                    >
+                      <Plus className="text-app-muted" size={16} />
+                      <span className="truncate">
+                        {creating ? "Creating project..." : createActionLabel}
+                      </span>
+                    </ComposerMenuButton>
+                  )}
                 </>
               )}
 
-              {error && (
-                <div className={cn("px-2 pb-1 text-[12px]", appDangerText)}>
-                  {error}
+              {(error || externalError) && (
+                <div className={cn("shrink-0 px-2 pb-1 text-[12px]", appDangerText)}>
+                  {error ?? externalError}
                 </div>
               )}
             </>
           )}
         </ComposerMenuSurface>
       )}
+
+      {open &&
+        createMenuOpen &&
+        onUseExistingFolder &&
+        createMenuPosition && (
+          <ComposerMenuSurface
+            className="fixed z-50 grid w-72 gap-1 text-[14px]"
+            style={{
+              left: `${createMenuPosition.left}px`,
+              top: `${createMenuPosition.top}px`
+            }}
+            role="menu"
+            aria-label="Add new project"
+            onMouseEnter={() => setCreateMenuOpen(true)}
+          >
+            <ComposerMenuButton
+              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={creating}
+              onClick={() => void handleCreate()}
+              tooltip={creating ? "Creating project" : "Start from scratch"}
+              type="button"
+            >
+              <Plus className="text-app-muted" size={16} />
+              <span className="truncate">
+                {creating ? "Creating project..." : "Start from scratch"}
+              </span>
+            </ComposerMenuButton>
+            <ComposerMenuButton
+              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 px-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={usingExistingFolder}
+              onClick={() => void handleUseExistingFolder()}
+              tooltip={
+                usingExistingFolder
+                  ? "Opening folder picker"
+                  : "Use an existing folder"
+              }
+              type="button"
+            >
+              <Folder className="text-app-muted" size={16} />
+              <span className="truncate">
+                {usingExistingFolder ? "Opening folder..." : "Use an existing folder"}
+              </span>
+            </ComposerMenuButton>
+          </ComposerMenuSurface>
+        )}
     </div>
   );
 }
@@ -1210,10 +1485,10 @@ function ComposerFooterCustomMenu({
 }) {
   return (
     <>
-      <div className="px-3 pb-2 pt-1 text-[14px] font-medium text-app-dim">
+      <div className="shrink-0 px-3 pb-2 pt-1 text-[14px] font-medium text-app-dim">
         {title}
       </div>
-      <div className="grid gap-0.5">
+      <div className="grid min-h-0 gap-0.5 overflow-y-auto">
         {items.map((item) => {
           const Icon = item.icon;
           const TrailingIcon =
@@ -1229,6 +1504,7 @@ function ComposerFooterCustomMenu({
                     ? "cursor-not-allowed text-app-dim/60"
                     : "text-app-text hover:bg-app-text/[0.06]"
                 )}
+                selected={item.checked}
                 disabled={item.disabled}
                 onClick={() => {
                   if (item.disabled) {
@@ -1238,7 +1514,7 @@ function ComposerFooterCustomMenu({
                   item.onSelect?.();
                   onClose();
                 }}
-                role={item.checked ? "menuitemradio" : "menuitem"}
+                role="menuitemradio"
                 aria-checked={item.checked}
                 tooltip={item.label}
                 type="button"

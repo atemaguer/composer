@@ -25,6 +25,8 @@ import {
   X
 } from "lucide-react";
 import {
+  memo,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -75,6 +77,9 @@ type ReviewPanelProps = {
   filePreview?: FilePreview | null;
   filePreviewError?: string | null;
   filePreviewLoading?: boolean;
+  filePreviewTabs?: string[];
+  canNavigateFilePreviewBack?: boolean;
+  canNavigateFilePreviewForward?: boolean;
   workspaceCwd?: string | null;
   workspaceName?: string;
   workspaceFiles?: WorkspaceFileEntry[];
@@ -82,7 +87,8 @@ type ReviewPanelProps = {
   workspaceFilesError?: string | null;
   onTabChange?: (tab: InspectorPanelTab) => void;
   onAddFilePreviewTab?: () => void;
-  onCloseFilePreviewTab?: () => void;
+  onCloseFilePreviewTab?: (filePath?: string) => void;
+  onNavigateFilePreviewHistory?: (direction: -1 | 1) => void;
   onOpenFile?: (filePath: string) => void;
   onReviewScopeChange?: (scope: ReviewDiffScope) => void;
   onBranchComparisonChange?: (comparison: ReviewBranchComparison) => void;
@@ -110,6 +116,22 @@ const reviewScopeOptions: Array<{
   { value: "last-turn", label: reviewScopeLabelByValue["last-turn"] }
 ];
 
+type TerminalTab = {
+  id: string;
+  label: string;
+};
+
+let terminalTabSeed = 0;
+
+function createTerminalTab(index: number): TerminalTab {
+  terminalTabSeed += 1;
+
+  return {
+    id: `terminal-${Date.now()}-${terminalTabSeed}`,
+    label: index === 1 ? "zsh" : `zsh ${index}`
+  };
+}
+
 export function ReviewPanel({
   className,
   open,
@@ -130,6 +152,9 @@ export function ReviewPanel({
   filePreview,
   filePreviewError,
   filePreviewLoading,
+  filePreviewTabs = [],
+  canNavigateFilePreviewBack = false,
+  canNavigateFilePreviewForward = false,
   workspaceCwd,
   workspaceName = "Workspace",
   workspaceFiles = [],
@@ -138,6 +163,7 @@ export function ReviewPanel({
   onTabChange,
   onAddFilePreviewTab,
   onCloseFilePreviewTab,
+  onNavigateFilePreviewHistory,
   onOpenFile,
   onReviewScopeChange,
   onBranchComparisonChange,
@@ -146,22 +172,81 @@ export function ReviewPanel({
   onClose
 }: ReviewPanelProps) {
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
+  const [addMenuOpen, setAddMenuOpen] = useState(false);
+  const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>(() => [
+    createTerminalTab(1)
+  ]);
+  const [activeTerminalTabId, setActiveTerminalTabId] = useState(() =>
+    terminalTabs[0]?.id ?? ""
+  );
   const scopeButtonRef = useRef<HTMLButtonElement>(null);
   const scopeMenuRef = useRef<HTMLDivElement>(null);
+  const addButtonRef = useRef<HTMLButtonElement>(null);
+  const addMenuRef = useRef<HTMLDivElement>(null);
+  const openFileTabs = useMemo(
+    () =>
+      filePreviewTabs.length
+        ? filePreviewTabs
+        : filePreviewPath
+          ? [filePreviewPath]
+          : [],
+    [filePreviewPath, filePreviewTabs]
+  );
   const hasFilePreviewTab =
-    filePreviewTabOpen || Boolean(filePreview || filePreviewLoading || filePreviewError);
+    filePreviewTabOpen ||
+    openFileTabs.length > 0 ||
+    Boolean(filePreview || filePreviewLoading || filePreviewError);
   const activePanelTab =
     activeTab === "file-preview" && !hasFilePreviewTab ? "review" : activeTab;
+  const showingReview = activePanelTab === "review";
   const showingFilePreview = activePanelTab === "file-preview";
   const showingTerminal = activePanelTab === "terminal";
   const showingBoundedPanel = showingFilePreview || showingTerminal;
   const previewPath = filePreview?.path ?? filePreviewPath;
-  const filePreviewLabel = previewPath ? basename(previewPath) : "File preview";
   const additions = review?.additions ?? 0;
   const deletions = review?.deletions ?? 0;
   const fileCount = review?.files.length ?? 0;
   const hasReviewChanges = fileCount > 0;
   const reviewScopeLabel = reviewScopeLabelByValue[reviewScope];
+
+  function addTerminalTab() {
+    setTerminalTabs((current) => {
+      const nextTab = createTerminalTab(current.length + 1);
+      setActiveTerminalTabId(nextTab.id);
+      return [...current, nextTab];
+    });
+    setAddMenuOpen(false);
+    onTabChange?.("terminal");
+  }
+
+  function selectTerminalTab(tabId: string) {
+    setActiveTerminalTabId(tabId);
+    onTabChange?.("terminal");
+  }
+
+  function closeTerminalTab(tabId: string) {
+    setTerminalTabs((current) => {
+      if (current.length <= 1 || current[0]?.id === tabId) {
+        return current;
+      }
+
+      const closedIndex = current.findIndex((tab) => tab.id === tabId);
+
+      if (closedIndex === -1) {
+        return current;
+      }
+
+      const next = current.filter((tab) => tab.id !== tabId);
+
+      if (activeTerminalTabId === tabId) {
+        const nextActiveTab =
+          next[Math.min(closedIndex, next.length - 1)] ?? next[0];
+        setActiveTerminalTabId(nextActiveTab.id);
+      }
+
+      return next;
+    });
+  }
 
   useEffect(() => {
     if (!scopeMenuOpen) {
@@ -195,6 +280,38 @@ export function ReviewPanel({
     };
   }, [scopeMenuOpen]);
 
+  useEffect(() => {
+    if (!addMenuOpen) {
+      return;
+    }
+
+    function closeOnOutsidePointer(event: MouseEvent) {
+      const target = event.target as Node;
+
+      if (
+        addMenuRef.current?.contains(target) ||
+        addButtonRef.current?.contains(target)
+      ) {
+        return;
+      }
+
+      setAddMenuOpen(false);
+    }
+
+    function closeOnEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        setAddMenuOpen(false);
+      }
+    }
+
+    window.addEventListener("mousedown", closeOnOutsidePointer);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      window.removeEventListener("mousedown", closeOnOutsidePointer);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [addMenuOpen]);
+
   return (
     <aside
       aria-label="Review changes"
@@ -215,56 +332,82 @@ export function ReviewPanel({
         )}
       >
         <div className={cn("top-0 z-10 bg-app-shell/95", !showingBoundedPanel && "sticky")}>
-          <div className="flex h-11 items-center justify-between border-b border-app-line px-3">
+          <div className="grid h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 border-b border-app-line px-3">
             <div
-              className="flex min-w-0 items-center gap-1.5"
+              className="flex min-w-0 items-center gap-1.5 overflow-hidden"
               role="tablist"
               aria-label="Inspector tabs"
             >
               <InspectorIconTabButton
-                active={activePanelTab === "review"}
+                active={showingReview}
                 tooltip="Review changes"
                 onClick={() => onTabChange?.("review")}
               >
                 <GitBranch size={15} />
               </InspectorIconTabButton>
-              <InspectorIconTabButton
-                active={showingTerminal}
-                tooltip="Terminal"
-                onClick={() => onTabChange?.("terminal")}
-              >
-                <SquareTerminal size={15} />
-              </InspectorIconTabButton>
-              {!hasFilePreviewTab && (
+              {terminalTabs.map((tab, index) => (
+                <TerminalIconTabButton
+                  key={tab.id}
+                  active={showingTerminal && activeTerminalTabId === tab.id}
+                  label={tab.label}
+                  closable={index > 0}
+                  onSelect={() => selectTerminalTab(tab.id)}
+                  onClose={() => closeTerminalTab(tab.id)}
+                />
+              ))}
+              {!showingFilePreview && (
                 <InspectorIconTabButton
                   active={false}
                   tooltip="File preview"
-                  onClick={() => onAddFilePreviewTab?.()}
+                  onClick={() => {
+                    if (hasFilePreviewTab) {
+                      onTabChange?.("file-preview");
+                    } else {
+                      onAddFilePreviewTab?.();
+                    }
+                  }}
                 >
                   <FileIcon size={15} />
                 </InspectorIconTabButton>
               )}
-              {hasFilePreviewTab && (
+              {hasFilePreviewTab && showingFilePreview && (
                 <>
                   <div className="mx-1 h-5 w-px shrink-0 bg-app-line" />
-                  <FilePreviewTabPill
-                    active={showingFilePreview}
-                    label={filePreviewLabel}
-                    onClick={() => onTabChange?.("file-preview")}
-                    onClose={onCloseFilePreviewTab}
+                  <FilePreviewTabStrip
+                    paths={openFileTabs}
+                    activePath={previewPath}
+                    onSelect={(path) => {
+                      onTabChange?.("file-preview");
+                      onOpenFile?.(path);
+                    }}
+                    onClose={(path) => onCloseFilePreviewTab?.(path)}
                   />
                 </>
               )}
             </div>
-            <div className="flex items-center gap-1 text-app-dim">
-              <TooltipButton
-                className={subtleIconButton}
-                aria-label="Add file preview tab"
-                tooltip="Add file preview tab"
-                onClick={onAddFilePreviewTab}
-              >
-                <Plus size={16} />
-              </TooltipButton>
+            <div className="flex shrink-0 items-center gap-1 text-app-dim">
+              <div className="relative">
+                <TooltipButton
+                  ref={addButtonRef}
+                  className={cn(
+                    subtleIconButton,
+                    addMenuOpen && "bg-app-text/[0.08] text-app-text"
+                  )}
+                  aria-label="Add panel"
+                  aria-haspopup="menu"
+                  aria-expanded={addMenuOpen}
+                  tooltip="Add panel"
+                  onClick={() => setAddMenuOpen((value) => !value)}
+                >
+                  <Plus size={16} />
+                </TooltipButton>
+                {addMenuOpen && (
+                  <AddPanelMenu
+                    menuRef={addMenuRef}
+                    onAddTerminal={addTerminalTab}
+                  />
+                )}
+              </div>
               <TooltipButton
                 className={subtleIconButton}
                 aria-label="Expand inspector"
@@ -283,11 +426,7 @@ export function ReviewPanel({
               </TooltipButton>
             </div>
           </div>
-          {showingFilePreview ? (
-            <FilePreviewToolbar path={previewPath} />
-          ) : showingTerminal ? (
-            <TerminalToolbar />
-          ) : (
+          {showingFilePreview || showingTerminal ? null : (
             <div className="flex h-11 items-center justify-between border-b border-app-line px-5 text-[13px]">
               <div className="flex items-center gap-2">
                 <div className="relative">
@@ -344,7 +483,7 @@ export function ReviewPanel({
               </div>
             </div>
           )}
-          {reviewScope === "branch" && !showingFilePreview && (
+          {showingReview && reviewScope === "branch" && (
             <BranchComparisonBar
               comparison={review?.comparison ?? branchComparison ?? undefined}
               branches={branchRefs}
@@ -374,10 +513,17 @@ export function ReviewPanel({
               filePreview={filePreview}
               filePreviewLoading={filePreviewLoading}
               filePreviewError={filePreviewError}
+              canNavigateBack={canNavigateFilePreviewBack}
+              canNavigateForward={canNavigateFilePreviewForward}
+              onNavigateHistory={onNavigateFilePreviewHistory}
               onOpenFile={onOpenFile}
             />
           ) : showingTerminal ? (
-            <TerminalPanel cwd={workspaceCwd} />
+            <TerminalWorkspace
+              tabs={terminalTabs}
+              activeTabId={activeTerminalTabId}
+              cwd={workspaceCwd}
+            />
           ) : (
             <ReviewDiffPreview
               review={review}
@@ -423,6 +569,185 @@ function InspectorIconTabButton({
   );
 }
 
+function TerminalIconTabButton({
+  active,
+  label,
+  closable,
+  onSelect,
+  onClose
+}: {
+  active: boolean;
+  label: string;
+  closable: boolean;
+  onSelect: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className={cn(
+        "group/terminal-tab grid h-8 shrink-0 items-center rounded-[10px] text-app-dim transition-colors hover:bg-app-text/[0.08] hover:text-app-text",
+        closable
+          ? "w-[118px] grid-cols-[minmax(0,1fr)_18px] pr-1"
+          : "w-[86px] grid-cols-[minmax(0,1fr)]",
+        active && "bg-app-text/[0.10] text-app-text"
+      )}
+    >
+      <TooltipButton
+        className="grid h-8 min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-[10px] px-2 text-left text-[13px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
+        role="tab"
+        aria-selected={active}
+        aria-label={label}
+        tooltip={label}
+        onClick={onSelect}
+      >
+        <SquareTerminal size={15} className="shrink-0" />
+        <span className="truncate">{label}</span>
+      </TooltipButton>
+      {closable && (
+        <TooltipButton
+          className={cn(
+            "inline-flex size-[18px] items-center justify-center rounded-md text-app-dim transition-opacity hover:bg-app-text/[0.12] hover:text-app-text focus-visible:opacity-100",
+            active ? "opacity-100" : "opacity-0 group-hover/terminal-tab:opacity-100"
+          )}
+          aria-label={`Close ${label}`}
+          tooltip={`Close ${label}`}
+          onClick={onClose}
+        >
+          <X size={11} />
+        </TooltipButton>
+      )}
+    </div>
+  );
+}
+
+function AddPanelMenu({
+  menuRef,
+  onAddTerminal
+}: {
+  menuRef: RefObject<HTMLDivElement | null>;
+  onAddTerminal: () => void;
+}) {
+  return (
+    <div
+      ref={menuRef}
+      className="absolute right-0 top-[calc(100%+8px)] z-50 w-[220px] rounded-xl border border-app-line bg-app-panel p-1.5 shadow-2xl"
+      role="menu"
+    >
+      <button
+        type="button"
+        className="flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-left text-[14px] text-app-text transition-colors hover:bg-app-text/[0.08]"
+        role="menuitem"
+        onClick={onAddTerminal}
+      >
+        <SquareTerminal size={15} className="text-app-muted" />
+        <span>Terminal</span>
+      </button>
+    </div>
+  );
+}
+
+function FilePreviewTabStrip({
+  paths,
+  activePath,
+  onSelect,
+  onClose
+}: {
+  paths: string[];
+  activePath?: string | null;
+  onSelect: (path: string) => void;
+  onClose: (path?: string) => void;
+}) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const [scrollEdges, setScrollEdges] = useState({
+    left: false,
+    right: false
+  });
+
+  const updateScrollEdges = useCallback(() => {
+    const scroller = scrollerRef.current;
+
+    if (!scroller) {
+      setScrollEdges({ left: false, right: false });
+      return;
+    }
+
+    const maxScrollLeft = scroller.scrollWidth - scroller.clientWidth;
+    const next = {
+      left: scroller.scrollLeft > 1,
+      right: maxScrollLeft - scroller.scrollLeft > 1
+    };
+
+    setScrollEdges((current) =>
+      current.left === next.left && current.right === next.right
+        ? current
+        : next
+    );
+  }, []);
+
+  useEffect(() => {
+    const scroller = scrollerRef.current;
+
+    if (!scroller) {
+      return;
+    }
+
+    updateScrollEdges();
+
+    const resizeObserver = new ResizeObserver(updateScrollEdges);
+    resizeObserver.observe(scroller);
+
+    for (const child of scroller.children) {
+      resizeObserver.observe(child);
+    }
+
+    window.addEventListener("resize", updateScrollEdges);
+
+    return () => {
+      resizeObserver.disconnect();
+      window.removeEventListener("resize", updateScrollEdges);
+    };
+  }, [activePath, paths, updateScrollEdges]);
+
+  if (!paths.length) {
+    return (
+      <div className="min-w-0 flex-1">
+        <FilePreviewTabPill
+          active
+          label="File preview"
+          onClick={() => undefined}
+          onClose={() => onClose()}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full min-w-0 flex-1">
+      {scrollEdges.left && (
+        <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-8 bg-gradient-to-r from-app-shell via-app-shell/85 to-transparent" />
+      )}
+      {scrollEdges.right && (
+        <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-8 bg-gradient-to-l from-app-shell via-app-shell/85 to-transparent" />
+      )}
+      <div
+        ref={scrollerRef}
+        className="no-scrollbar flex h-full min-w-0 items-center gap-1.5 overflow-x-auto overflow-y-hidden px-1"
+        onScroll={updateScrollEdges}
+      >
+        {paths.map((path) => (
+          <FilePreviewTabPill
+            key={path}
+            active={path === activePath}
+            label={basename(path)}
+            onClick={() => onSelect(path)}
+            onClose={() => onClose(path)}
+          />
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FilePreviewTabPill({
   active,
   label,
@@ -437,13 +762,15 @@ function FilePreviewTabPill({
   return (
     <div
       className={cn(
-        "flex h-8 min-w-0 max-w-[180px] items-center rounded-[10px] bg-app-text/[0.08] text-app-muted",
-        active && "text-app-text"
+        "group/file-tab grid h-8 shrink-0 items-center gap-1 rounded-xl border px-1.5 transition-colors",
+        active
+          ? "w-[210px] grid-cols-[minmax(0,1fr)_auto] border-app-line-bright bg-app-text/[0.10] text-app-text"
+          : "w-[158px] grid-cols-[minmax(0,1fr)_auto] border-transparent bg-transparent text-app-muted/75 hover:border-app-text/[0.08] hover:bg-app-text/[0.06] hover:text-app-text"
       )}
     >
       <button
         type="button"
-        className="flex h-full min-w-0 items-center gap-2 px-2.5 text-[13px] font-medium"
+        className="grid h-full min-w-0 grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-lg px-1.5 text-left text-[13px] font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-app-blue/70"
         role="tab"
         aria-selected={active}
         onClick={onClick}
@@ -453,7 +780,11 @@ function FilePreviewTabPill({
       </button>
       {onClose && (
         <TooltipButton
-          className="mr-1 inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-app-dim transition-colors hover:bg-app-text/[0.12] hover:text-app-text"
+          className={cn(
+            subtleIconButton,
+            "text-app-muted transition-opacity focus-visible:opacity-100",
+            active ? "opacity-100" : "opacity-0 group-hover/file-tab:opacity-100"
+          )}
           aria-label="Close file preview"
           tooltip="Close file preview"
           onClick={onClose}
@@ -465,38 +796,28 @@ function FilePreviewTabPill({
   );
 }
 
-function FilePreviewToolbar({ path }: { path?: string | null }) {
+function TerminalWorkspace({
+  tabs,
+  activeTabId,
+  cwd
+}: {
+  tabs: TerminalTab[];
+  activeTabId: string;
+  cwd?: string | null;
+}) {
   return (
-    <div className="flex h-11 items-center justify-between border-b border-app-line px-4 text-[13px]">
-      <div className="flex min-w-0 items-center gap-3 text-app-dim">
-        <ListTree size={15} className="shrink-0" />
-        <Search size={15} className="shrink-0" />
-        <ArrowLeft size={15} className="shrink-0" />
-        <ArrowRight size={15} className="shrink-0" />
-        <span className="min-w-0 truncate text-[15px] font-medium text-app-text">
-          {path ? basename(path) : "File preview"}
-        </span>
-      </div>
-      <div className="flex shrink-0 items-center gap-2 text-app-dim">
-        <MoreHorizontal size={14} />
-        <span className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-app-line bg-app-panel px-2.5 text-[13px] font-medium text-app-text">
-          <span className="h-1.5 w-1.5 rounded-full bg-app-green" />
-          LSP
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function TerminalToolbar() {
-  return (
-    <div className="flex h-11 items-center justify-between border-b border-app-line px-4 text-[13px]">
-      <div className="flex min-w-0 items-center gap-3 text-app-dim">
-        <ListTree size={15} className="shrink-0" />
-        <span className="min-w-0 truncate text-[15px] font-medium text-app-text">
-          zsh
-        </span>
-      </div>
+    <div className="relative h-full min-h-0 min-w-0 bg-app-shell">
+      {tabs.map((tab) => (
+        <div
+          key={tab.id}
+          className={cn(
+            "absolute inset-0 min-h-0 min-w-0",
+            tab.id === activeTabId ? "block" : "hidden"
+          )}
+        >
+          <TerminalPanel cwd={cwd} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -1173,6 +1494,9 @@ function FilePreviewWorkspace({
   filePreview,
   filePreviewLoading,
   filePreviewError,
+  canNavigateBack,
+  canNavigateForward,
+  onNavigateHistory,
   onOpenFile
 }: {
   cwd?: string | null;
@@ -1184,6 +1508,9 @@ function FilePreviewWorkspace({
   filePreview?: FilePreview | null;
   filePreviewLoading?: boolean;
   filePreviewError?: string | null;
+  canNavigateBack?: boolean;
+  canNavigateForward?: boolean;
+  onNavigateHistory?: (direction: -1 | 1) => void;
   onOpenFile?: (filePath: string) => void;
 }) {
   return (
@@ -1195,15 +1522,24 @@ function FilePreviewWorkspace({
         loading={filesLoading}
         error={filesError}
         selectedPath={previewPath}
+        canNavigateBack={canNavigateBack}
+        canNavigateForward={canNavigateForward}
+        onNavigateHistory={onNavigateHistory}
         onOpenFile={onOpenFile}
       />
-      <div className="h-full min-h-0 min-w-0 overflow-hidden border-l border-app-line bg-app-editor-bg">
-        {filePreviewLoading && <FilePreviewLoading />}
+      <div className="relative h-full min-h-0 min-w-0 overflow-hidden border-l border-app-line bg-app-editor-bg">
+        {filePreview && !filePreviewError && (
+          <FilePreviewEditor file={filePreview} />
+        )}
+        {filePreviewLoading && !filePreview && <FilePreviewLoading />}
+        {filePreviewLoading && filePreview && (
+          <div className="pointer-events-none absolute right-3 top-3 inline-flex items-center gap-2 rounded-lg border border-app-line bg-app-panel/95 px-2.5 py-1.5 text-[12px] text-app-muted shadow-lg">
+            <LoaderCircle size={12} className="animate-spin" />
+            <span>Loading file</span>
+          </div>
+        )}
         {filePreviewError && !filePreviewLoading && (
           <FilePreviewError message={filePreviewError} />
-        )}
-        {filePreview && !filePreviewLoading && !filePreviewError && (
-          <FilePreviewEditor file={filePreview} />
         )}
         {!filePreview && !filePreviewLoading && !filePreviewError && (
           <FilePreviewEmpty />
@@ -1221,13 +1557,16 @@ type WorkspaceTreeNode = {
   children: WorkspaceTreeNode[];
 };
 
-function WorkspaceFilePane({
+const WorkspaceFilePane = memo(function WorkspaceFilePane({
   cwd,
   workspaceName,
   files,
   loading,
   error,
   selectedPath,
+  canNavigateBack,
+  canNavigateForward,
+  onNavigateHistory,
   onOpenFile
 }: {
   cwd?: string | null;
@@ -1236,9 +1575,23 @@ function WorkspaceFilePane({
   loading: boolean;
   error?: string | null;
   selectedPath?: string | null;
+  canNavigateBack?: boolean;
+  canNavigateForward?: boolean;
+  onNavigateHistory?: (direction: -1 | 1) => void;
   onOpenFile?: (filePath: string) => void;
 }) {
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const tree = useMemo(() => buildWorkspaceTree(files), [files]);
+  const filteredTree = useMemo(
+    () => filterWorkspaceTree(tree, searchQuery),
+    [searchQuery, tree]
+  );
+  const searchExpandedPaths = useMemo(
+    () => collectDirectoryPaths(filteredTree),
+    [filteredTree]
+  );
   const selectedRelativePath = useMemo(
     () => relativeWorkspacePath(cwd, selectedPath),
     [cwd, selectedPath]
@@ -1265,6 +1618,15 @@ function WorkspaceFilePane({
     });
   }, [selectedParentPaths]);
 
+  useEffect(() => {
+    if (!searchOpen) {
+      return;
+    }
+
+    const frame = requestAnimationFrame(() => searchInputRef.current?.focus());
+    return () => cancelAnimationFrame(frame);
+  }, [searchOpen]);
+
   function toggleDirectory(path: string) {
     setExpandedPaths((current) => {
       const next = new Set(current);
@@ -1279,10 +1641,81 @@ function WorkspaceFilePane({
     });
   }
 
+  function closeSearch() {
+    setSearchOpen(false);
+    setSearchQuery("");
+  }
+
+  const searchActive = searchOpen || searchQuery.length > 0;
+  const visibleTree = searchActive ? filteredTree : tree;
+  const visibleExpandedPaths = searchActive ? searchExpandedPaths : expandedPaths;
+
   return (
     <div className="grid h-full min-h-0 min-w-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden bg-app-shell/60">
-      <div className="border-b border-app-line px-4 py-3 text-[13px] font-medium text-app-muted">
-        <span className="block truncate">{workspaceName}</span>
+      <div className="flex h-11 items-center justify-between gap-2 border-b border-app-line px-4 text-[13px] font-medium text-app-muted">
+        {searchOpen ? (
+          <label className="flex min-w-0 flex-1 items-center gap-2 rounded-lg bg-app-text/[0.06] px-2.5 py-1.5 text-app-muted">
+            <Search size={14} className="shrink-0" />
+            <input
+              ref={searchInputRef}
+              className="min-w-0 flex-1 bg-transparent text-[13px] font-medium text-app-text outline-none placeholder:text-app-dim"
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  closeSearch();
+                }
+              }}
+              placeholder="Search files"
+            />
+            {searchQuery && (
+              <button
+                type="button"
+                className="grid size-4 shrink-0 place-items-center rounded-full text-app-dim transition-colors hover:bg-app-text/[0.10] hover:text-app-text"
+                aria-label="Clear file search"
+                onClick={() => setSearchQuery("")}
+              >
+                <X size={11} />
+              </button>
+            )}
+          </label>
+        ) : (
+          <span className="min-w-0 truncate">{workspaceName}</span>
+        )}
+        <div className="flex shrink-0 items-center gap-1 text-app-dim">
+          <TooltipButton
+            className={cn(subtleIconButton, searchActive && "bg-app-text/[0.08] text-app-text")}
+            aria-label={searchOpen ? "Close file search" : "Search files"}
+            tooltip={searchOpen ? "Close file search" : "Search files"}
+            onClick={() => {
+              if (searchOpen) {
+                closeSearch();
+              } else {
+                setSearchOpen(true);
+              }
+            }}
+          >
+            <Search size={14} />
+          </TooltipButton>
+          <TooltipButton
+            className={subtleIconButton}
+            aria-label="Previous file"
+            tooltip="Previous file"
+            disabled={!canNavigateBack}
+            onClick={() => onNavigateHistory?.(-1)}
+          >
+            <ArrowLeft size={14} />
+          </TooltipButton>
+          <TooltipButton
+            className={subtleIconButton}
+            aria-label="Next file"
+            tooltip="Next file"
+            disabled={!canNavigateForward}
+            onClick={() => onNavigateHistory?.(1)}
+          >
+            <ArrowRight size={14} />
+          </TooltipButton>
+        </div>
       </div>
       <div className="thin-scrollbar min-h-0 overflow-y-auto py-2">
         {loading && (
@@ -1297,11 +1730,16 @@ function WorkspaceFilePane({
         {!loading && !error && tree.length === 0 && (
           <div className="px-4 py-2 text-[12px] text-app-dim">No files found.</div>
         )}
+        {!loading && !error && tree.length > 0 && visibleTree.length === 0 && (
+          <div className="px-4 py-2 text-[12px] text-app-dim">
+            No files match "{searchQuery}".
+          </div>
+        )}
         {!error && (
           <WorkspaceTreeRows
-            nodes={tree}
+            nodes={visibleTree}
             depth={0}
-            expandedPaths={expandedPaths}
+            expandedPaths={visibleExpandedPaths}
             selectedPath={selectedRelativePath}
             onToggleDirectory={toggleDirectory}
             onOpenFile={onOpenFile}
@@ -1310,7 +1748,7 @@ function WorkspaceFilePane({
       </div>
     </div>
   );
-}
+});
 
 function WorkspaceTreeRows({
   nodes,
@@ -1721,6 +2159,65 @@ function sortWorkspaceTree(nodes: WorkspaceTreeNode[]) {
   for (const node of nodes) {
     sortWorkspaceTree(node.children);
   }
+}
+
+function filterWorkspaceTree(
+  nodes: WorkspaceTreeNode[],
+  query: string
+): WorkspaceTreeNode[] {
+  const normalizedQuery = query.trim().toLowerCase();
+
+  if (!normalizedQuery) {
+    return nodes;
+  }
+
+  return nodes.flatMap((node) => {
+    const nodeMatches =
+      node.name.toLowerCase().includes(normalizedQuery) ||
+      node.path.toLowerCase().includes(normalizedQuery);
+
+    if (node.kind === "file") {
+      return nodeMatches ? [node] : [];
+    }
+
+    const matchingChildren: WorkspaceTreeNode[] = filterWorkspaceTree(
+      node.children,
+      normalizedQuery
+    );
+
+    if (!nodeMatches && matchingChildren.length === 0) {
+      return [];
+    }
+
+    return [
+      {
+        ...node,
+        children: nodeMatches ? node.children : matchingChildren
+      }
+    ];
+  });
+}
+
+function collectDirectoryPaths(nodes: WorkspaceTreeNode[]): Set<string> {
+  const paths = new Set<string>();
+
+  function visit(node: WorkspaceTreeNode) {
+    if (node.kind !== "directory") {
+      return;
+    }
+
+    paths.add(node.path);
+
+    for (const child of node.children) {
+      visit(child);
+    }
+  }
+
+  for (const node of nodes) {
+    visit(node);
+  }
+
+  return paths;
 }
 
 function relativeWorkspacePath(cwd?: string | null, filePath?: string | null) {

@@ -65,6 +65,10 @@ declare global {
         cwd: string;
         workspaceName: string;
       }>;
+      selectProjectFolder?: () => Promise<{
+        cwd: string;
+        workspaceName: string;
+      } | null>;
       listWorkspaceFiles?: (cwd: string) => Promise<WorkspaceFileEntry[]>;
       readTextFile?: (filePath: string) => Promise<FilePreview>;
       createTerminalSession?: (request: {

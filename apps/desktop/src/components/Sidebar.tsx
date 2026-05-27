@@ -49,6 +49,7 @@ type SidebarProps = {
   setSidebarOpen: (value: boolean) => void;
   projects: Project[];
   activeNav: NavKey;
+  newSessionActive: boolean;
   setActiveNav: (value: NavKey) => void;
   selectedThread: string;
   setSelectedThread: (value: string) => void;
@@ -91,6 +92,7 @@ export function Sidebar({
   setSidebarOpen,
   projects,
   activeNav,
+  newSessionActive,
   setActiveNav,
   selectedThread,
   setSelectedThread,
@@ -332,7 +334,7 @@ export function Sidebar({
           <SidebarButton
             icon={Edit3}
             label="New session"
-            active={activeNav === "New session"}
+            active={newSessionActive}
             onClick={() => {
               setActiveNav("New session");
               setSelectedThread("");

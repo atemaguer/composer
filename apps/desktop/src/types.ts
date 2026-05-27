@@ -50,6 +50,11 @@ export type ComposerCapabilityCatalog = {
 export type ProviderSessionState = {
   sessionId?: string;
   cwd?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  originalCwd?: string;
+  originalBranch?: string;
+  originalHead?: string;
   lastContextVersion?: number;
 };
 export type SessionRenderMode = "single" | "hybrid";
@@ -323,6 +328,11 @@ export type SessionContent = {
   updatedAt?: string;
   cwd?: string;
   displayCwd?: string;
+  worktreePath?: string;
+  worktreeBranch?: string;
+  originalCwd?: string;
+  originalBranch?: string;
+  originalHead?: string;
   model?: string;
   items: ConversationItem[];
   pendingItems: PendingConversationItem[];

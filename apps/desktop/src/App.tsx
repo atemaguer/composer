@@ -5,14 +5,27 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type FormEvent,
   type KeyboardEvent,
   type PointerEvent
 } from "react";
-import { Check, Paperclip, MoreHorizontal, X } from "lucide-react";
+import {
+  Check,
+  GitBranch,
+  GitPullRequestCreateArrow,
+  Laptop,
+  Paperclip,
+  MoreHorizontal,
+  X
+} from "lucide-react";
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 
 import { AppChrome } from "./components/AppChrome";
-import { Composer } from "./components/Composer";
+import {
+  Composer,
+  type PromptComposerFooterItem,
+  type PromptComposerFooterOption
+} from "./components/Composer";
 import { Conversation } from "./components/Conversation";
 import { NewSessionPage } from "./components/NewSessionPage";
 import { ReviewPanel } from "./components/ReviewPanel";
@@ -64,6 +77,8 @@ import type {
   WorkspaceFileEntry
 } from "./types";
 
+type NewSessionWorkTarget = "local" | "worktree";
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -95,6 +110,10 @@ export default function App() {
   const searchQuery = useUiStore((state) => state.searchQuery);
   const setSearchQuery = useUiStore((state) => state.setSearchQuery);
   const [feedbackOpen, setFeedbackOpen] = useState(false);
+  const [createProjectModalOpen, setCreateProjectModalOpen] = useState(false);
+  const [createProjectInitialName, setCreateProjectInitialName] = useState("");
+  const [createProjectLoading, setCreateProjectLoading] = useState(false);
+  const [createProjectError, setCreateProjectError] = useState<string | null>(null);
   const activeNav = useUiStore((state) => state.activeNav);
   const setActiveNav = useUiStore((state) => state.setActiveNav);
   const navigationAvailability = useUiStore(
@@ -188,7 +207,6 @@ export default function App() {
   const setFilePreviewLoading = useFilePreviewStore(
     (state) => state.setFilePreviewLoading
   );
-  const openPreview = useFilePreviewStore((state) => state.openPreview);
 
   const socketRef = useRef<WebSocket | null>(null);
   const expectingNewSessionRef = useRef(false);
@@ -208,12 +226,23 @@ export default function App() {
   const [reviewBranchRefs, setReviewBranchRefs] = useState<ReviewBranchRef[]>([]);
   const [reviewBranchRefsLoading, setReviewBranchRefsLoading] = useState(false);
   const [reviewBranchRefsError, setReviewBranchRefsError] = useState<string | null>(null);
+  const [currentBranchRef, setCurrentBranchRef] = useState<string | null>(null);
+  const [workspaceGitAvailable, setWorkspaceGitAvailable] = useState<
+    boolean | null
+  >(null);
+  const [newSessionWorkTarget, setNewSessionWorkTarget] =
+    useState<NewSessionWorkTarget>("local");
   const [reviewBranchComparison, setReviewBranchComparison] =
     useState<ReviewBranchComparison | null>(null);
   const [inspectorTab, setInspectorTab] =
     useState<InspectorPanelTab>("review");
   const [filePreviewTabOpen, setFilePreviewTabOpen] = useState(false);
   const [filePreviewPath, setFilePreviewPath] = useState<string | null>(null);
+  const [filePreviewTabs, setFilePreviewTabs] = useState<string[]>([]);
+  const [filePreviewHistory, setFilePreviewHistory] = useState<{
+    paths: string[];
+    index: number;
+  }>({ paths: [], index: -1 });
   const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceFileEntry[]>([]);
   const [workspaceFilesLoading, setWorkspaceFilesLoading] = useState(false);
   const [workspaceFilesError, setWorkspaceFilesError] = useState<string | null>(null);
@@ -226,6 +255,7 @@ export default function App() {
   );
   const reviewRequestIdRef = useRef(0);
   const workspaceFilesRequestIdRef = useRef(0);
+  const filePreviewRequestIdRef = useRef(0);
 
   const activeSession = selectedThread ? sessions[selectedThread] : undefined;
   const activeSessionLastTurnReviewFiles = useMemo(
@@ -237,6 +267,8 @@ export default function App() {
   const activeProvider = provider;
   const activeModel = modelByProvider[activeProvider];
   const activeIntelligence = intelligenceByProvider[activeProvider];
+  const resolvedNewSessionWorkTarget: NewSessionWorkTarget =
+    workspaceGitAvailable === false ? "local" : newSessionWorkTarget;
   const activeSessionNeedsParallelAdoption =
     activeSession ? needsParallelAdoption(activeSession) : false;
 
@@ -264,16 +296,39 @@ export default function App() {
     allWorkspaceOptions.find((option) => option.id === selectedWorkspaceId) ??
     allWorkspaceOptions[0];
   const currentCwd = activeSession
-    ? sessionWorkspaceCwd(activeSession) ?? selectedWorkspace?.cwd
+    ? activeSession.cwd ?? sessionWorkspaceCwd(activeSession) ?? selectedWorkspace?.cwd
     : selectedWorkspace?.cwd;
 
   useEffect(() => {
     setReviewBranchRefs([]);
     setReviewBranchRefsError(null);
+    setCurrentBranchRef(null);
+    setWorkspaceGitAvailable(null);
     setReviewBranchComparison(null);
     setWorkspaceFiles([]);
     setWorkspaceFilesError(null);
+    filePreviewRequestIdRef.current += 1;
+    setFilePreviewPath(null);
+    setFilePreviewTabs([]);
+    setFilePreviewHistory({ paths: [], index: -1 });
+    setFilePreview(null);
+    setFilePreviewError(null);
+    setFilePreviewLoading(false);
   }, [currentCwd]);
+
+  useEffect(() => {
+    if (workspaceGitAvailable === false) {
+      setNewSessionWorkTarget("local");
+    }
+  }, [workspaceGitAvailable]);
+
+  useEffect(() => {
+    if (!agentServer?.httpUrl || !currentCwd) {
+      return;
+    }
+
+    void loadReviewBranches();
+  }, [agentServer?.httpUrl, currentCwd]);
 
   useEffect(() => {
     if (
@@ -322,9 +377,10 @@ export default function App() {
       selectedWorkspace?.label
     ]
   );
+  const newSessionPending = !activeSession && Boolean(pendingNewRequestId);
   const activePendingItems =
     activeSession?.pendingItems ??
-    (pendingNewRequestId
+    (newSessionPending && pendingNewRequestId
       ? [
           {
             id: `${pendingNewRequestId}-pending`,
@@ -338,9 +394,10 @@ export default function App() {
     ? isSessionRunning(activeSession)
     : false;
   const submitMode: "send" | "stop" =
-    activeSessionRunning || pendingNewRequestId ? "stop" : "send";
+    activeSessionRunning || newSessionPending ? "stop" : "send";
   const shouldShowConversation = Boolean(activeSession);
   const showThreadTabs = shouldShowConversation && threadViewMode === "tabs";
+  const newSessionPageActive = appRouteFromPathname(location.pathname).kind === "new";
 
   useEffect(() => {
     if (!selectedWorkspaceId && allWorkspaceOptions[0]) {
@@ -708,6 +765,11 @@ export default function App() {
           provider: requestProvider,
           prompt: promptWithComments,
           cwd: currentCwd,
+          workTarget: sessionId ? undefined : resolvedNewSessionWorkTarget,
+          branch:
+            sessionId || workspaceGitAvailable === false
+              ? undefined
+              : currentBranchRef,
           permissionMode: permission,
           intelligence: activeIntelligence,
           model: activeModel,
@@ -724,7 +786,7 @@ export default function App() {
         throw new Error(`Agent request failed with ${response.status}`);
       }
 
-      await drainResponse(response);
+      await drainResponse(response, applyAgentEvent);
     } catch (error) {
       if (!sessionId) {
         expectingNewSessionRef.current = false;
@@ -899,23 +961,59 @@ export default function App() {
     removeComposerReviewCommentAttachment(id);
   }
 
-  async function createWorkspace(query: string) {
-    const response = await window.composer?.createProject?.({
-      name: query,
-      baseCwd: selectedWorkspace?.cwd ?? currentCwd
-    });
-    const option = response
-      ? {
-          id: response.cwd,
-          label: response.workspaceName,
-          cwd: response.cwd,
-          detail: response.cwd
-        }
-      : {
-          id: `workspace-${createId()}`,
-          label: query.trim() || "New project",
-          detail: "Pending local folder"
-        };
+  function createWorkspace(query: string) {
+    setCreateProjectInitialName(query.trim());
+    setCreateProjectError(null);
+    setCreateProjectModalOpen(true);
+  }
+
+  async function submitCreateWorkspace(projectName: string) {
+    setCreateProjectLoading(true);
+    setCreateProjectError(null);
+
+    try {
+      const response = await window.composer?.createProject?.({
+        name: projectName,
+        baseCwd: selectedWorkspace?.cwd ?? currentCwd
+      });
+
+      if (!response) {
+        throw new Error("Project creation is unavailable.");
+      }
+
+      const option = {
+        id: response.cwd,
+        label: response.workspaceName,
+        cwd: response.cwd,
+        detail: response.cwd
+      };
+
+      setWorkspaceOptions((current) => mergeWorkspaceOptions([...current, option]));
+      setSelectedWorkspaceId(option.id);
+      setSelectedThread("");
+      setActiveNav("New session");
+      setCreateProjectModalOpen(false);
+      navigateAppRoute("/new");
+    } catch (error) {
+      setCreateProjectError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setCreateProjectLoading(false);
+    }
+  }
+
+  async function useExistingWorkspaceFolder() {
+    const response = await window.composer?.selectProjectFolder?.();
+
+    if (!response) {
+      return;
+    }
+
+    const option = {
+      id: response.cwd,
+      label: response.workspaceName,
+      cwd: response.cwd,
+      detail: response.cwd
+    };
 
     setWorkspaceOptions((current) => mergeWorkspaceOptions([...current, option]));
     setSelectedWorkspaceId(option.id);
@@ -1079,6 +1177,8 @@ export default function App() {
 
     if (!agentServer?.httpUrl || !cwd) {
       setReviewBranchRefs([]);
+      setCurrentBranchRef(null);
+      setWorkspaceGitAvailable(null);
       setReviewBranchRefsError("Branches are available after the agent server connects.");
       setReviewBranchRefsLoading(false);
       return;
@@ -1100,11 +1200,80 @@ export default function App() {
 
       const data = (await response.json()) as ReviewBranchList;
       setReviewBranchRefs(data.branches);
+      setCurrentBranchRef(data.currentRef);
+      setWorkspaceGitAvailable(true);
       setReviewBranchComparison((current) => current ?? (
         data.defaultBaseRef
           ? { headRef: data.currentRef, baseRef: data.defaultBaseRef }
           : null
       ));
+    } catch (error) {
+      setReviewBranchRefs([]);
+      setCurrentBranchRef(null);
+      setWorkspaceGitAvailable(false);
+      setReviewBranchComparison(null);
+      setReviewBranchRefsError(
+        error instanceof Error ? error.message : String(error)
+      );
+    } finally {
+      setReviewBranchRefsLoading(false);
+    }
+  }
+
+  async function selectComposerBranch(option: PromptComposerFooterOption) {
+    const cwd = currentCwd;
+
+    if (!agentServer?.httpUrl || !cwd) {
+      setReviewBranchRefsError("Branches are available after the agent server connects.");
+      return;
+    }
+
+    if (option.id === currentBranchRef) {
+      return;
+    }
+
+    setReviewBranchRefsLoading(true);
+    setReviewBranchRefsError(null);
+
+    try {
+      const response = await fetch(
+        `${agentServer.httpUrl}/api/git/checkout-branch`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ cwd, branch: option.id })
+        }
+      );
+
+      if (!response.ok) {
+        let message = `Branch checkout failed with ${response.status}`;
+
+        try {
+          const body = (await response.json()) as { error?: string };
+          message = body.error ?? message;
+        } catch {
+          // Keep the HTTP status fallback if the server did not return JSON.
+        }
+
+        throw new Error(message);
+      }
+
+      const data = (await response.json()) as ReviewBranchList;
+      const nextComparison = data.defaultBaseRef
+        ? { headRef: data.currentRef, baseRef: data.defaultBaseRef }
+        : null;
+
+      setReviewBranchRefs(data.branches);
+      setCurrentBranchRef(data.currentRef);
+      setWorkspaceGitAvailable(true);
+      setReviewBranchComparison(nextComparison);
+
+      if (reviewScope === "branch") {
+        void loadReviewDiff({
+          scope: "branch",
+          branchComparison: nextComparison ?? undefined
+        });
+      }
     } catch (error) {
       setReviewBranchRefsError(error instanceof Error ? error.message : String(error));
     } finally {
@@ -1176,25 +1345,90 @@ export default function App() {
     }
   }
 
-  async function openFile(filePath: string) {
+  async function openFile(
+    filePath: string,
+    options: { recordHistory?: boolean } = {}
+  ) {
+    const recordHistory = options.recordHistory ?? true;
+
     setInspectorOpen(true);
     setFilePreviewTabOpen(true);
     setInspectorTab("file-preview");
+    setFilePreviewTabs((current) =>
+      current.includes(filePath) ? current : [...current, filePath]
+    );
+
+    if (recordHistory) {
+      setFilePreviewHistory((current) => {
+        if (current.paths[current.index] === filePath) {
+          return current;
+        }
+
+        const nextPaths = current.paths
+          .slice(0, current.index + 1)
+          .filter((path) => path !== filePath);
+        nextPaths.push(filePath);
+
+        return {
+          paths: nextPaths,
+          index: nextPaths.length - 1
+        };
+      });
+    }
+
+    if (filePreview?.path === filePath && !filePreviewError) {
+      setFilePreviewPath(filePath);
+      return;
+    }
+
+    const requestId = filePreviewRequestIdRef.current + 1;
+    filePreviewRequestIdRef.current = requestId;
     setFilePreviewPath(filePath);
-    openPreview();
-    void loadWorkspaceFiles();
+    setFilePreviewError(null);
+    setFilePreviewLoading(true);
+
+    if (!workspaceFiles.length && !workspaceFilesLoading) {
+      void loadWorkspaceFiles();
+    }
 
     try {
       if (!window.composer?.readTextFile) {
         throw new Error("File preview is available in the desktop app.");
       }
 
-      setFilePreview(await window.composer.readTextFile(filePath));
+      const nextPreview = await window.composer.readTextFile(filePath);
+
+      if (filePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      setFilePreview(nextPreview);
     } catch (error) {
+      if (filePreviewRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setFilePreviewError(error instanceof Error ? error.message : String(error));
     } finally {
-      setFilePreviewLoading(false);
+      if (filePreviewRequestIdRef.current === requestId) {
+        setFilePreviewLoading(false);
+      }
     }
+  }
+
+  function navigateFilePreviewHistory(direction: -1 | 1) {
+    const nextIndex = filePreviewHistory.index + direction;
+    const nextPath = filePreviewHistory.paths[nextIndex];
+
+    if (!nextPath) {
+      return;
+    }
+
+    setFilePreviewHistory((current) => ({
+      ...current,
+      index: Math.max(0, Math.min(nextIndex, current.paths.length - 1))
+    }));
+    void openFile(nextPath, { recordHistory: false });
   }
 
   function selectInspectorTab(tab: InspectorPanelTab) {
@@ -1212,14 +1446,115 @@ export default function App() {
     void loadWorkspaceFiles();
   }
 
-  function closeFilePreviewTab() {
+  function closeFilePreviewTab(pathToClose = filePreviewPath ?? undefined) {
+    if (!pathToClose) {
+      closeAllFilePreviewTabs();
+      return;
+    }
+
+    const nextTabs = filePreviewTabs.filter((path) => path !== pathToClose);
+    const closingActiveFile = filePreviewPath === pathToClose;
+    const closedTabIndex = filePreviewTabs.indexOf(pathToClose);
+    const nextActivePath = closingActiveFile
+      ? nextTabs[Math.min(Math.max(closedTabIndex, 0), nextTabs.length - 1)]
+      : filePreviewPath;
+
+    setFilePreviewTabs(nextTabs);
+    setFilePreviewHistory((current) => {
+      const paths = current.paths.filter((path) => path !== pathToClose);
+      const index = nextActivePath ? paths.indexOf(nextActivePath) : -1;
+
+      return {
+        paths,
+        index: index >= 0 ? index : Math.min(current.index, paths.length - 1)
+      };
+    });
+
+    if (nextTabs.length === 0 || !nextActivePath) {
+      closeAllFilePreviewTabs();
+      return;
+    }
+
+    if (closingActiveFile) {
+      void openFile(nextActivePath, { recordHistory: false });
+    }
+  }
+
+  function closeAllFilePreviewTabs() {
+    filePreviewRequestIdRef.current += 1;
     setInspectorTab("review");
     setFilePreviewTabOpen(false);
     setFilePreviewPath(null);
+    setFilePreviewTabs([]);
+    setFilePreviewHistory({ paths: [], index: -1 });
     setFilePreview(null);
     setFilePreviewError(null);
     setFilePreviewLoading(false);
   }
+
+  const branchFooterOptions = useMemo<PromptComposerFooterOption[]>(
+    () =>
+      reviewBranchRefs
+        .filter((branch) => branch.kind === "local")
+        .map((branch) => ({
+          id: branch.name,
+          label: branch.name
+        })),
+    [reviewBranchRefs]
+  );
+  const branchFooterLabel =
+    workspaceGitAvailable === false ? "No branch" : currentBranchRef ?? "Branch";
+  const sessionBranchFooterItem: PromptComposerFooterItem = {
+    icon: GitBranch,
+    optionIcon: GitBranch,
+    label: branchFooterLabel,
+    options: branchFooterOptions,
+    selectedOptionId: currentBranchRef ?? undefined,
+    searchPlaceholder: "Search branches",
+    emptyLabel:
+      workspaceGitAvailable === false
+        ? "This folder is not a git repository"
+        : "No local branches found",
+    loading: reviewBranchRefsLoading && workspaceGitAvailable !== false,
+    error:
+      workspaceGitAvailable === false
+        ? "This folder is not a git repository."
+        : reviewBranchRefsError,
+    menuPlacement: "up",
+    onSelect: selectComposerBranch,
+    onOpen: () => void loadReviewBranches()
+  };
+  const newSessionBranchFooterItem: PromptComposerFooterItem = {
+    ...sessionBranchFooterItem,
+    menuPlacement: "down"
+  };
+  const newSessionWorkTargetFooterItem: PromptComposerFooterItem = {
+    icon:
+      resolvedNewSessionWorkTarget === "worktree"
+        ? GitPullRequestCreateArrow
+        : Laptop,
+    label:
+      resolvedNewSessionWorkTarget === "worktree"
+        ? "New worktree"
+        : "Work locally",
+    menuTitle: "Start in",
+    menuPlacement: "down",
+    menuItems: [
+      {
+        icon: Laptop,
+        label: "Work locally",
+        checked: resolvedNewSessionWorkTarget === "local",
+        onSelect: () => setNewSessionWorkTarget("local")
+      },
+      {
+        icon: GitPullRequestCreateArrow,
+        label: "New worktree",
+        checked: resolvedNewSessionWorkTarget === "worktree",
+        disabled: workspaceGitAvailable === false,
+        onSelect: () => setNewSessionWorkTarget("worktree")
+      }
+    ]
+  };
 
   const composerControls = {
     permission,
@@ -1253,7 +1588,8 @@ export default function App() {
     approvals: approvals.filter((approval) =>
       activeSession ? approval.sessionId === activeSession.id : true
     ),
-    onResolveApproval: resolveApproval
+    onResolveApproval: resolveApproval,
+    branchFooterItem: sessionBranchFooterItem
   };
 
   if (settingsOpen) {
@@ -1311,6 +1647,7 @@ export default function App() {
         setSidebarOpen={setSidebarOpen}
         projects={projects}
         activeNav={activeNav}
+        newSessionActive={newSessionPageActive}
         setActiveNav={setActiveNav}
         selectedThread={selectedThread}
         setSelectedThread={selectThread}
@@ -1444,6 +1781,8 @@ export default function App() {
                 composer={composerControls}
                 workspaceOptions={allWorkspaceOptions}
                 selectedWorkspaceId={selectedWorkspace?.id}
+                workTargetFooterItem={newSessionWorkTargetFooterItem}
+                branchFooterItem={newSessionBranchFooterItem}
                 onWorkspaceSelect={(option) => {
                   setSelectedWorkspaceId(option.id);
                   setSelectedThread("");
@@ -1451,6 +1790,7 @@ export default function App() {
                   navigateAppRoute("/new");
                 }}
                 onWorkspaceCreate={createWorkspace}
+                onWorkspaceUseExistingFolder={useExistingWorkspaceFolder}
               />
             )}
           </div>
@@ -1497,6 +1837,12 @@ export default function App() {
           filePreview={filePreview}
           filePreviewError={filePreviewError}
           filePreviewLoading={filePreviewLoading}
+          filePreviewTabs={filePreviewTabs}
+          canNavigateFilePreviewBack={filePreviewHistory.index > 0}
+          canNavigateFilePreviewForward={
+            filePreviewHistory.index >= 0 &&
+            filePreviewHistory.index < filePreviewHistory.paths.length - 1
+          }
           workspaceCwd={currentCwd}
           workspaceName={workspaceName}
           workspaceFiles={workspaceFiles}
@@ -1505,6 +1851,7 @@ export default function App() {
           onTabChange={selectInspectorTab}
           onAddFilePreviewTab={addFilePreviewTab}
           onCloseFilePreviewTab={closeFilePreviewTab}
+          onNavigateFilePreviewHistory={navigateFilePreviewHistory}
           onOpenFile={openFile}
           onReviewScopeChange={selectReviewScope}
           onBranchComparisonChange={selectBranchComparison}
@@ -1526,6 +1873,146 @@ export default function App() {
         open={feedbackOpen}
         onClose={() => setFeedbackOpen(false)}
       />
+      <CreateProjectModal
+        open={createProjectModalOpen}
+        initialName={createProjectInitialName}
+        loading={createProjectLoading}
+        error={createProjectError}
+        onClose={() => {
+          if (!createProjectLoading) {
+            setCreateProjectModalOpen(false);
+          }
+        }}
+        onSubmit={(projectName) => void submitCreateWorkspace(projectName)}
+      />
+    </div>
+  );
+}
+
+function CreateProjectModal({
+  open,
+  initialName,
+  loading,
+  error,
+  onClose,
+  onSubmit
+}: {
+  open: boolean;
+  initialName: string;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: (projectName: string) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [projectName, setProjectName] = useState(initialName);
+  const canCreate = projectName.trim().length > 0 && !loading;
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    setProjectName(initialName);
+    const frame = requestAnimationFrame(() => inputRef.current?.focus());
+
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape" && !loading) {
+        onClose();
+      }
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [initialName, loading, onClose, open]);
+
+  if (!open) {
+    return null;
+  }
+
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    if (!canCreate) {
+      return;
+    }
+
+    onSubmit(projectName.trim());
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-app-bg/72 px-4 backdrop-blur-md"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !loading) {
+          onClose();
+        }
+      }}
+    >
+      <form
+        aria-label="Create project"
+        aria-modal="true"
+        className="relative w-full max-w-[420px] rounded-[18px] border border-app-line bg-app-panel-2 p-5 text-app-text shadow-[0_28px_90px_color-mix(in_srgb,var(--color-app-bg)_55%,transparent)]"
+        role="dialog"
+        onSubmit={submit}
+      >
+        <button
+          className="absolute right-3 top-3 inline-flex size-8 items-center justify-center rounded-lg text-app-dim transition-colors hover:bg-app-text/[0.08] hover:text-app-text disabled:cursor-not-allowed disabled:opacity-45"
+          type="button"
+          aria-label="Close create project"
+          disabled={loading}
+          onClick={onClose}
+        >
+          <X size={16} />
+        </button>
+
+        <h2 className="pr-8 text-[20px] font-semibold tracking-tight">
+          Create project
+        </h2>
+        <p className="mt-1 text-[14px] leading-5 text-app-dim">
+          Name the project folder Composer should create.
+        </p>
+
+        <label className="mt-5 grid gap-2 text-[13px] font-medium text-app-muted">
+          Project name
+          <input
+            ref={inputRef}
+            className="h-11 rounded-xl border border-app-line bg-app-bg/35 px-3 text-[14px] font-normal text-app-text outline-none placeholder:text-app-dim focus:border-[color:color-mix(in_srgb,var(--color-app-orange)_58%,transparent)]"
+            value={projectName}
+            onChange={(event) => setProjectName(event.target.value)}
+            placeholder="my-new-project"
+            disabled={loading}
+          />
+        </label>
+
+        {error && (
+          <div className="mt-3 rounded-lg border border-red-500/25 bg-red-500/10 px-3 py-2 text-[13px] text-red-200">
+            {error}
+          </div>
+        )}
+
+        <div className="mt-6 flex items-center justify-end gap-2">
+          <button
+            className="inline-flex h-9 items-center justify-center rounded-lg px-4 text-[14px] text-app-muted transition-colors hover:bg-app-text/[0.08] hover:text-app-text disabled:cursor-not-allowed disabled:opacity-45"
+            type="button"
+            disabled={loading}
+            onClick={onClose}
+          >
+            Cancel
+          </button>
+          <button
+            className="inline-flex h-9 items-center justify-center rounded-lg bg-app-text px-4 text-[14px] font-medium text-app-bg transition-colors hover:bg-app-text/90 disabled:cursor-not-allowed disabled:opacity-45"
+            type="submit"
+            disabled={!canCreate}
+          >
+            {loading ? "Creating..." : "Create project"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -2043,21 +2530,97 @@ function formatPromptWithReviewComments(
   return `${prompt}\n\n${reviewSection}`;
 }
 
-async function drainResponse(response: Response) {
+async function drainResponse(
+  response: Response,
+  onAgentEvent?: (event: LiveAgentEvent) => void
+) {
   if (!response.body) {
     await response.text();
     return;
   }
 
   const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
 
   while (true) {
-    const { done } = await reader.read();
+    const { done, value } = await reader.read();
 
     if (done) {
+      parseAgentEventsFromStreamChunk(buffer, onAgentEvent);
       return;
     }
+
+    buffer += decoder.decode(value, { stream: true });
+    const lastLineBreak = buffer.lastIndexOf("\n");
+
+    if (lastLineBreak === -1) {
+      continue;
+    }
+
+    parseAgentEventsFromStreamChunk(
+      buffer.slice(0, lastLineBreak + 1),
+      onAgentEvent
+    );
+    buffer = buffer.slice(lastLineBreak + 1);
   }
+}
+
+function parseAgentEventsFromStreamChunk(
+  chunk: string,
+  onAgentEvent?: (event: LiveAgentEvent) => void
+) {
+  if (!onAgentEvent) {
+    return;
+  }
+
+  for (const line of chunk.split(/\r?\n/)) {
+    const trimmed = line.trim();
+
+    if (!trimmed.startsWith("data:")) {
+      continue;
+    }
+
+    const payload = trimmed.slice("data:".length).trim();
+
+    if (!payload || payload === "[DONE]") {
+      continue;
+    }
+
+    try {
+      const message = JSON.parse(payload) as unknown;
+
+      if (isDataComposerStreamPart(message)) {
+        onAgentEvent(message.data);
+      } else if (isLiveAgentEvent(message)) {
+        onAgentEvent(message);
+      }
+    } catch {
+      // Ignore non-JSON stream control frames.
+    }
+  }
+}
+
+function isDataComposerStreamPart(
+  value: unknown
+): value is { type: "data-composer"; data: LiveAgentEvent } {
+  return (
+    isRecord(value) &&
+    value.type === "data-composer" &&
+    isLiveAgentEvent(value.data)
+  );
+}
+
+function isLiveAgentEvent(value: unknown): value is LiveAgentEvent {
+  return (
+    isRecord(value) &&
+    typeof value.id === "string" &&
+    typeof value.type === "string"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 async function archiveThreadViaServer(

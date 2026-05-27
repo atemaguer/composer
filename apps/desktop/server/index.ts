@@ -10,7 +10,11 @@ import {
 
 import { loadLocalSessions } from "../electron/session-loader.js";
 import { loadCapabilityCatalog, readCapabilityContent } from "./capabilities.js";
-import { loadReviewBranches, loadReviewDiff } from "./review-diff.js";
+import {
+  checkoutReviewBranch,
+  loadReviewBranches,
+  loadReviewDiff
+} from "./review-diff.js";
 import { AgentRuntime } from "./runtime.js";
 import type {
   AgentSettings,
@@ -76,6 +80,11 @@ const server = createServer(async (request, response) => {
 
     if (request.method === "POST" && url.pathname === "/api/review/branches") {
       await handleReviewBranchesRequest(request, response);
+      return;
+    }
+
+    if (request.method === "POST" && url.pathname === "/api/git/checkout-branch") {
+      await handleBranchCheckoutRequest(request, response);
       return;
     }
 
@@ -204,6 +213,7 @@ async function handleChatRequest(
   };
   const imageAttachments = extractImageAttachments(body);
   const requestId = typeof body.requestId === "string" ? body.requestId : undefined;
+  const workTarget = parseWorkTarget(body);
 
   if (!prompt.trim()) {
     writeJson(response, 400, { error: "Missing prompt" });
@@ -246,7 +256,7 @@ async function handleChatRequest(
         );
       } else {
         await runtime.createSession(
-          { provider, prompt, cwd, settings, imageAttachments, requestId },
+          { provider, prompt, cwd, settings, imageAttachments, requestId, workTarget },
           writeEvent
         );
       }
@@ -343,6 +353,22 @@ async function handleReviewBranchesRequest(
   const cwd = parseCwd(body.cwd);
 
   writeJson(response, 200, await loadReviewBranches(cwd));
+}
+
+async function handleBranchCheckoutRequest(
+  request: IncomingMessage,
+  response: ServerResponse
+) {
+  const body = await readJson(request);
+  const cwd = parseCwd(body.cwd);
+  const branch = typeof body.branch === "string" ? body.branch : undefined;
+
+  if (!branch) {
+    writeJson(response, 400, { error: "Expected branch" });
+    return;
+  }
+
+  writeJson(response, 200, await checkoutReviewBranch(cwd, branch));
 }
 
 async function interruptRuntime(sessionId?: string, requestId?: string) {
@@ -465,6 +491,17 @@ function parseCwd(value: unknown) {
   }
 
   return process.cwd();
+}
+
+function parseWorkTarget(body: Record<string, unknown>) {
+  const mode: "local" | "worktree" =
+    body.workTarget === "worktree" ? "worktree" : "local";
+  const branch =
+    typeof body.branch === "string" && body.branch.trim()
+      ? body.branch.trim()
+      : undefined;
+
+  return { mode, branch };
 }
 
 function isApprovalDecision(value: unknown): value is "accept" | "acceptForSession" | "decline" | "cancel" {

@@ -7,8 +7,8 @@ import {
 import { cn } from "../lib/cn";
 import {
   PromptComposer,
-  startInFooterMenuItems,
   type PromptComposerControls,
+  type PromptComposerFooterItem,
   type PromptComposerFooterOption
 } from "./Composer";
 
@@ -18,8 +18,11 @@ type NewSessionPageProps = {
   workspaceName?: string;
   workspaceOptions?: PromptComposerFooterOption[];
   selectedWorkspaceId?: string;
+  workTargetFooterItem?: PromptComposerFooterItem;
+  branchFooterItem?: PromptComposerFooterItem;
   onWorkspaceSelect?: (option: PromptComposerFooterOption) => void;
   onWorkspaceCreate?: (query: string) => void | Promise<void>;
+  onWorkspaceUseExistingFolder?: () => void | Promise<void>;
 };
 
 export function NewSessionPage({
@@ -28,9 +31,33 @@ export function NewSessionPage({
   workspaceName = "Workspace",
   workspaceOptions,
   selectedWorkspaceId,
+  workTargetFooterItem,
+  branchFooterItem,
   onWorkspaceSelect,
-  onWorkspaceCreate
+  onWorkspaceCreate,
+  onWorkspaceUseExistingFolder
 }: NewSessionPageProps) {
+  const footerItems: PromptComposerFooterItem[] = [
+    {
+      icon: Blocks,
+      label: workspaceName,
+      options: workspaceOptions,
+      selectedOptionId: selectedWorkspaceId,
+      searchPlaceholder: "Search projects",
+      createLabel: "New project",
+      menuPlacement: "down",
+      onSelect: onWorkspaceSelect,
+      onCreate: onWorkspaceCreate,
+      onUseExistingFolder: onWorkspaceUseExistingFolder
+    },
+    workTargetFooterItem ?? {
+      icon: Laptop,
+      label: "Work locally",
+      menuPlacement: "down"
+    },
+    branchFooterItem ?? { icon: GitBranch, label: "Branch" }
+  ];
+
   return (
     <section
       className={cn(
@@ -48,26 +75,7 @@ export function NewSessionPage({
           <PromptComposer
             {...composer}
             className="max-w-[760px]"
-            footerItems={[
-              {
-                icon: Blocks,
-                label: workspaceName,
-                options: workspaceOptions,
-                selectedOptionId: selectedWorkspaceId,
-                searchPlaceholder: "Search projects",
-                createLabel: "New project",
-                onSelect: onWorkspaceSelect,
-                onCreate: onWorkspaceCreate
-              },
-              {
-                icon: Laptop,
-                label: "Work locally",
-                menuTitle: "Start in",
-                menuItems: startInFooterMenuItems,
-                menuPlacement: "down"
-              },
-              { icon: GitBranch, label: "main" }
-            ]}
+            footerItems={footerItems}
             placeholder="Ask Composer anything. @ to use plugins or mention files"
             textareaRows={2}
           />

@@ -42,6 +42,10 @@ export async function loadReviewDiff(
 }
 
 export async function loadReviewBranches(cwd: string): Promise<ReviewBranchList> {
+  if (!(await isGitRepository(cwd))) {
+    throw new Error("This folder is not a git repository.");
+  }
+
   const [currentRef, defaultBaseRef, refsOutput] = await Promise.all([
     gitOptional(cwd, ["branch", "--show-current"]),
     resolveBranchBase(cwd),
@@ -90,6 +94,49 @@ export async function loadReviewBranches(cwd: string): Promise<ReviewBranchList>
     defaultBaseRef,
     branches
   };
+}
+
+export async function checkoutReviewBranch(
+  cwd: string,
+  requestedBranch: string
+): Promise<ReviewBranchList> {
+  const branchName = normalizeGitRef(requestedBranch);
+
+  if (!branchName) {
+    throw new Error("Expected branch name.");
+  }
+
+  const branchList = await loadReviewBranches(cwd);
+  const branch = branchList.branches.find((candidate) => candidate.name === branchName);
+
+  if (!branch) {
+    throw new Error(`Unknown branch ${branchName}.`);
+  }
+
+  if (branch.kind === "remote") {
+    const localName = remoteBranchLocalName(branch.name);
+
+    if (!localName) {
+      throw new Error(`Cannot check out remote branch ${branch.name}.`);
+    }
+
+    const localExists = await gitOptional(cwd, [
+      "rev-parse",
+      "--verify",
+      "--quiet",
+      `refs/heads/${localName}`
+    ]);
+
+    if (localExists) {
+      await git(cwd, ["checkout", localName], "Could not check out branch");
+    } else {
+      await git(cwd, ["checkout", "--track", branch.name], "Could not check out branch");
+    }
+  } else {
+    await git(cwd, ["checkout", branch.name], "Could not check out branch");
+  }
+
+  return loadReviewBranches(cwd);
 }
 
 async function loadRawDiff(
@@ -211,6 +258,13 @@ function normalizeGitRef(ref?: string) {
   return trimmed;
 }
 
+function remoteBranchLocalName(branchName: string) {
+  const slashIndex = branchName.indexOf("/");
+  const localName = slashIndex === -1 ? "" : branchName.slice(slashIndex + 1);
+
+  return normalizeGitRef(localName);
+}
+
 async function resolveBranchBase(cwd: string) {
   const upstream = await gitOptional(cwd, [
     "rev-parse",
@@ -239,7 +293,11 @@ async function resolveBranchBase(cwd: string) {
   return null;
 }
 
-async function git(cwd: string, args: string[]) {
+async function git(
+  cwd: string,
+  args: string[],
+  errorPrefix = "Could not read git diff"
+) {
   try {
     const result = await execFileAsync("git", ["-c", "core.quotepath=false", ...args], {
       cwd,
@@ -255,7 +313,7 @@ async function git(cwd: string, args: string[]) {
     const message =
       stderr.trim() || (error instanceof Error ? error.message : String(error));
 
-    throw new Error(`Could not read git diff: ${message}`);
+    throw new Error(`${errorPrefix}: ${message}`);
   }
 }
 
@@ -266,6 +324,15 @@ async function gitOptional(cwd: string, args: string[]) {
     return output.trim() || null;
   } catch {
     return null;
+  }
+}
+
+async function isGitRepository(cwd: string) {
+  try {
+    await git(cwd, ["rev-parse", "--is-inside-work-tree"]);
+    return true;
+  } catch {
+    return false;
   }
 }
 

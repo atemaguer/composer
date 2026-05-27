@@ -1,6 +1,7 @@
 import {
   app,
   BrowserWindow,
+  dialog,
   ipcMain,
   nativeTheme,
   type WebContents
@@ -105,6 +106,9 @@ ipcMain.handle("composer:set-native-appearance", (_event, request: unknown) => {
 });
 ipcMain.handle("composer:create-project", (_event, request: unknown) =>
   createProject(request)
+);
+ipcMain.handle("composer:select-project-folder", async () =>
+  selectProjectFolder()
 );
 ipcMain.handle("composer:list-workspace-files", (_event, requestedCwd: unknown) => {
   if (typeof requestedCwd !== "string") {
@@ -610,6 +614,61 @@ function createProject(request: unknown) {
   const cwd = uniqueProjectPath(parent, projectName);
 
   fs.mkdirSync(cwd);
+  initializeGitRepository(cwd);
+
+  return {
+    cwd,
+    workspaceName: path.basename(cwd)
+  };
+}
+
+function initializeGitRepository(cwd: string) {
+  try {
+    execFileSync("git", ["init", "-b", "main"], {
+      cwd,
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+  } catch {
+    execFileSync("git", ["init"], {
+      cwd,
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+  }
+
+  execFileSync(
+    "git",
+    [
+      "-c",
+      "user.name=Composer",
+      "-c",
+      "user.email=composer@local",
+      "commit",
+      "--allow-empty",
+      "-m",
+      "Initial commit"
+    ],
+    {
+      cwd,
+      stdio: ["ignore", "ignore", "pipe"]
+    }
+  );
+}
+
+async function selectProjectFolder() {
+  const result = await dialog.showOpenDialog({
+    title: "Use an existing folder",
+    properties: ["openDirectory", "createDirectory"]
+  });
+
+  if (result.canceled || !result.filePaths[0]) {
+    return null;
+  }
+
+  const cwd = existingDirectory(result.filePaths[0]);
+
+  if (!cwd) {
+    throw new Error("Selected path is not a folder");
+  }
 
   return {
     cwd,

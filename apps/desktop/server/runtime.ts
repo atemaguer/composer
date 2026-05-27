@@ -14,6 +14,11 @@ import {
 import { ClaudeProvider } from "./providers/claude.js";
 import { CodexProvider } from "./providers/codex.js";
 import { MetaProvider } from "./providers/meta.js";
+import {
+  checkoutSessionBranch,
+  createSessionWorktree,
+  type SessionWorktree
+} from "./session-worktrees.js";
 import type {
   AgentSettings,
   AgentImageAttachment,
@@ -49,6 +54,10 @@ type CreateRequest = {
   settings: AgentSettings;
   imageAttachments?: AgentImageAttachment[];
   requestId?: string;
+  workTarget?: {
+    mode: "local" | "worktree";
+    branch?: string;
+  };
 };
 
 type ProviderRunRequest = RunRequest & {
@@ -76,6 +85,60 @@ export interface AgentProvider {
 type ApprovalResolver = (decision: ApprovalDecision) => void;
 type RuntimeSessionProvider = SessionProvider;
 
+type RestoredRuntimeSessions = {
+  sessions: Record<string, SessionContent>;
+  staleSessions: SessionContent[];
+};
+
+function restoreRuntimeSessions(
+  sessions: Record<string, SessionContent>
+): RestoredRuntimeSessions {
+  const staleSessions: SessionContent[] = [];
+  const restored = Object.fromEntries(
+    Object.entries(sessions).map(([id, session]) => {
+      const normalized = restoreRuntimeSession(session);
+
+      if (normalized !== session) {
+        staleSessions.push(normalized);
+      }
+
+      return [id, normalized];
+    })
+  );
+
+  return { sessions: restored, staleSessions };
+}
+
+function restoreRuntimeSession(session: SessionContent): SessionContent {
+  const pendingItems = session.pendingItems ?? [];
+  const runtimeStatus = session.runtimeStatus ?? "idle";
+  const hasStaleRuntimeState =
+    pendingItems.length > 0 ||
+    runtimeStatus === "running" ||
+    runtimeStatus === "awaiting_approval";
+
+  if (!hasStaleRuntimeState) {
+    return {
+      ...session,
+      items: session.items ?? [],
+      providerSessions: session.providerSessions ?? {},
+      pendingItems,
+      runtimeStatus
+    };
+  }
+
+  return {
+    ...session,
+    items: session.items ?? [],
+    providerSessions: session.providerSessions ?? {},
+    pendingItems: [],
+    runtimeStatus:
+      runtimeStatus === "running" || runtimeStatus === "awaiting_approval"
+        ? "idle"
+        : runtimeStatus
+  };
+}
+
 export class AgentRuntime {
   private sessions: Record<string, SessionContent>;
   private broadcastListeners = new Set<EventSink>();
@@ -88,12 +151,22 @@ export class AgentRuntime {
   private interruptedSessions = new Set<string>();
 
   constructor(snapshot: SessionSnapshot) {
-    this.sessions = { ...snapshot.sessions };
+    const restored = restoreRuntimeSessions(snapshot.sessions);
+
+    this.sessions = restored.sessions;
     this.providers = {
       meta: new MetaProvider(),
       codex: new CodexProvider(),
       claude: new ClaudeProvider()
     };
+
+    for (const session of restored.staleSessions) {
+      try {
+        upsertComposerSessionFromRuntime(session);
+      } catch (error) {
+        console.warn("Could not persist restored session state", error);
+      }
+    }
   }
 
   snapshot(): SessionSnapshot {
@@ -114,6 +187,7 @@ export class AgentRuntime {
     }
 
     const id = `${request.provider}-live-${randomUUID()}`;
+    const workspace = prepareSessionWorkspace(request.cwd, id, request.workTarget);
     const displayCwd = displayWorkspaceCwd(request.cwd);
     const session: SessionContent = {
       id,
@@ -123,8 +197,13 @@ export class AgentRuntime {
       contextVersion: 0,
       runtimeStatus: "running",
       title: titleFromPrompt(request.prompt),
-      cwd: request.cwd,
+      cwd: workspace.cwd,
       displayCwd,
+      worktreePath: workspace.worktree?.cwd,
+      worktreeBranch: workspace.worktree?.branch,
+      originalCwd: workspace.worktree?.originalCwd,
+      originalBranch: workspace.worktree?.originalBranch,
+      originalHead: workspace.worktree?.originalHead,
       model: providerModel(request.provider, request.settings.model),
       updatedAt: new Date().toISOString(),
       items: [
@@ -757,6 +836,32 @@ function formatErrorMessage(message: string) {
   return trimmed;
 }
 
+function prepareSessionWorkspace(
+  cwd: string,
+  sessionId: string,
+  workTarget?: CreateRequest["workTarget"]
+) {
+  if (workTarget?.mode === "worktree") {
+    const worktree = createSessionWorktree({
+      baseCwd: cwd,
+      baseBranch: workTarget.branch,
+      sessionId
+    });
+
+    return {
+      cwd: worktree.cwd,
+      worktree
+    };
+  }
+
+  checkoutSessionBranch(cwd, workTarget?.branch);
+
+  return {
+    cwd,
+    worktree: undefined as SessionWorktree | undefined
+  };
+}
+
 function toolDetail(
   id: string,
   label: string,
@@ -940,7 +1045,12 @@ function syncProviderState(
   providerSessions[provider] = {
     ...current,
     sessionId: providerSession.providerSessionId ?? current.sessionId,
-    cwd: providerSession.cwd ?? current.cwd
+    cwd: providerSession.cwd ?? current.cwd,
+    worktreePath: providerSession.worktreePath ?? session.worktreePath ?? current.worktreePath,
+    worktreeBranch: providerSession.worktreeBranch ?? session.worktreeBranch ?? current.worktreeBranch,
+    originalCwd: providerSession.originalCwd ?? session.originalCwd ?? current.originalCwd,
+    originalBranch: providerSession.originalBranch ?? session.originalBranch ?? current.originalBranch,
+    originalHead: providerSession.originalHead ?? session.originalHead ?? current.originalHead
   };
 
   if (
@@ -956,7 +1066,12 @@ function syncProviderState(
         mode: "handoff",
         role: "handoff",
         lifecycle: "handoff",
-        cwd: providerSession.cwd
+        cwd: providerSession.cwd,
+        worktreePath: providerSession.worktreePath ?? session.worktreePath,
+        worktreeBranch: providerSession.worktreeBranch ?? session.worktreeBranch,
+        originalCwd: providerSession.originalCwd ?? session.originalCwd,
+        originalBranch: providerSession.originalBranch ?? session.originalBranch,
+        originalHead: providerSession.originalHead ?? session.originalHead
       }
     ]);
   }

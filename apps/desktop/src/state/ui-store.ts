@@ -20,7 +20,7 @@ const threadViewModeStorageKey = "composer.threadViewMode";
 const reviewContentWidthStorageKey = "composer.reviewContentWidth";
 const sidebarWidthStorageKey = "composer.sidebarWidth";
 const defaultReviewContentWidth = 360;
-const defaultSidebarWidth = 244;
+const defaultSidebarWidth = 284;
 
 type PersistedUiPreferences = {
   threadViewMode: ThreadViewMode;

@@ -21,6 +21,8 @@ type CodeEditorProps = {
 
 export function CodeEditor({ className, path, value }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<EditorView | null>(null);
+  const valueRef = useRef(value);
   const language = useMemo(() => languageForPath(path), [path]);
 
   useEffect(() => {
@@ -33,7 +35,7 @@ export function CodeEditor({ className, path, value }: CodeEditorProps) {
     const view = new EditorView({
       parent: container,
       state: EditorState.create({
-        doc: value,
+        doc: valueRef.current,
         extensions: [
           basicSetup,
           language,
@@ -45,9 +47,31 @@ export function CodeEditor({ className, path, value }: CodeEditorProps) {
         ]
       })
     });
+    viewRef.current = view;
 
-    return () => view.destroy();
-  }, [language, value]);
+    return () => {
+      viewRef.current = null;
+      view.destroy();
+    };
+  }, [language]);
+
+  useEffect(() => {
+    const view = viewRef.current;
+
+    valueRef.current = value;
+
+    if (!view || view.state.doc.toString() === value) {
+      return;
+    }
+
+    view.dispatch({
+      changes: {
+        from: 0,
+        to: view.state.doc.length,
+        insert: value
+      }
+    });
+  }, [value]);
 
   return (
     <div

@@ -83,6 +83,11 @@ type SessionLike = {
     {
       sessionId?: string;
       cwd?: string;
+      worktreePath?: string;
+      worktreeBranch?: string;
+      originalCwd?: string;
+      originalBranch?: string;
+      originalHead?: string;
       lastContextVersion?: number;
     }
   >>;
@@ -167,6 +172,11 @@ export function upsertComposerSessionFromRuntime(session: SessionLike) {
           lifecycle: existingProviderRecord?.lifecycle ??
             (session.parallelAdoptedProvider === provider ? "adopted" : "active"),
           cwd: state?.cwd ?? (session.provider === provider ? session.cwd : undefined),
+          worktreePath: state?.worktreePath,
+          worktreeBranch: state?.worktreeBranch,
+          originalCwd: state?.originalCwd,
+          originalBranch: state?.originalBranch,
+          originalHead: state?.originalHead,
           lastContextVersion: state?.lastContextVersion,
           updatedAt: session.updatedAt ?? now
         });
@@ -186,6 +196,11 @@ export function upsertComposerProviderSessions(
     role?: ComposerProviderSessionRecord["role"];
     lifecycle?: ComposerProviderLifecycle;
     cwd?: string;
+    worktreePath?: string;
+    worktreeBranch?: string;
+    originalCwd?: string;
+    originalBranch?: string;
+    originalHead?: string;
     lastContextVersion?: number;
   }>
 ) {

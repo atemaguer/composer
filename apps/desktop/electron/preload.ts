@@ -50,6 +50,8 @@ contextBridge.exposeInMainWorld("composer", {
   }) => ipcRenderer.invoke("composer:update-session-visibility", request),
   createProject: (request: { name?: string; baseCwd?: string }) =>
     ipcRenderer.invoke("composer:create-project", request),
+  selectProjectFolder: () =>
+    ipcRenderer.invoke("composer:select-project-folder"),
   listWorkspaceFiles: (cwd: string) =>
     ipcRenderer.invoke("composer:list-workspace-files", cwd),
   readTextFile: (filePath: string) =>
