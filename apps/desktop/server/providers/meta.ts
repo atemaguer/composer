@@ -340,6 +340,7 @@ export class MetaProvider implements AgentProvider {
           sessionId: delegate.session.id,
           session: delegate.session,
           prompt: delegate.prompt,
+          contextPrompt: request.contextPrompt,
           settings: delegate.settings,
           phase: delegate.phase,
           askApproval: async (approval) => request.askApproval(

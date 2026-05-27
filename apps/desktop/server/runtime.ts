@@ -62,6 +62,7 @@ type CreateRequest = {
 
 type ProviderRunRequest = RunRequest & {
   session: SessionContent;
+  contextPrompt?: string;
   askApproval: (approval: Omit<ApprovalRequest, "id">) => Promise<ApprovalDecision>;
   emit: EventSink;
   phase?: "plan" | "execute";
@@ -439,7 +440,7 @@ export class AgentRuntime {
 
       const providerSession = sessionForProvider(parentSession, provider);
       const contextVersion = (parentSession.contextVersion ?? 0) + 1;
-      const prompt = coherentPrompt({
+      const contextPrompt = coherentPrompt({
         session: parentSession,
         provider,
         previousProvider,
@@ -458,7 +459,7 @@ export class AgentRuntime {
 
       await this.providers[provider].run({
         ...request,
-        prompt,
+        contextPrompt,
         session: providerSession,
         emit: (event) => request.emit(stampToolEventProvider(event, provider))
       });

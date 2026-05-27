@@ -231,6 +231,14 @@ export class ClaudeProvider implements AgentProvider {
       env
     };
 
+    if (request.contextPrompt) {
+      options.systemPrompt = {
+        type: "preset",
+        preset: "claude_code",
+        append: request.contextPrompt
+      };
+    }
+
     applyClaudeNativeWorktreeOption(options, request.session, resumeSessionId);
 
     const claudeQuery = query({

@@ -75,7 +75,16 @@ export class CodexProvider implements AgentProvider {
           settings: {
             model: request.settings.model ?? "gpt-5.5",
             reasoning_effort: mapCodexEffort(request.settings.intelligence),
-            developer_instructions: null
+            developer_instructions: request.contextPrompt ?? null
+          }
+        };
+      } else if (request.contextPrompt) {
+        turnParams.collaborationMode = {
+          mode: "default",
+          settings: {
+            model: request.settings.model ?? "gpt-5.5",
+            reasoning_effort: mapCodexEffort(request.settings.intelligence),
+            developer_instructions: request.contextPrompt
           }
         };
       }
