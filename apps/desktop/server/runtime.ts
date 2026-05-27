@@ -642,12 +642,10 @@ export class AgentRuntime {
         completeProviderTurn(session, this.activeRunProviders.get(event.sessionId));
         this.activeRunProviders.delete(event.sessionId);
       }
-      upsertComposerSessionFromRuntime(session);
-      this.broadcast({
-        id: randomUUID(),
-        type: "session.updated",
-        session
-      });
+      if (shouldPersistRuntimeEvent(event)) {
+        upsertComposerSessionFromRuntime(session);
+      }
+      this.broadcast(event);
       return;
     }
 
@@ -659,6 +657,10 @@ export class AgentRuntime {
       listener(event);
     }
   }
+}
+
+function shouldPersistRuntimeEvent(event: LiveAgentEvent) {
+  return event.type !== "message.delta" && event.type !== "tool.delta";
 }
 
 function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
@@ -719,11 +721,17 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
       id: event.toolId,
       type: "tool_group",
       summary: event.label,
-      details: event.detail ? [event.detail] : [toolDetail(event.toolId, event.label)],
+      details: [
+        {
+          ...(event.detail ?? toolDetail(event.toolId, event.label)),
+          status: "running"
+        }
+      ],
       provider: event.provider,
       layoutGroupId: event.layoutGroupId,
       layoutTitle: event.layoutTitle,
-      defaultOpen: false
+      defaultOpen: false,
+      status: "running"
     });
     return;
   }
@@ -743,6 +751,7 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
 
     output.output = `${output.output ?? ""}${event.delta}`;
     output.label = output.output.trim().split("\n").at(-1) || "Output returned";
+    output.status = "running";
 
     if (!tool.details.includes(output)) {
       tool.details.push(output);
@@ -750,13 +759,20 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
     return;
   }
 
-  if (event.type === "tool.completed" && event.detail) {
+  if (event.type === "tool.completed") {
     const tool = session.items.find(
       (item) => item.type === "tool_group" && item.id === event.toolId
     );
 
     if (tool?.type === "tool_group") {
-      tool.details.push(event.detail);
+      tool.status = event.detail?.status ?? "completed";
+      tool.details = tool.details.map((detail) => ({
+        ...detail,
+        status: detail.status === "running" ? "completed" : detail.status
+      }));
+      if (event.detail) {
+        tool.details.push(event.detail);
+      }
     }
     return;
   }

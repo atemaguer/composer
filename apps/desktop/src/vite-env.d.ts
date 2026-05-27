@@ -53,6 +53,7 @@ declare global {
         cwd?: string;
         workspaceName?: string;
       }>;
+      openExternalUrl?: (url: string) => Promise<void>;
       listLocalSessions?: () => Promise<SessionSnapshot>;
       updateSessionVisibility?: (request: {
         sessionId: string;

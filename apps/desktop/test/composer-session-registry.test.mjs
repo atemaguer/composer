@@ -181,6 +181,45 @@ test("adoptComposerParallelProvider adopts the chosen provider and discards the 
   });
 });
 
+test("archiveComposerSession marks a registry session archived", async () => {
+  await withTemporaryHome(async () => {
+    const {
+      archiveComposerSession,
+      readComposerSessionRegistry,
+      writeComposerSessionRegistry
+    } = await importRegistryModule();
+    const createdAt = "2026-05-23T20:00:00.000Z";
+
+    writeComposerSessionRegistry({
+      version: 1,
+      sessions: [
+        {
+          id: "composer-session-3",
+          currentProvider: "meta",
+          lastProvider: "meta",
+          renderMode: "hybrid",
+          status: "idle",
+          createdAt,
+          updatedAt: createdAt
+        }
+      ],
+      providerSessions: [],
+      events: []
+    });
+
+    assert.equal(archiveComposerSession("composer-session-3"), true);
+
+    const registry = readComposerSessionRegistry();
+    const session = registry.sessions.find(
+      (record) => record.id === "composer-session-3"
+    );
+
+    assert.equal(session.status, "archived");
+    assert.equal(registry.events.at(-1).type, "session_archived");
+    assert.deepEqual(registry.events.at(-1).data, { previousStatus: "idle" });
+  });
+});
+
 async function withTemporaryHome(callback) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "composer-session-registry-"));
   const home = path.join(root, "home");

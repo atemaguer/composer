@@ -511,6 +511,7 @@ function recordClaudeCompaction(
   const summary: SessionCompactionSummary = {
     ...compaction,
     provider: "claude" as const,
+    source: "claude-post-compact",
     createdAt: new Date().toISOString()
   };
   session.compactionSummaries = [

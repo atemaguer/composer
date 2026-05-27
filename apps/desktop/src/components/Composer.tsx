@@ -48,6 +48,7 @@ import type {
   SessionProvider
 } from "../types";
 import { cn } from "../lib/cn";
+import { Shimmer } from "@/components/ai-elements/shimmer";
 import { ProviderLogo } from "./ProviderLogo";
 import {
   appDangerText,
@@ -299,6 +300,10 @@ export function PromptComposer({
     { icon: GitBranch, label: "main" }
   ]
 }: PromptComposerProps) {
+  const permissionMenuRef = useRef<HTMLDivElement>(null);
+  const permissionButtonRef = useRef<HTMLButtonElement>(null);
+  const intelligenceMenuRef = useRef<HTMLDivElement>(null);
+  const intelligenceButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeProvider = composerProvider(provider);
   const selectedModel = modelOption(activeProvider, model);
@@ -309,6 +314,48 @@ export function PromptComposer({
       setIntelligence(defaultEffort(selectedModel));
     }
   }, [intelligence, selectedModel, setIntelligence]);
+
+  useEffect(() => {
+    if (!permissionOpen && !intelligenceOpen) {
+      return;
+    }
+
+    function onPointerDown(event: PointerEvent) {
+      if (!(event.target instanceof Node)) {
+        return;
+      }
+
+      if (
+        permissionOpen &&
+        !permissionMenuRef.current?.contains(event.target) &&
+        !permissionButtonRef.current?.contains(event.target)
+      ) {
+        setPermissionOpen(false);
+      }
+
+      if (
+        intelligenceOpen &&
+        !intelligenceMenuRef.current?.contains(event.target) &&
+        !intelligenceButtonRef.current?.contains(event.target)
+      ) {
+        setIntelligenceOpen(false);
+      }
+    }
+
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === "Escape") {
+        setPermissionOpen(false);
+        setIntelligenceOpen(false);
+      }
+    }
+
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [intelligenceOpen, permissionOpen, setIntelligenceOpen, setPermissionOpen]);
 
   function addImageFiles(files: Iterable<File>) {
     const images = Array.from(files).filter((file) =>
@@ -369,18 +416,9 @@ export function PromptComposer({
       data-composer-content
       className={`pointer-events-auto relative mx-auto w-full max-w-[820px] ${className}`}
     >
-      {permissionOpen && (
-        <PermissionMenu
-          id={permissionMenuId}
-          permission={permission}
-          setPermission={(value) => {
-            setPermission(value);
-            setPermissionOpen(false);
-          }}
-        />
-      )}
       {intelligenceOpen && (
         <ModelSettingsMenu
+          ref={intelligenceMenuRef}
           id={intelligenceMenuId}
           provider={activeProvider}
           model={selectedModel.value}
@@ -454,34 +492,49 @@ export function PromptComposer({
             >
               <Plus size={17} />
             </TooltipButton>
-            <TooltipButton
-              className={cn(
-                "composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] transition-colors",
-                "border-transparent hover:border-[color:color-mix(in_srgb,var(--color-app-orange)_25%,transparent)]",
-                "bg-transparent",
-                appWarningText,
-                appWarningHoverSurface,
-                warningFocusRing
+            <div className="relative shrink-0">
+              {permissionOpen && (
+                <PermissionMenu
+                  ref={permissionMenuRef}
+                  id={permissionMenuId}
+                  permission={permission}
+                  setPermission={(nextPermission) => {
+                    setPermission(nextPermission);
+                    setPermissionOpen(false);
+                  }}
+                />
               )}
-              onClick={() => setPermissionOpen(!permissionOpen)}
-              aria-label={`Permission: ${permission}`}
-              aria-controls={permissionMenuId}
-              aria-expanded={permissionOpen}
-              aria-haspopup="menu"
-              tooltip={`Permission: ${permission}`}
-              type="button"
-            >
-              <ShieldAlert className="shrink-0" size={14} />
-              <span className="composer-collapsible-text truncate">
-                {permission}
-              </span>
-              <ChevronDown className="shrink-0" size={13} />
-            </TooltipButton>
+              <TooltipButton
+                ref={permissionButtonRef}
+                className={cn(
+                  "composer-permission-button inline-flex h-[30px] min-w-0 max-w-[160px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] transition-colors",
+                  "border-transparent hover:border-[color:color-mix(in_srgb,var(--color-app-orange)_25%,transparent)]",
+                  "bg-transparent",
+                  appWarningText,
+                  appWarningHoverSurface,
+                  warningFocusRing
+                )}
+                onClick={() => setPermissionOpen(!permissionOpen)}
+                aria-label={`Permission: ${permission}`}
+                aria-controls={permissionMenuId}
+                aria-expanded={permissionOpen}
+                aria-haspopup="menu"
+                tooltip={`Permission: ${permission}`}
+                type="button"
+              >
+                <ShieldAlert className="shrink-0" size={14} />
+                <span className="composer-collapsible-text truncate">
+                  {permission}
+                </span>
+                <ChevronDown className="shrink-0" size={13} />
+              </TooltipButton>
+            </div>
             <ProviderDropdown provider={provider} setProvider={setProvider} />
           </div>
 
           <div className="composer-right-controls flex min-w-0 flex-nowrap items-center justify-end gap-2">
             <TooltipButton
+              ref={intelligenceButtonRef}
               className={cn(
                 "composer-model-button h-[30px] min-w-0 max-w-[164px] gap-1.5 px-2.5 text-[13px]",
                 pillButton
@@ -630,6 +683,7 @@ export function Composer({
   branchFooterItem,
   ...controls
 }: ComposerProps) {
+  const showPendingTerminalStack = false;
   const resolvedFooterItems = footerItems ?? [
     {
       icon: Laptop,
@@ -651,12 +705,14 @@ export function Composer({
       )}
     >
       <div className="pointer-events-auto relative mx-auto w-full max-w-[820px]">
-        <PendingTerminalStack
-          items={pendingItems}
-          approvals={controls.approvals ?? []}
-          onResolveApproval={controls.onResolveApproval}
-          onStop={controls.onStop}
-        />
+        {showPendingTerminalStack && (
+          <PendingTerminalStack
+            items={pendingItems}
+            approvals={controls.approvals ?? []}
+            onResolveApproval={controls.onResolveApproval}
+            onStop={controls.onStop}
+          />
+        )}
         <PromptComposer
           {...controls}
           footerItems={resolvedFooterItems}
@@ -673,12 +729,12 @@ const providerOptions = [
   { value: "meta", label: "Compose" }
 ] satisfies Array<{ value: ComposerProvider; label: string }>;
 
-function ComposerMenuSurface({
-  className,
-  ...props
-}: ComponentProps<"div">) {
-  return <div className={cn(menuSurface, className)} {...props} />;
-}
+const ComposerMenuSurface = forwardRef<
+  HTMLDivElement,
+  ComponentProps<"div">
+>(function ComposerMenuSurface({ className, ...props }, ref) {
+  return <div ref={ref} className={cn(menuSurface, className)} {...props} />;
+});
 
 const ComposerMenuButton = forwardRef<
   HTMLButtonElement,
@@ -847,7 +903,9 @@ function PendingTerminalStack({
             >
               <div className="grid h-10 grid-cols-[20px_minmax(0,1fr)_22px_22px] items-center gap-2.5 px-3.5">
                 <TerminalSquare size={14} />
-                <span className="truncate">{item.label}</span>
+                <Shimmer as="span" className="truncate font-medium" duration={1.45} spread={3}>
+                  {item.label}
+                </Shimmer>
                 <TooltipButton
                   className={subtleIconButton}
                   aria-label="Stop running tool"
@@ -1572,15 +1630,15 @@ function ComposerFooterCustomMenu({
   );
 }
 
-function PermissionMenu({
-  id,
-  permission,
-  setPermission
-}: {
+const PermissionMenu = forwardRef<HTMLDivElement, {
   id: string;
   permission: PermissionMode;
   setPermission: (value: PermissionMode) => void;
-}) {
+}>(function PermissionMenu({
+  id,
+  permission,
+  setPermission
+}, ref) {
   const options: Array<[PermissionMode, ElementType]> = [
     ["Default permissions", Shield],
     ["Auto-review", ShieldCheck],
@@ -1589,8 +1647,9 @@ function PermissionMenu({
 
   return (
     <ComposerMenuSurface
+      ref={ref}
       id={id}
-      className="absolute bottom-[108px] left-[74px] z-20 grid w-max max-w-[calc(100vw-48px)] gap-1"
+      className="absolute bottom-[calc(100%+8px)] left-0 z-30 grid w-max max-w-[calc(100vw-48px)] gap-1"
       role="menu"
       aria-label="Permission mode"
     >
@@ -1611,23 +1670,23 @@ function PermissionMenu({
       ))}
     </ComposerMenuSurface>
   );
-}
+});
 
-function ModelSettingsMenu({
-  id,
-  provider,
-  model,
-  setModel,
-  intelligence,
-  setIntelligence
-}: {
+const ModelSettingsMenu = forwardRef<HTMLDivElement, {
   id: string;
   provider: ComposerProvider;
   model: AgentModel;
   setModel: (value: AgentModel) => void;
   intelligence: IntelligenceMode;
   setIntelligence: (value: IntelligenceMode) => void;
-}) {
+}>(function ModelSettingsMenu({
+  id,
+  provider,
+  model,
+  setModel,
+  intelligence,
+  setIntelligence
+}, ref) {
   const models = providerModels[provider];
   const selectedModel = modelOption(provider, model);
   const efforts = selectedModel.efforts;
@@ -1652,6 +1711,7 @@ function ModelSettingsMenu({
 
   return (
     <ComposerMenuSurface
+      ref={ref}
       id={id}
       className="absolute -right-2 bottom-[64px] z-20 grid w-max max-w-[calc(100vw-48px)] gap-1"
       role="menu"
@@ -1712,7 +1772,7 @@ function ModelSettingsMenu({
       )}
     </ComposerMenuSurface>
   );
-}
+});
 
 function modelOption(provider: ComposerProvider, value: AgentModel) {
   return (

@@ -6,7 +6,8 @@ import type {
   Project,
   ProjectThread,
   SessionContent,
-  SessionSnapshot
+  SessionSnapshot,
+  ToolDetail
 } from "../types";
 
 type StateUpdater<T> = T | ((current: T) => T);
@@ -185,7 +186,23 @@ export function applyAgentEventToState(
   }
 
   if (event.type === "approval.requested") {
-    return upsertApprovalState(state.approvals, event.approval);
+    const approvalState = upsertApprovalState(state.approvals, event.approval);
+    const session = state.sessions[event.approval.sessionId];
+
+    if (!session) {
+      return approvalState;
+    }
+
+    const updated = applyLiveSessionEvent(session, event);
+
+    return {
+      ...approvalState,
+      sessions: {
+        ...state.sessions,
+        [updated.id]: updated
+      },
+      projects: upsertSessionProject(state.projects, updated)
+    };
   }
 
   if (event.type === "approval.resolved") {
@@ -200,10 +217,256 @@ export function applyAgentEventToState(
     event.type === "turn.completed" &&
     state.selectedThread === event.sessionId
   ) {
-    return { pendingNewRequestId: null };
+    const session = state.sessions[event.sessionId];
+
+    if (!session) {
+      return { pendingNewRequestId: null };
+    }
+
+    const updated = applyLiveSessionEvent(session, event);
+
+    return {
+      pendingNewRequestId: null,
+      sessions: {
+        ...state.sessions,
+        [updated.id]: updated
+      },
+      projects: upsertSessionProject(state.projects, updated)
+    };
+  }
+
+  if ("sessionId" in event && event.sessionId) {
+    const session = state.sessions[event.sessionId];
+
+    if (!session) {
+      return {};
+    }
+
+    const updated = applyLiveSessionEvent(session, event);
+
+    return {
+      sessions: {
+        ...state.sessions,
+        [updated.id]: updated
+      },
+      projects: upsertSessionProject(state.projects, updated)
+    };
   }
 
   return {};
+}
+
+function applyLiveSessionEvent(
+  session: SessionContent,
+  event: LiveAgentEvent
+): SessionContent {
+  const next: SessionContent = {
+    ...session,
+    items: [...(session.items ?? [])],
+    pendingItems: [...(session.pendingItems ?? [])],
+    providerSessions: { ...(session.providerSessions ?? {}) },
+    updatedAt: new Date().toISOString()
+  };
+
+  if (event.type === "turn.started") {
+    next.runtimeStatus = "running";
+    next.pendingItems = [
+      {
+        id: `${next.id}-${event.turnId}-pending`,
+        type: "running_tool",
+        label: event.label ?? "Agent is working",
+        status: "running"
+      }
+    ];
+    return next;
+  }
+
+  if (event.type === "message.delta") {
+    const existingIndex = next.items.findIndex(
+      (item) => item.type === "assistant_message" && item.id === event.messageId
+    );
+
+    if (existingIndex >= 0) {
+      const existing = next.items[existingIndex];
+
+      if (existing.type === "assistant_message") {
+        next.items[existingIndex] = {
+          ...existing,
+          body: `${existing.body}${event.delta}`,
+          provider: event.provider ?? existing.provider,
+          layoutGroupId: event.layoutGroupId ?? existing.layoutGroupId,
+          layoutTitle: event.layoutTitle ?? existing.layoutTitle
+        };
+      }
+    } else {
+      next.items.push({
+        id: event.messageId,
+        type: "assistant_message",
+        body: event.delta,
+        provider: event.provider,
+        layoutGroupId: event.layoutGroupId,
+        layoutTitle: event.layoutTitle
+      });
+    }
+
+    return next;
+  }
+
+  if (event.type === "message.completed") {
+    const existingIndex = next.items.findIndex(
+      (item) => item.type === "assistant_message" && item.id === event.messageId
+    );
+
+    if (existingIndex >= 0) {
+      const existing = next.items[existingIndex];
+
+      if (existing.type === "assistant_message") {
+        next.items[existingIndex] = {
+          ...existing,
+          body: event.body ?? existing.body,
+          provider: event.provider ?? existing.provider,
+          layoutGroupId: event.layoutGroupId ?? existing.layoutGroupId,
+          layoutTitle: event.layoutTitle ?? existing.layoutTitle
+        };
+      }
+    } else if (event.body) {
+      next.items.push({
+        id: event.messageId,
+        type: "assistant_message",
+        body: event.body,
+        provider: event.provider,
+        layoutGroupId: event.layoutGroupId,
+        layoutTitle: event.layoutTitle
+      });
+    }
+
+    return next;
+  }
+
+  if (event.type === "tool.started") {
+    if (next.items.some((item) => item.type === "tool_group" && item.id === event.toolId)) {
+      return next;
+    }
+
+    next.items.push({
+      id: event.toolId,
+      type: "tool_group",
+      summary: event.label,
+      details: [
+        {
+          ...(event.detail ?? toolDetail(event.toolId, event.label)),
+          status: "running"
+        }
+      ],
+      provider: event.provider,
+      layoutGroupId: event.layoutGroupId,
+      layoutTitle: event.layoutTitle,
+      defaultOpen: false,
+      status: "running"
+    });
+    return next;
+  }
+
+  if (event.type === "tool.delta") {
+    const toolIndex = next.items.findIndex(
+      (item) => item.type === "tool_group" && item.id === event.toolId
+    );
+    const tool = next.items[toolIndex];
+
+    if (tool?.type !== "tool_group") {
+      return next;
+    }
+
+    const output =
+      tool.details.find((detail) => detail.kind === "output") ??
+      toolDetail(`${event.toolId}-output`, "Output returned", "output");
+    const outputIndex = tool.details.findIndex((detail) => detail.id === output.id);
+    const nextOutput: ToolDetail = {
+      ...output,
+      output: `${output.output ?? ""}${event.delta}`,
+      status: "running"
+    };
+    nextOutput.label = nextOutput.output?.trim().split("\n").at(-1) || "Output returned";
+
+    const details = [...tool.details];
+
+    if (outputIndex >= 0) {
+      details[outputIndex] = nextOutput;
+    } else {
+      details.push(nextOutput);
+    }
+
+    next.items[toolIndex] = { ...tool, details };
+    return next;
+  }
+
+  if (event.type === "tool.completed") {
+    const toolIndex = next.items.findIndex(
+      (item) => item.type === "tool_group" && item.id === event.toolId
+    );
+    const tool = next.items[toolIndex];
+
+    if (tool?.type === "tool_group") {
+      next.items[toolIndex] = {
+        ...tool,
+        status: event.detail?.status ?? "completed",
+        details: [
+          ...tool.details.map((detail) => ({
+            ...detail,
+            status: detail.status === "running" ? "completed" : detail.status
+          })),
+          ...(event.detail ? [event.detail] : [])
+        ]
+      };
+    }
+
+    return next;
+  }
+
+  if (event.type === "approval.requested") {
+    next.runtimeStatus = "awaiting_approval";
+    next.pendingItems = [
+      {
+        id: `${event.approval.id}-pending`,
+        type: "running_tool",
+        label: event.approval.title,
+        status: "running"
+      }
+    ];
+    return next;
+  }
+
+  if (event.type === "error") {
+    next.runtimeStatus = "error";
+    next.pendingItems = [];
+    next.items.push({
+      id: `${next.id}-error-${Date.now()}`,
+      type: "notice",
+      label: `Agent failed: ${event.message}`
+    });
+    return next;
+  }
+
+  if (event.type === "turn.completed") {
+    next.runtimeStatus = event.status;
+    next.pendingItems = [];
+  }
+
+  return next;
+}
+
+function toolDetail(
+  id: string,
+  label: string,
+  kind: "call" | "output" = "call"
+): ToolDetail {
+  return {
+    id,
+    label,
+    kind,
+    tone: kind === "output" ? "output" : "default",
+    action: "other"
+  };
 }
 
 function upsertApprovalState(

@@ -301,6 +301,37 @@ export function adoptComposerParallelProvider({
   }
 }
 
+export function archiveComposerSession(composerSessionId: string) {
+  const db = openRegistryDatabase();
+  const now = new Date().toISOString();
+
+  try {
+    let changed = false;
+
+    transaction(db, () => {
+      const existing = readSessionRecord(db, composerSessionId);
+
+      if (!existing || existing.status === "archived") {
+        return;
+      }
+
+      db.prepare(
+        "UPDATE composer_sessions SET status = 'archived', updated_at = ? WHERE id = ?"
+      ).run(now, composerSessionId);
+      appendEvent(db, {
+        composerSessionId,
+        type: "session_archived",
+        data: { previousStatus: existing.status }
+      });
+      changed = true;
+    });
+
+    return changed;
+  } finally {
+    db.close();
+  }
+}
+
 export function composerDelegateProviderSessionKeys(registry = readComposerSessionRegistry()) {
   return new Set(
     registry.providerSessions.map((record) =>

@@ -4,6 +4,7 @@ import {
   dialog,
   ipcMain,
   nativeTheme,
+  shell,
   type WebContents
 } from "electron";
 import { execFileSync, spawn, type ChildProcess } from "node:child_process";
@@ -52,6 +53,19 @@ type TerminalSession = {
 
 ipcMain.handle("composer:get-telemetry-identity", () => telemetryIdentity());
 ipcMain.handle("composer:list-local-sessions", () => loadLocalSessions());
+ipcMain.handle("composer:open-external-url", (_event, requestedUrl: unknown) => {
+  if (typeof requestedUrl !== "string") {
+    throw new Error("Expected a URL");
+  }
+
+  const url = new URL(requestedUrl);
+
+  if (url.protocol !== "https:" && url.protocol !== "http:") {
+    throw new Error("Only http and https URLs can be opened externally");
+  }
+
+  return shell.openExternal(url.toString());
+});
 ipcMain.handle("composer:update-session-visibility", (_event, request: unknown) => {
   const value = isRecord(request) ? request : {};
   const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";

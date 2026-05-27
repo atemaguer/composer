@@ -225,6 +225,15 @@ test("parallel adoption discards the unchosen provider session before handoff", 
       async run() {},
       async compact(request) {
         assert.equal(request.session.providerSessionId, "codex-session");
+        return {
+          id: "codex-summary",
+          provider: "codex",
+          contextVersion: 1,
+          createdAt: new Date().toISOString(),
+          trigger: "manual",
+          source: "codex-handoff-turn",
+          summary: "Readable Codex handoff for Claude."
+        };
       },
       async interrupt() {},
       dispose() {}
@@ -236,6 +245,11 @@ test("parallel adoption discards the unchosen provider session before handoff", 
           request.session.cwd,
           "/tmp/source/.composer/worktrees/repo/session/codex"
         );
+        assert.match(
+          request.contextPrompt,
+          /Readable Codex handoff for Claude\./
+        );
+        assert.match(request.contextPrompt, /Provider switch: Codex -> Claude\./);
         request.session.providerSessionId = "new-claude-session";
         request.emit({
           id: "claude-complete",
@@ -389,6 +403,77 @@ test("registered parallel sessions reload as one Composer parent session", async
   });
 });
 
+test("archived Composer sessions do not reload in workspace sessions", async () => {
+  await withTempHome(async ({ home }) => {
+    const sourceCwd = "/tmp/source";
+    const codexCwd = `${sourceCwd}/.composer/worktrees/repo/session/codex`;
+    const claudeCwd = `${sourceCwd}/.claude/worktrees/composer-meta-live-test`;
+    writeCodexSession(home, {
+      sessionId: "codex-session",
+      cwd: codexCwd,
+      user: "explain this project",
+      assistant: "Codex answer"
+    });
+    writeClaudeSession(home, {
+      sessionId: "claude-session",
+      projectPath: `${home}/.claude/projects/-tmp-source--claude-worktrees-composer-meta-live-test`,
+      cwd: claudeCwd,
+      user: "explain this project",
+      assistant: "Claude answer"
+    });
+    await writeRegistry({
+      version: 1,
+      sessions: [
+        {
+          id: "meta-live-test",
+          title: "Explain project",
+          sourceCwd,
+          displayCwd: sourceCwd,
+          activeCwd: codexCwd,
+          currentProvider: "meta",
+          lastProvider: "meta",
+          renderMode: "hybrid",
+          hybridMode: "parallel-initial",
+          status: "archived",
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:01:00.000Z"
+        }
+      ],
+      providerSessions: [
+        {
+          composerSessionId: "meta-live-test",
+          provider: "codex",
+          providerSessionId: "codex-session",
+          mode: "parallel-initial",
+          role: "parallel-initial",
+          lifecycle: "active",
+          cwd: codexCwd,
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:01:00.000Z"
+        },
+        {
+          composerSessionId: "meta-live-test",
+          provider: "claude",
+          providerSessionId: "claude-session",
+          mode: "parallel-initial",
+          role: "parallel-initial",
+          lifecycle: "active",
+          cwd: claudeCwd,
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:01:00.000Z"
+        }
+      ],
+      events: []
+    });
+
+    const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
+    const snapshot = loadLocalSessions();
+
+    assert.deepEqual(Object.keys(snapshot.sessions), []);
+    assert.deepEqual(snapshot.projects, []);
+  });
+});
+
 test("adopted parallel sessions reload as the chosen provider only", async () => {
   await withTempHome(async ({ home }) => {
     const sourceCwd = "/tmp/source";
@@ -472,6 +557,39 @@ test("adopted parallel sessions reload as the chosen provider only", async () =>
       ),
       true
     );
+  });
+});
+
+test("Claude array user content reloads as the first user message", async () => {
+  await withTempHome(async ({ home }) => {
+    const sessionId = "claude-array-session";
+    const cwd = "/tmp/source";
+
+    writeClaudeSession(home, {
+      sessionId,
+      projectPath: `${home}/.claude/projects/-tmp-source`,
+      cwd,
+      user: [
+        {
+          type: "text",
+          text: [
+            "Composer context packet.",
+            "Session title: Explain project",
+            "User request:",
+            "What's this project about?"
+          ].join("\n")
+        }
+      ],
+      assistant: "Claude answer"
+    });
+
+    const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
+    const snapshot = loadLocalSessions();
+    const session = snapshot.sessions[`claude-${sessionId}`];
+
+    assert.equal(session.items[0]?.type, "user_message");
+    assert.equal(session.items[0]?.body, "What's this project about?");
+    assert.equal(session.items[1]?.type, "assistant_message");
   });
 });
 

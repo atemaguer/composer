@@ -9,6 +9,7 @@ import {
   type PatchReviewFile
 } from "./patch-review.js";
 import {
+  archiveComposerSession,
   composerDelegateProviderSessionKeys,
   providerSessionKey,
   readComposerSessionRegistry,
@@ -223,6 +224,10 @@ function composerSessionsFromRegistry(
   const sessions: SessionContent[] = [];
 
   for (const sessionRecord of registry.sessions) {
+    if (sessionRecord.status === "archived") {
+      continue;
+    }
+
     const providerRecords = registry.providerSessions.filter((record) =>
       record.composerSessionId === sessionRecord.id
     );
@@ -478,10 +483,17 @@ export function updateLocalSessionVisibility(
   session: Pick<SessionContent, "id" | "provider" | "providerSessionId">,
   action: LocalSessionAction
 ) {
+  const archivedComposerSession = action === "archive"
+    ? archiveComposerSession(session.id)
+    : false;
   const filePath = findSessionFile(session);
 
   if (!filePath) {
-    return { ok: true, changed: false, reason: "No local session file found" };
+    return {
+      ok: true,
+      changed: archivedComposerSession,
+      reason: archivedComposerSession ? undefined : "No local session file found"
+    };
   }
 
   const archivePath = archivePathForSessionFile(filePath, session.provider);
@@ -791,11 +803,32 @@ function parseClaudeSession(filePath: string): SessionContent | null {
         items.push({
           id: `${sessionId}-user-${items.length}`,
           type: "user_message",
-          body: trimText(content),
+          body: trimText(userVisiblePrompt(content)),
           timestamp: formatTime(asString(row.timestamp))
         });
       } else if (Array.isArray(content)) {
-        const resultText = extractText(content);
+        const hasToolResult = content.some((part) => {
+          const block = asRecord(part);
+          return asString(block.type) === "tool_result";
+        });
+
+        if (!hasToolResult) {
+          const userText = extractText(content);
+
+          if (userText) {
+            firstUserText ||= userText;
+            items.push({
+              id: `${sessionId}-user-${items.length}`,
+              type: "user_message",
+              body: trimText(userVisiblePrompt(userText)),
+              timestamp: formatTime(asString(row.timestamp))
+            });
+          }
+
+          continue;
+        }
+
+        const resultText = extractClaudeToolResultText(content);
 
         if (resultText) {
           toolIndex += 1;
@@ -1233,6 +1266,21 @@ function extractText(value: unknown): string {
       }
 
       return "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function extractClaudeToolResultText(content: unknown[]) {
+  return content
+    .map((part) => {
+      const block = asRecord(part);
+
+      if (asString(block.type) !== "tool_result") {
+        return "";
+      }
+
+      return extractText(block.content);
     })
     .filter(Boolean)
     .join("\n\n");

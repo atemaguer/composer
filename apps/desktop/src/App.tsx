@@ -131,9 +131,11 @@ export default function App() {
   const setSessions = useSessionStore((state) => state.setSessions);
   const setSessionSnapshot = useSessionStore((state) => state.setSnapshot);
   const upsertSession = useSessionStore((state) => state.upsertSession);
+  const applySessionStoreAgentEvent = useSessionStore(
+    (state) => state.applyAgentEvent
+  );
   const removeSession = useSessionStore((state) => state.removeSession);
   const approvals = useSessionStore((state) => state.approvals);
-  const addApproval = useSessionStore((state) => state.addApproval);
   const removeApproval = useSessionStore((state) => state.removeApproval);
   const pendingNewRequestId = useSessionStore(
     (state) => state.pendingNewRequestId
@@ -210,6 +212,7 @@ export default function App() {
   );
 
   const socketRef = useRef<WebSocket | null>(null);
+  const processedAgentEventsRef = useRef<Set<string>>(new Set());
   const expectingNewSessionRef = useRef(false);
   const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
@@ -485,15 +488,29 @@ export default function App() {
 
   const applyAgentEvent = useCallback(
     (event: LiveAgentEvent) => {
+      if (processedAgentEventsRef.current.has(event.id)) {
+        return;
+      }
+
+      processedAgentEventsRef.current.add(event.id);
+
+      if (processedAgentEventsRef.current.size > 2_000) {
+        const oldest = processedAgentEventsRef.current.values().next().value;
+
+        if (oldest) {
+          processedAgentEventsRef.current.delete(oldest);
+        }
+      }
+
+      applySessionStoreAgentEvent(event);
+
       if (event.type === "sessions.snapshot") {
-        setSessionSnapshot(event.snapshot);
         setSessionsLoading(false);
         return;
       }
 
       if (event.type === "session.started") {
         setSessionsLoading(false);
-        upsertSession(event.session);
 
         if (expectingNewSessionRef.current) {
           expectingNewSessionRef.current = false;
@@ -507,17 +524,6 @@ export default function App() {
 
       if (event.type === "session.updated") {
         setSessionsLoading(false);
-        upsertSession(event.session);
-        return;
-      }
-
-      if (event.type === "approval.requested") {
-        addApproval(event.approval);
-        return;
-      }
-
-      if (event.type === "approval.resolved") {
-        removeApproval(event.approvalId);
         return;
       }
 
@@ -526,15 +532,13 @@ export default function App() {
       }
     },
     [
-      addApproval,
+      applySessionStoreAgentEvent,
       navigate,
-      removeApproval,
       selectedThread,
       setActiveNav,
       setPendingNewRequestId,
       setSelectedThread,
-      setSessionSnapshot,
-      upsertSession
+      setSessionsLoading
     ]
   );
 
@@ -1720,7 +1724,6 @@ export default function App() {
         onNavigateForward={navigateForward}
         onSearch={() => setSearchOpen(true)}
         onSettings={() => setSettingsOpen(true)}
-        onFeedback={() => setFeedbackOpen(true)}
       />
 
       <div

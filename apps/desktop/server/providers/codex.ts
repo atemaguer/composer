@@ -15,6 +15,7 @@ import { defaultCwd, providerSessionId } from "../runtime.js";
 import type {
   ApprovalDecision,
   ApprovalRequest,
+  ConversationItem,
   IntelligenceMode,
   PermissionMode,
   SessionContent,
@@ -34,6 +35,14 @@ type ActiveTurn = {
   turnId?: string;
 };
 
+type CompactionCollector = {
+  turnId?: string;
+  text: string;
+  finalText?: string;
+  resolve: (summary: string) => void;
+  reject: (error: Error) => void;
+};
+
 export class CodexProvider implements AgentProvider {
   private process: ChildProcessWithoutNullStreams | null = null;
   private nextId = 1;
@@ -46,7 +55,7 @@ export class CodexProvider implements AgentProvider {
     string,
     (approval: Omit<ApprovalRequest, "id">) => Promise<ApprovalDecision>
   >();
-  private compactWaiters = new Map<string, () => void>();
+  private compactionCollectors = new Map<string, CompactionCollector>();
   private cancelledSessions = new Set<string>();
   private lineBuffer = "";
 
@@ -148,27 +157,15 @@ export class CodexProvider implements AgentProvider {
     this.sinks.set(request.sessionId, request.emit);
     this.approvalHandlers.set(request.sessionId, async () => "decline");
     this.activeTurns.set(request.sessionId, { threadId, turnId: compactToolId });
-    const compaction: SessionCompactionSummary = {
-      id: `${request.session.id}-codex-compact-${Date.now()}`,
-      provider: "codex" as const,
-      contextVersion: request.session.contextVersion ?? 0,
-      createdAt: new Date().toISOString(),
-      trigger: "manual" as const,
-      summary: "Codex completed native context compaction."
-    };
-    request.session.compactionSummaries = [
-      ...(request.session.compactionSummaries ?? []),
-      compaction
-    ].slice(-12);
     request.emit({
       id: randomUUID(),
       type: "tool.started",
       sessionId: request.sessionId,
       toolId: compactToolId,
-      label: "Codex compacting context for handoff",
+      label: "Codex preparing handoff context",
       detail: {
         id: `${compactToolId}-detail`,
-        label: "Codex compacting provider-local context",
+        label: "Codex generating readable handoff summary",
         kind: "summary",
         tone: "summary",
         action: "other",
@@ -176,23 +173,35 @@ export class CodexProvider implements AgentProvider {
       }
     });
 
-    await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => {
-        this.compactWaiters.delete(request.sessionId);
-        resolve();
-      }, 60_000);
+    let summarySource: NonNullable<SessionCompactionSummary["source"]> =
+      "codex-handoff-turn";
+    let summary: string;
 
-      this.compactWaiters.set(request.sessionId, () => {
-        clearTimeout(timeout);
-        resolve();
-      });
+    try {
+      summary = await this.generateReadableHandoffSummary(request, threadId);
+    } catch {
+      summarySource = "deterministic-fallback";
+      summary = deterministicCodexHandoffSummary(request.session, request.reason);
+    }
 
-      this.request("thread/compact/start", { threadId }).catch((error) => {
-        clearTimeout(timeout);
-        this.compactWaiters.delete(request.sessionId);
-        reject(error);
-      });
-    });
+    if (!summary.trim()) {
+      summarySource = "deterministic-fallback";
+      summary = deterministicCodexHandoffSummary(request.session, request.reason);
+    }
+
+    const compaction: SessionCompactionSummary = {
+      id: `${request.session.id}-codex-handoff-${Date.now()}`,
+      provider: "codex" as const,
+      contextVersion: request.session.contextVersion ?? 0,
+      createdAt: new Date().toISOString(),
+      trigger: "manual" as const,
+      source: summarySource,
+      summary: summary.trim()
+    };
+    request.session.compactionSummaries = [
+      ...(request.session.compactionSummaries ?? []),
+      compaction
+    ].slice(-12);
 
     request.emit({
       id: randomUUID(),
@@ -200,9 +209,7 @@ export class CodexProvider implements AgentProvider {
       sessionId: request.sessionId,
       toolId: compactToolId
     });
-    // Codex app-server reports that compaction completed, but does not expose
-    // a textual compaction summary to forward as handoff context.
-    return undefined;
+    return compaction;
   }
 
   dispose() {
@@ -217,7 +224,10 @@ export class CodexProvider implements AgentProvider {
     this.sinks.clear();
     this.loadedThreads.clear();
     this.approvalHandlers.clear();
-    this.compactWaiters.clear();
+    for (const collector of this.compactionCollectors.values()) {
+      collector.reject(new Error("Codex provider disposed"));
+    }
+    this.compactionCollectors.clear();
     this.cancelledSessions.clear();
     this.initialized = null;
     this.process = null;
@@ -347,6 +357,70 @@ export class CodexProvider implements AgentProvider {
     this.process?.stdin.write(`${JSON.stringify(payload)}\n`);
   }
 
+  private async generateReadableHandoffSummary(
+    request: Parameters<NonNullable<AgentProvider["compact"]>>[0],
+    threadId: string
+  ) {
+    const cwd = defaultCwd(request.session);
+    const fork = await this.request("thread/fork", {
+      threadId,
+      cwd,
+      model: request.settings.model,
+      approvalPolicy: "on-request",
+      sandbox: "read-only",
+      ephemeral: true,
+      excludeTurns: true,
+      persistExtendedHistory: true
+    });
+    const forkThreadId = stringAt(fork, "thread", "id");
+
+    if (!forkThreadId) {
+      throw new Error("Codex did not return a fork thread id for handoff compaction.");
+    }
+
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    try {
+      const summaryPromise = new Promise<string>((resolve, reject) => {
+        timeout = setTimeout(() => {
+          this.compactionCollectors.delete(forkThreadId);
+          reject(new Error("Codex handoff compaction timed out."));
+        }, 90_000);
+
+        this.compactionCollectors.set(forkThreadId, {
+          text: "",
+          resolve,
+          reject
+        });
+      });
+
+      const turnStart = this.request("turn/start", {
+        threadId: forkThreadId,
+        input: codexInput(codexHandoffPrompt(request.reason)),
+        cwd,
+        model: request.settings.model,
+        effort: mapCodexEffort(request.settings.intelligence),
+        ...codexTurnPermissionParams("Default permissions", cwd, "plan")
+      });
+
+      turnStart.catch(() => undefined);
+      await Promise.race([
+        turnStart,
+        summaryPromise.then(() => undefined)
+      ]);
+
+      return await summaryPromise;
+    } finally {
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+      this.compactionCollectors.delete(forkThreadId);
+      await this.request("thread/archive", { threadId: forkThreadId })
+        .catch(() => this.request("thread/unsubscribe", { threadId: forkThreadId }))
+        .catch(() => undefined);
+    }
+  }
+
   private onStdout(chunk: Buffer) {
     this.lineBuffer += chunk.toString("utf8");
     const lines = this.lineBuffer.split(/\r?\n/);
@@ -411,11 +485,15 @@ export class CodexProvider implements AgentProvider {
   }
 
   private handleNotification(method: string, params: JsonRecord) {
+    const threadId = asString(params.threadId);
+
+    if (threadId && this.handleCompactionNotification(threadId, method, params)) {
+      return;
+    }
+
     const session = this.sessionForThread(asString(params.threadId));
 
     if (method === "thread/closed") {
-      const threadId = asString(params.threadId);
-
       if (threadId) {
         this.loadedThreads.delete(threadId);
       }
@@ -427,12 +505,6 @@ export class CodexProvider implements AgentProvider {
 
     if (method === "thread/compacted") {
       const itemId = `${session.id}-codex-compact-${Date.now()}`;
-      const compactWaiter = this.compactWaiters.get(session.id);
-
-      if (compactWaiter) {
-        this.compactWaiters.delete(session.id);
-        compactWaiter();
-      }
 
       session.emit({
         id: randomUUID(),
@@ -577,12 +649,6 @@ export class CodexProvider implements AgentProvider {
         turnId: stringAt(params, "turn", "id"),
         status
       });
-      const compactWaiter = this.compactWaiters.get(session.id);
-
-      if (compactWaiter) {
-        this.compactWaiters.delete(session.id);
-        compactWaiter();
-      }
       return;
     }
 
@@ -602,6 +668,61 @@ export class CodexProvider implements AgentProvider {
       });
       return;
     }
+  }
+
+  private handleCompactionNotification(
+    threadId: string,
+    method: string,
+    params: JsonRecord
+  ) {
+    const collector = this.compactionCollectors.get(threadId);
+
+    if (!collector) {
+      return false;
+    }
+
+    if (method === "turn/started") {
+      collector.turnId = stringAt(params, "turn", "id");
+      return true;
+    }
+
+    if (method === "item/agentMessage/delta") {
+      collector.text += asString(params.delta) ?? "";
+      return true;
+    }
+
+    if (method === "item/completed") {
+      const item = asRecord(params.item);
+
+      if (asString(item.type) === "agentMessage") {
+        collector.finalText = asString(item.text) ?? collector.finalText;
+      }
+
+      return true;
+    }
+
+    if (method === "turn/completed") {
+      const status = codexTurnCompletionStatus(params);
+
+      if (status === "error") {
+        collector.reject(
+          new Error(codexTurnErrorMessage(params) ?? "Codex handoff compaction failed.")
+        );
+      } else {
+        collector.resolve((collector.finalText ?? collector.text).trim());
+      }
+
+      return true;
+    }
+
+    if (method.includes("error") || method.includes("failed")) {
+      collector.reject(
+        new Error(codexTurnErrorMessage(params) ?? `Codex reported ${method}`)
+      );
+      return true;
+    }
+
+    return true;
   }
 
   private sessionForThread(threadId?: string) {
@@ -634,6 +755,126 @@ function normalizeFileChanges(value: unknown) {
     ...asRecord(change),
     path: filePath
   }));
+}
+
+function codexHandoffPrompt(reason: string) {
+  return [
+    "Create a handoff summary for another model/provider that will resume this task.",
+    "",
+    "This is a Composer provider handoff. The next provider will not see your hidden reasoning or provider-local context, so preserve the actionable state needed to continue.",
+    "",
+    "Include:",
+    "- Current user goal and latest explicit request.",
+    "- Progress made and important decisions.",
+    "- Files changed or inspected, with paths when known.",
+    "- Commands and tests run, including outcomes when known.",
+    "- Constraints, preferences, and assumptions that should carry forward.",
+    "- Unresolved risks, blockers, or verification gaps.",
+    "- Concrete next steps for the next provider.",
+    "",
+    "Rules:",
+    "- Distinguish verified facts from assumptions.",
+    "- Do not reveal hidden chain-of-thought or private reasoning.",
+    "- Output Markdown only, without code fences.",
+    "- Target 400-1200 words.",
+    `- Handoff reason: ${reason}.`
+  ].join("\n");
+}
+
+function deterministicCodexHandoffSummary(session: SessionContent, reason: string) {
+  const userMessages = latestItems(
+    session.items,
+    (item): item is Extract<ConversationItem, { type: "user_message" }> =>
+      item.type === "user_message",
+    5
+  ).map((item) => `- ${truncate(item.body, 600)}`);
+
+  const assistantMessages = latestItems(
+    session.items,
+    (item): item is Extract<ConversationItem, { type: "assistant_message" }> =>
+      item.type === "assistant_message" &&
+      (item.provider === undefined || item.provider === "codex"),
+    5
+  ).map((item) => `- ${truncate(item.body, 900)}`);
+
+  const toolGroups = latestItems(
+    session.items,
+    (item): item is Extract<ConversationItem, { type: "tool_group" }> =>
+      item.type === "tool_group" &&
+      (item.provider === undefined || item.provider === "codex"),
+    8
+  ).map(formatToolGroupForHandoff);
+
+  const notices = latestItems(
+    session.items,
+    (item): item is Extract<ConversationItem, { type: "notice" }> =>
+      item.type === "notice",
+    5
+  ).map((item) => `- ${truncate(item.label, 500)}`);
+
+  return [
+    "# Codex Handoff Summary",
+    "",
+    `Handoff reason: ${reason}.`,
+    "",
+    "This summary was assembled deterministically from the visible Composer transcript because Codex did not return a readable handoff summary.",
+    "",
+    "## Recent User Requests",
+    userMessages.length ? userMessages.join("\n") : "- No visible user requests found.",
+    "",
+    "## Recent Codex Output",
+    assistantMessages.length ? assistantMessages.join("\n") : "- No visible Codex assistant output found.",
+    "",
+    "## Recent Tools, Commands, And File Activity",
+    toolGroups.length ? toolGroups.join("\n") : "- No visible Codex tool activity found.",
+    "",
+    "## Errors Or Notices",
+    notices.length ? notices.join("\n") : "- No visible errors or notices found.",
+    "",
+    "## Next Provider Guidance",
+    "- Continue from the latest user request.",
+    "- Re-inspect files or command output before relying on details that are not explicit above.",
+    "- Treat this fallback summary as lower fidelity than a provider-generated handoff."
+  ].join("\n");
+}
+
+function latestItems<T extends ConversationItem>(
+  items: ConversationItem[],
+  predicate: (item: ConversationItem) => item is T,
+  limit: number
+) {
+  return items.filter(predicate).slice(-limit);
+}
+
+function formatToolGroupForHandoff(
+  item: Extract<ConversationItem, { type: "tool_group" }>
+) {
+  const details = item.details
+    .map((detail) => {
+      const bits = [
+        detail.command ? `command=${detail.command}` : undefined,
+        detail.path ? `path=${detail.path}` : undefined,
+        detail.output ? `output=${truncate(detail.output, 300)}` : undefined
+      ].filter(Boolean);
+
+      return bits.length
+        ? `${detail.label} (${bits.join("; ")})`
+        : detail.label;
+    })
+    .filter(Boolean)
+    .slice(0, 4);
+
+  return `- ${truncate(item.summary, 300)}${details.length ? `: ${details.join(" | ")}` : ""}`;
+}
+
+function truncate(value: string, maxLength: number) {
+  const trimmed = value.trim();
+
+  if (trimmed.length <= maxLength) {
+    return trimmed;
+  }
+
+  return `${trimmed.slice(0, maxLength - 3).trimEnd()}...`;
 }
 
 function codexTurnCompletionStatus(params: JsonRecord) {

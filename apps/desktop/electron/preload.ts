@@ -43,6 +43,8 @@ contextBridge.exposeInMainWorld("composer", {
       platform: string;
     }>,
   getAgentServer: () => ipcRenderer.invoke("composer:get-agent-server"),
+  openExternalUrl: (url: string) =>
+    ipcRenderer.invoke("composer:open-external-url", url) as Promise<void>,
   listLocalSessions: () => ipcRenderer.invoke("composer:list-local-sessions"),
   updateSessionVisibility: (request: {
     sessionId: string;

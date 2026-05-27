@@ -74,6 +74,11 @@ export type SessionCompactionSummary = {
   contextVersion: number;
   createdAt: string;
   trigger?: "manual" | "auto";
+  source?:
+    | "claude-post-compact"
+    | "codex-handoff-turn"
+    | "deterministic-fallback"
+    | "codex-native-opaque";
   summary: string;
   preTokens?: number;
   postTokens?: number;
@@ -266,6 +271,7 @@ export type ConversationItem =
       layoutGroupId?: string;
       layoutTitle?: string;
       defaultOpen?: boolean;
+      status?: ToolStatus;
     }
   | {
       id: string;

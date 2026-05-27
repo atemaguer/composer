@@ -30,6 +30,7 @@ import {
   getMediaCategory
 } from "@/components/ai-elements/attachments";
 import { MessageResponse } from "@/components/ai-elements/message";
+import { Shimmer } from "@/components/ai-elements/shimmer";
 import type {
   ConversationAttachment,
   ConversationItem,
@@ -100,6 +101,20 @@ export function Conversation({
       ),
     [items]
   );
+  const activeToolLabels = useMemo(
+    () =>
+      pendingItems
+        .filter((item) => item.status === "running")
+        .map((item) => item.label),
+    [pendingItems]
+  );
+  const activeToolId = useMemo(
+    () =>
+      pendingItems.some((item) => item.status === "running")
+        ? latestToolGroupId(timelineItems)
+        : undefined,
+    [pendingItems, timelineItems]
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
@@ -155,10 +170,15 @@ export function Conversation({
           <ConversationTimeline
             items={timelineItems}
             cwd={cwd}
+            activeToolLabels={activeToolLabels}
+            activeToolId={activeToolId}
             parallelAdoption={parallelAdoption}
             onOpenFile={onOpenFile}
             onReviewChanges={onReviewChanges}
           />
+          {pendingItems.length > 0 && !hasOutputAfterLatestUser(items) && (
+            <ThinkingIndicator />
+          )}
         </div>
       </div>
 
@@ -208,6 +228,65 @@ function groupConsecutiveToolActivity(
   }
 
   return grouped;
+}
+
+function hasOutputAfterLatestUser(items: ConversationItem[]) {
+  let latestUserIndex = -1;
+
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    if (items[index].type === "user_message") {
+      latestUserIndex = index;
+      break;
+    }
+  }
+
+  if (latestUserIndex === -1) {
+    return items.some(isStreamOutputItem);
+  }
+
+  return items.slice(latestUserIndex + 1).some(isStreamOutputItem);
+}
+
+function latestToolGroupId(items: ConversationItem[]): string | undefined {
+  for (let index = items.length - 1; index >= 0; index -= 1) {
+    const item = items[index];
+
+    if (item.type === "tool_group") {
+      return item.id;
+    }
+
+    if (item.type === "parallel_thread_group") {
+      for (let columnIndex = item.columns.length - 1; columnIndex >= 0; columnIndex -= 1) {
+        const id = latestToolGroupId(item.columns[columnIndex].items);
+
+        if (id) {
+          return id;
+        }
+      }
+    }
+  }
+
+  return undefined;
+}
+
+function isStreamOutputItem(item: ConversationItem) {
+  return (
+    item.type === "assistant_message" ||
+    item.type === "tool_group" ||
+    item.type === "file_change_summary" ||
+    item.type === "notice" ||
+    item.type === "turn_status"
+  );
+}
+
+function ThinkingIndicator() {
+  return (
+    <div className="mx-auto mt-4 grid w-full max-w-[820px] gap-2 text-[14px] text-app-muted">
+      <Shimmer as="span" className="w-fit font-medium" duration={1.6} spread={3}>
+        Thinking
+      </Shimmer>
+    </div>
+  );
 }
 
 type ParallelThreadItem = Extract<
@@ -506,7 +585,14 @@ function mergeToolActivityBatch(batch: ToolGroupItem[]): ToolGroupItem {
       )
       .filter(isInformativeToolDetail),
     provider: toolActivityBatchProvider(batch),
-    defaultOpen: batch.some((tool) => tool.defaultOpen)
+    defaultOpen: batch.some((tool) => tool.defaultOpen),
+    status: batch.some((tool) => tool.status === "running")
+      ? "running"
+      : batch.some((tool) => tool.status === "failed")
+        ? "failed"
+        : batch.every((tool) => tool.status === "completed")
+          ? "completed"
+          : undefined
   };
 }
 
@@ -597,12 +683,16 @@ function providerLabel(provider: SessionProvider) {
 export function ConversationTimeline({
   items,
   cwd,
+  activeToolLabels = [],
+  activeToolId,
   parallelAdoption,
   onOpenFile,
   onReviewChanges
 }: {
   items: ConversationItem[];
   cwd?: string;
+  activeToolLabels?: string[];
+  activeToolId?: string;
   parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
@@ -615,6 +705,8 @@ export function ConversationTimeline({
             key={item.id}
             item={item}
             cwd={cwd}
+            activeToolLabels={activeToolLabels}
+            activeToolId={activeToolId}
             parallelAdoption={parallelAdoption}
             onOpenFile={onOpenFile}
             onReviewChanges={onReviewChanges}
@@ -628,12 +720,16 @@ export function ConversationTimeline({
 function ConversationItemView({
   item,
   cwd,
+  activeToolLabels = [],
+  activeToolId,
   parallelAdoption,
   onOpenFile,
   onReviewChanges
 }: {
   item: ConversationItem;
   cwd?: string;
+  activeToolLabels?: string[];
+  activeToolId?: string;
   parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
@@ -668,6 +764,8 @@ function ConversationItemView({
       <ToolActivityGroup
         item={item}
         cwd={cwd}
+        activeToolLabels={activeToolLabels}
+        activeToolId={activeToolId}
         onOpenFile={onOpenFile}
         onReviewChanges={onReviewChanges}
       />
@@ -679,6 +777,8 @@ function ConversationItemView({
       <ParallelThreadGroup
         item={item}
         cwd={cwd}
+        activeToolLabels={activeToolLabels}
+        activeToolId={activeToolId}
         parallelAdoption={parallelAdoption}
         onOpenFile={onOpenFile}
         onReviewChanges={onReviewChanges}
@@ -712,69 +812,105 @@ function ConversationItemView({
 function ParallelThreadGroup({
   item,
   cwd,
+  activeToolLabels = [],
+  activeToolId,
   parallelAdoption,
   onOpenFile,
   onReviewChanges
 }: {
   item: ParallelThreadGroupItem;
   cwd?: string;
+  activeToolLabels?: string[];
+  activeToolId?: string;
   parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
+  const hasSelection = Boolean(parallelAdoption?.selectedProvider);
+
   return (
-    <div className="grid gap-3 xl:grid-cols-2">
-      {item.columns.map((column) => (
-        <section
-          key={column.provider}
-          className={cn(
-            "min-w-0 rounded-lg border border-app-line bg-app-panel/45 p-3",
-            "shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_4%,transparent)]"
-          )}
-          aria-label={column.title}
-        >
-          <div className="mb-3 flex min-w-0 items-center gap-2 border-b border-app-line pb-2 text-[12px] font-medium text-app-muted">
-            <ProviderLogo
-              provider={column.provider}
-              className={cn(
-                "h-3.5 w-3.5",
-                column.provider === "claude" && appSuccessText,
-                column.provider === "codex" && appAccentText
+    <div className="grid gap-3">
+      <div className="grid gap-1.5">
+        <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium uppercase tracking-[0.08em] text-app-dim">
+          <span className="h-px w-6 bg-app-line" />
+          <span>Parallel threads</span>
+        </div>
+        {item.prompt && (
+          <div className="max-w-[820px] truncate text-[13px] text-app-muted">
+            {item.prompt}
+          </div>
+        )}
+      </div>
+      <div className="grid gap-3 lg:grid-cols-2">
+        {item.columns.map((column) => (
+          <section
+            key={column.provider}
+            className={cn(
+              "min-w-0 overflow-hidden rounded-xl border border-app-line bg-app-panel/45",
+              "shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_4%,transparent)] transition",
+              hasSelection &&
+                parallelAdoption?.selectedProvider !== column.provider &&
+                "opacity-60",
+              parallelAdoption?.selectedProvider === column.provider &&
+                "border-app-line-bright bg-app-panel/70"
+            )}
+            aria-label={column.title}
+          >
+            <div className="grid min-h-[42px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-app-line px-3 text-[12px] font-medium text-app-muted">
+              <div className="flex min-w-0 items-center gap-2">
+                <ProviderLogo
+                  provider={column.provider}
+                  className={cn(
+                    "h-3.5 w-3.5",
+                    column.provider === "claude" && appSuccessText,
+                    column.provider === "codex" && appAccentText
+                  )}
+                />
+                <span className="truncate">{column.title}</span>
+              </div>
+              {parallelAdoption?.selectedProvider === column.provider && (
+                <span className="inline-flex h-5 items-center rounded-full border border-app-line bg-app-text/[0.05] px-2 text-[11px] text-app-text">
+                  Selected
+                </span>
               )}
-            />
-            <span className="truncate">{column.title}</span>
-          </div>
-          <div className="grid min-w-0 gap-4">
-            {parallelColumnItems(column.items).map((columnItem, index) => (
-              <ConversationItemView
-                key={`${columnItem.id}-${index}`}
-                item={columnItem}
-                cwd={cwd}
-                parallelAdoption={parallelAdoption}
-                onOpenFile={onOpenFile}
-                onReviewChanges={onReviewChanges}
-              />
-            ))}
-          </div>
-          {parallelAdoption?.required && isDelegateProvider(column.provider) && (
-            <div className="mt-4 border-t border-app-line pt-3">
-              <ParallelContinueButton
-                provider={column.provider}
-                onAdopt={parallelAdoption.onAdopt}
-              />
             </div>
-          )}
-        </section>
-      ))}
+            <div className="grid min-w-0 gap-4 p-3">
+              {parallelColumnItems(column.items).map((columnItem, index) => (
+                <ConversationItemView
+                  key={`${columnItem.id}-${index}`}
+                  item={columnItem}
+                  cwd={cwd}
+                  activeToolLabels={activeToolLabels}
+                  activeToolId={activeToolId}
+                  parallelAdoption={parallelAdoption}
+                  onOpenFile={onOpenFile}
+                  onReviewChanges={onReviewChanges}
+                />
+              ))}
+            </div>
+            {parallelAdoption?.required && isDelegateProvider(column.provider) && (
+              <div className="border-t border-app-line p-3">
+                <ParallelContinueButton
+                  provider={column.provider}
+                  selected={parallelAdoption.selectedProvider === column.provider}
+                  onAdopt={parallelAdoption.onAdopt}
+                />
+              </div>
+            )}
+          </section>
+        ))}
+      </div>
     </div>
   );
 }
 
 function ParallelContinueButton({
   provider,
+  selected = false,
   onAdopt
 }: {
   provider: DelegateSessionProvider;
+  selected?: boolean;
   onAdopt: (provider: DelegateSessionProvider) => void;
 }) {
   return (
@@ -782,12 +918,17 @@ function ParallelContinueButton({
       type="button"
       className={cn(
         "inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border px-3 text-[12px] font-medium transition-colors",
-        "border-app-line bg-app-panel/60 text-app-muted hover:bg-app-hover hover:text-app-text"
+        selected
+          ? "border-app-line-bright bg-app-text/[0.08] text-app-text"
+          : "border-app-line bg-app-panel/60 text-app-muted hover:bg-app-hover hover:text-app-text"
       )}
+      disabled={selected}
       onClick={() => onAdopt(provider)}
     >
       <Check size={13} />
-      Continue with {providerLabel(provider)}
+      {selected
+        ? `Continuing with ${providerLabel(provider)}`
+        : `Continue with ${providerLabel(provider)}`}
     </button>
   );
 }
@@ -828,7 +969,7 @@ function isInitialUserEchoTool(item: ToolGroupItem) {
 
 export function TurnStatusDivider({ label }: { label: string }) {
   return (
-    <div className="grid gap-3">
+    <div className="grid max-w-[820px] gap-3">
       <div className="text-[15px] text-app-muted">{label}</div>
       <div className="h-px bg-app-line" />
     </div>
@@ -846,6 +987,15 @@ export function UserMessageBubble({
   steered?: boolean;
   onOpenFile?: (filePath: string) => void;
 }) {
+  const [copied, setCopied] = useState(false);
+
+  const copyMessage = () => {
+    void navigator.clipboard?.writeText(body).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    });
+  };
+
   return (
     <div className="grid justify-items-end gap-1.5">
       {steered && (
@@ -863,10 +1013,11 @@ export function UserMessageBubble({
         {timestamp && <span>{timestamp}</span>}
         <TooltipButton
           className={subtleIconButton}
-          aria-label="Copy user message"
-          tooltip="Copy message"
+          aria-label={copied ? "Copied user message" : "Copy user message"}
+          tooltip={copied ? "Copied" : "Copy message"}
+          onClick={copyMessage}
         >
-          <Copy size={13} />
+          {copied ? <Check size={13} /> : <Copy size={13} />}
         </TooltipButton>
       </div>
     </div>
@@ -883,7 +1034,7 @@ export function AssistantMessageBlock({
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   return (
-    <div className="grid gap-3">
+    <div className="grid max-w-[820px] gap-3">
       <ChatMessageMarkdown tone="assistant" onOpenFile={onOpenFile}>
         {item.body}
       </ChatMessageMarkdown>
@@ -1313,21 +1464,29 @@ function extractTextContent(value: ReactNode): string {
 export function ToolActivityGroup({
   item,
   cwd,
+  activeToolLabels = [],
+  activeToolId,
   onOpenFile,
   onReviewChanges
 }: {
   item: Extract<ConversationItem, { type: "tool_group" }>;
   cwd?: string;
+  activeToolLabels?: string[];
+  activeToolId?: string;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   const [open, setOpen] = useState(Boolean(item.defaultOpen));
+  const active =
+    item.status === "running" ||
+    item.id === activeToolId ||
+    matchesActiveToolLabel(item, activeToolLabels);
   const defaultExpandedCommandIndex = item.details.findIndex(
     (detail) => detail.tone === "command"
   );
 
   return (
-    <div className="grid gap-2.5" data-tool-activity-group>
+    <div className="grid max-w-[820px] gap-2.5" data-tool-activity-group>
       <TooltipButton
         className={cn(
           "grid w-fit max-w-full items-center gap-2 text-left text-[13.5px] text-app-dim transition-colors hover:text-app-muted",
@@ -1343,7 +1502,15 @@ export function ToolActivityGroup({
           <ProviderLogo provider={item.provider} className="h-3.5 w-3.5 text-app-muted" />
         )}
         <TerminalSquare size={13} className={dimIcon} />
-        <span className="truncate">{item.summary}</span>
+        {active ? (
+          <Shimmer as="span" className="truncate font-medium" duration={1.5} spread={3}>
+            {item.summary}
+          </Shimmer>
+        ) : (
+          <span className={cn("truncate", active && "font-medium text-app-muted")}>
+            {item.summary}
+          </span>
+        )}
         <ChevronDown
           size={16}
           className={cn(
@@ -1366,6 +1533,7 @@ export function ToolActivityGroup({
                 Boolean(item.defaultOpen) &&
                 index === defaultExpandedCommandIndex
               }
+              active={active && isActiveToolDetail(detail, index, item.details)}
             />
           ))}
         </div>
@@ -1374,18 +1542,67 @@ export function ToolActivityGroup({
   );
 }
 
+function isActiveToolDetail(
+  detail: ToolDetail,
+  index: number,
+  details: ToolDetail[]
+) {
+  return detail.status === "running" || index === details.length - 1;
+}
+
+function matchesActiveToolLabel(item: ToolGroupItem, labels: string[]) {
+  if (labels.length === 0) {
+    return false;
+  }
+
+  const groupText = normalizeToolMatchText([
+    item.summary,
+    ...item.details.flatMap((detail) => [
+      detail.label,
+      detail.toolName,
+      detail.command,
+      detail.path,
+      detail.output
+    ])
+  ]);
+
+  if (!groupText) {
+    return false;
+  }
+
+  return labels.some((label) => {
+    const activeText = normalizeToolMatchText([label]);
+
+    return (
+      activeText.length > 0 &&
+      (groupText.includes(activeText) || activeText.includes(groupText))
+    );
+  });
+}
+
+function normalizeToolMatchText(values: Array<string | undefined>) {
+  return values
+    .filter((value): value is string => Boolean(value?.trim()))
+    .join(" ")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function ToolDetailRow({
   detail,
   cwd,
   onOpenFile,
   onReviewChanges,
-  defaultOpen = false
+  defaultOpen = false,
+  active = false
 }: {
   detail: ToolDetail;
   cwd?: string;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
   defaultOpen?: boolean;
+  active?: boolean;
 }) {
   const reviewFiles = detail.reviewFiles ?? [];
   const expandable =
@@ -1419,16 +1636,30 @@ function ToolDetailRow({
           aria-expanded={open}
           tooltip={detail.label}
         >
-          <span
-            className={cn(
-              "truncate",
-              detail.tone === "command" && "font-mono text-[12px]",
-              detail.tone === "output" && "text-app-dim",
-              detail.action === "edit" && "text-app-muted"
-            )}
-          >
-            {rowLabel}
-          </span>
+          {active ? (
+            <Shimmer
+              as="span"
+              className={cn(
+                "truncate",
+                detail.tone === "command" && "font-mono text-[12px]"
+              )}
+              duration={1.35}
+              spread={3}
+            >
+              {rowLabel}
+            </Shimmer>
+          ) : (
+            <span
+              className={cn(
+                "truncate",
+                detail.tone === "command" && "font-mono text-[12px]",
+                detail.tone === "output" && "text-app-dim",
+                detail.action === "edit" && "text-app-muted"
+              )}
+            >
+              {rowLabel}
+            </span>
+          )}
           <ChevronDown
             className={cn("text-app-dim transition-transform", !open && "-rotate-90")}
             size={15}
@@ -1452,7 +1683,13 @@ function ToolDetailRow({
       onClick={() => filePath && onOpenFile?.(filePath)}
       tooltip={detail.label}
     >
-      {rowLabel}
+      {active ? (
+        <Shimmer as="span" className="truncate" duration={1.35} spread={3}>
+          {rowLabel}
+        </Shimmer>
+      ) : (
+        rowLabel
+      )}
     </TooltipButton>
   );
 }
@@ -1694,14 +1931,16 @@ export function RunningToolCard({
   return (
     <div
       className={cn(
-        "grid grid-cols-[22px_minmax(0,1fr)_22px_22px] items-center gap-2.5 border border-app-line bg-app-panel/92 px-3.5 text-[14px] text-app-muted shadow-[0_12px_34px_color-mix(in_srgb,var(--color-app-bg)_24%,transparent)]",
+        "grid max-w-[820px] grid-cols-[22px_minmax(0,1fr)_22px_22px] items-center gap-2.5 border border-app-line bg-app-panel/92 px-3.5 text-[14px] text-app-muted shadow-[0_12px_34px_color-mix(in_srgb,var(--color-app-bg)_24%,transparent)]",
         overlay
           ? "h-[58px] rounded-t-2xl border-b-0 pb-1.5"
           : "h-[50px] rounded-lg"
       )}
     >
       <TerminalSquare size={15} />
-      <span className="truncate">{label}</span>
+      <Shimmer as="span" className="truncate font-medium" duration={1.45} spread={3}>
+        {label}
+      </Shimmer>
       <TooltipButton
         className={subtleIconButton}
         aria-label="Stop running tool"
@@ -1730,7 +1969,7 @@ export function FileChangeSummaryCard({
   const [open, setOpen] = useState(Boolean(item.defaultOpen));
 
   return (
-    <div className="overflow-hidden rounded-lg border border-app-line bg-app-panel/94 shadow-[0_14px_34px_color-mix(in_srgb,var(--color-app-bg)_24%,transparent)]">
+    <div className="max-w-[820px] overflow-hidden rounded-lg border border-app-line bg-app-panel/94 shadow-[0_14px_34px_color-mix(in_srgb,var(--color-app-bg)_24%,transparent)]">
       <div className="grid min-h-[46px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-app-line px-3.5">
         <div className="min-w-0 truncate text-[14px] text-app-text">
           {item.summary}{" "}
@@ -1832,7 +2071,7 @@ function fileChangeRowToReviewFile(file: FileChangeRow): ReviewDiffFile {
 
 export function HookEventRow({ label }: { label: string }) {
   return (
-    <div className="inline-flex w-fit items-center gap-2 text-[13px] text-app-dim/70">
+    <div className="inline-flex w-fit max-w-[820px] items-center gap-2 text-[13px] text-app-dim/70">
       <Anchor size={13} />
       <span>{label}</span>
     </div>
@@ -1845,7 +2084,7 @@ function NoticeRow({ label }: { label: string }) {
   return (
     <div
       className={cn(
-        "rounded-[12px] px-3 py-2 text-[13px]",
+        "max-w-[820px] rounded-[12px] px-3 py-2 text-[13px]",
         isError
           ? "border border-destructive/20 bg-destructive/10 text-destructive"
           : "text-app-dim/70"
