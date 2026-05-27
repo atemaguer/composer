@@ -29,7 +29,7 @@ import type {
   LiveAgentEvent,
   Project,
   SessionContent,
-  SessionHandoffSummary,
+  SessionCompactionSummary,
   SessionProvider,
   SessionSnapshot,
   ToolDetail
@@ -78,7 +78,7 @@ type ProviderCompactRequest = {
 
 export interface AgentProvider {
   run(request: ProviderRunRequest): Promise<void>;
-  compact?(request: ProviderCompactRequest): Promise<void>;
+  compact?(request: ProviderCompactRequest): Promise<SessionCompactionSummary | undefined>;
   interrupt(sessionId: string): Promise<void>;
   dispose(): Promise<void> | void;
 }
@@ -429,7 +429,7 @@ export class AgentRuntime {
     this.activeRunProviders.set(request.sessionId, provider);
 
     const run = (async () => {
-      await this.compactPreviousProviderForHandoff(
+      const contextPrompt = await this.compactPreviousProviderForHandoff(
         parentSession,
         previousProvider,
         provider,
@@ -440,13 +440,6 @@ export class AgentRuntime {
 
       const providerSession = sessionForProvider(parentSession, provider);
       const contextVersion = (parentSession.contextVersion ?? 0) + 1;
-      const contextPrompt = coherentPrompt({
-        session: parentSession,
-        provider,
-        previousProvider,
-        prompt: request.prompt,
-        contextVersion
-      });
 
       parentSession.contextVersion = contextVersion;
       parentSession.lastProvider = provider;
@@ -512,31 +505,32 @@ export class AgentRuntime {
     previousProvider: SessionProvider | undefined,
     nextProvider: RuntimeSessionProvider,
     request: ProviderRunRequest
-  ) {
+  ): Promise<string | undefined> {
     if (
       !previousProvider ||
       previousProvider === nextProvider ||
       !isRuntimeProvider(previousProvider)
     ) {
-      return;
+      return undefined;
     }
 
     const provider = this.providers[previousProvider];
 
     if (!provider.compact) {
-      return;
+      return undefined;
     }
 
     const providerSession = sessionForProvider(session, previousProvider);
 
     if (!providerSession.providerSessionId) {
-      return;
+      return undefined;
     }
 
     this.activeRunProviders.set(request.sessionId, previousProvider);
+    let compaction: SessionCompactionSummary | undefined;
 
     try {
-      await provider.compact({
+      compaction = await provider.compact({
         sessionId: request.sessionId,
         session: providerSession,
         settings: request.settings,
@@ -577,6 +571,10 @@ export class AgentRuntime {
       type: "session.updated",
       session
     });
+
+    return compaction
+      ? nativeHandoffContext(previousProvider, nextProvider, compaction)
+      : undefined;
   }
 
   private async askApproval(
@@ -1104,20 +1102,6 @@ function completeProviderTurn(
   }
 
   const contextVersion = session.contextVersion ?? 0;
-  const handoffExists = session.handoffSummaries?.some(
-    (summary) =>
-      summary.provider === resolvedProvider &&
-      summary.contextVersion === contextVersion
-  );
-
-  if (!handoffExists) {
-    const summary = buildHandoffSummary(session, resolvedProvider, contextVersion);
-    session.handoffSummaries = [
-      ...(session.handoffSummaries ?? []),
-      summary
-    ].slice(-12);
-  }
-
   const providerSessions = { ...(session.providerSessions ?? {}) };
   const state = providerSessions[resolvedProvider] ?? {};
   providerSessions[resolvedProvider] = {
@@ -1127,117 +1111,22 @@ function completeProviderTurn(
   session.providerSessions = providerSessions;
 }
 
-function coherentPrompt({
-  session,
-  provider,
-  previousProvider,
-  prompt,
-  contextVersion
-}: {
-  session: SessionContent;
-  provider: RuntimeSessionProvider;
-  previousProvider?: SessionProvider;
-  prompt: string;
-  contextVersion: number;
-}) {
-  const providerState = session.providerSessions?.[provider];
-  const staleProviderContext =
-    providerState?.lastContextVersion !== undefined &&
-    providerState.lastContextVersion < (session.contextVersion ?? 0);
+function nativeHandoffContext(
+  previousProvider: RuntimeSessionProvider,
+  nextProvider: RuntimeSessionProvider,
+  compaction: SessionCompactionSummary
+) {
+  const tokenRange =
+    compaction.preTokens !== undefined
+      ? ` (${compaction.preTokens}${compaction.postTokens !== undefined ? ` -> ${compaction.postTokens}` : ""} tokens)`
+      : "";
   const lines = [
-    "Composer context packet. Treat this packet as authoritative when it conflicts with older provider-local memory. Do not quote it back unless it is directly useful.",
-    `Context version: ${contextVersion}`,
-    `Session title: ${session.title}`,
-    `Current delegate: ${providerLabel(provider)}`,
-    previousProvider && previousProvider !== provider
-      ? `Provider switch: previous turn used ${providerLabel(previousProvider)}; this turn uses ${providerLabel(provider)}.`
-      : `Provider continuity: this turn uses ${providerLabel(provider)}.`,
-    staleProviderContext
-      ? `Provider-local memory may be stale; it last saw context version ${providerState?.lastContextVersion}.`
-      : undefined,
+    "Composer provider handoff context. This is attached only because the active provider changed.",
+    `Provider switch: ${providerLabel(previousProvider)} -> ${providerLabel(nextProvider)}.`,
+    `Native compaction: ${providerLabel(compaction.provider)} ${compaction.trigger ?? "unknown"} compact at context v${compaction.contextVersion}${tokenRange}.`,
     "",
-    "Session rules:",
-    "- The Composer transcript, current workspace, and this context packet are the source of truth.",
-    "- Preserve unresolved decisions and assumptions from previous handoffs.",
-    "- Inspect files or command output again when the workspace state matters.",
-    "- End with a concise handoff summary covering changes, verification, risks, and next owner when relevant.",
-    "",
-    "Recent user requests:",
-    recentUserRequests(session),
-    "",
-    "Recent provider handoffs:",
-    recentHandoffs(session),
-    "",
-    "Native provider compactions:",
-    recentCompactions(session),
-    "",
-    "Workspace snapshot:",
-    workspaceSnapshot(session),
-    "",
-    "User request:",
-    prompt
+    compaction.summary
   ].filter((line): line is string => typeof line === "string");
-
-  return lines.join("\n");
-}
-
-function recentUserRequests(session: SessionContent) {
-  const requests = session.items
-    .filter((item) => item.type === "user_message")
-    .slice(-4)
-    .map((item) => `- ${truncateText(item.body, 700)}`);
-
-  return requests.length > 0 ? requests.join("\n") : "- None recorded";
-}
-
-function recentHandoffs(session: SessionContent) {
-  const summaries = (session.handoffSummaries ?? [])
-    .slice(-5)
-    .map((summary) => [
-      `- ${providerLabel(summary.provider)} at context v${summary.contextVersion}: ${truncateText(summary.summary, 500)}`,
-      summary.filesChanged.length > 0
-        ? `  Files: ${summary.filesChanged.slice(0, 8).join(", ")}`
-        : undefined,
-      summary.commandsRun.length > 0
-        ? `  Commands: ${summary.commandsRun.slice(0, 6).join(" | ")}`
-        : undefined,
-      summary.testsRun.length > 0
-        ? `  Verification: ${summary.testsRun.slice(0, 4).join(" | ")}`
-        : undefined
-    ].filter((line): line is string => Boolean(line)).join("\n"));
-
-  return summaries.length > 0 ? summaries.join("\n") : "- No previous handoffs";
-}
-
-function recentCompactions(session: SessionContent) {
-  const summaries = (session.compactionSummaries ?? [])
-    .slice(-4)
-    .map((summary) => {
-      const tokenRange =
-        summary.preTokens !== undefined
-          ? ` (${summary.preTokens}${summary.postTokens !== undefined ? ` -> ${summary.postTokens}` : ""} tokens)`
-          : "";
-      return `- ${providerLabel(summary.provider)} ${summary.trigger ?? "unknown"} compact at context v${summary.contextVersion}${tokenRange}: ${truncateText(summary.summary, 500)}`;
-    });
-
-  return summaries.length > 0 ? summaries.join("\n") : "- No native compactions recorded";
-}
-
-function workspaceSnapshot(session: SessionContent) {
-  const cwd = defaultCwd(session);
-  const status = runGit(cwd, ["status", "--short"]);
-  const diffStat = runGit(cwd, ["diff", "--stat", "--", "."]);
-  const lines = [`- CWD: ${cwd}`];
-
-  if (status === null) {
-    lines.push("- Git status: unavailable or not a git repository");
-  } else {
-    lines.push(`- Git status: ${status || "clean"}`);
-  }
-
-  if (diffStat) {
-    lines.push(`- Diff stat: ${diffStat}`);
-  }
 
   return lines.join("\n");
 }
@@ -1256,86 +1145,6 @@ function runGit(cwd: string, args: string[]) {
   return result.stdout.trim();
 }
 
-function buildHandoffSummary(
-  session: SessionContent,
-  provider: RuntimeSessionProvider,
-  contextVersion: number
-): SessionHandoffSummary {
-  const turnItems = latestTurnItems(session);
-  const assistantText = turnItems
-    .filter((item) => item.type === "assistant_message")
-    .map((item) => item.body.trim())
-    .filter(Boolean)
-    .at(-1);
-  const commandsRun = uniqueStrings(extractCommands(turnItems)).slice(0, 12);
-  const filesChanged = uniqueStrings(extractFiles(turnItems)).slice(0, 16);
-
-  return {
-    id: `${session.id}-handoff-${contextVersion}-${provider}`,
-    provider,
-    contextVersion,
-    createdAt: new Date().toISOString(),
-    summary: assistantText
-      ? truncateText(assistantText, 1_000)
-      : `${providerLabel(provider)} completed a turn with no assistant summary text.`,
-    filesChanged,
-    commandsRun,
-    testsRun: commandsRun.filter(commandLooksLikeVerification)
-  };
-}
-
-function latestTurnItems(session: SessionContent): SessionContent["items"] {
-  let startIndex = session.items.length > 0 ? session.items.length - 1 : 0;
-
-  for (let index = session.items.length - 1; index >= 0; index -= 1) {
-    if (session.items[index]?.type === "user_message") {
-      startIndex = index;
-      break;
-    }
-  }
-
-  return session.items.slice(startIndex);
-}
-
-function extractCommands(items: SessionContent["items"]) {
-  return items.flatMap((item) => {
-    if (item.type !== "tool_group") {
-      return [];
-    }
-
-    return item.details
-      .map((detail) => detail.command)
-      .filter((command): command is string => Boolean(command));
-  });
-}
-
-function extractFiles(items: SessionContent["items"]) {
-  return items.flatMap((item) => {
-    if (item.type === "file_change_summary") {
-      return item.files.map((file) => file.path);
-    }
-
-    if (item.type !== "tool_group") {
-      return [];
-    }
-
-    return item.details.flatMap((detail) => [
-      detail.path,
-      detail.args?.path,
-      detail.args?.file,
-      detail.args?.filePath
-    ]).filter((value): value is string => Boolean(value));
-  });
-}
-
-function commandLooksLikeVerification(command: string) {
-  return /\b(build|check|jest|lint|playwright|test|tsc|typecheck|vitest)\b/i.test(command);
-}
-
-function uniqueStrings(values: string[]) {
-  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
-}
-
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
   const byId = new Map(current.map((item) => [item.id, item]));
 
@@ -1344,16 +1153,6 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
   }
 
   return [...byId.values()];
-}
-
-function truncateText(value: string, limit: number) {
-  const normalized = value.trim().replace(/\s+/g, " ");
-
-  if (normalized.length <= limit) {
-    return normalized;
-  }
-
-  return `${normalized.slice(0, limit - 3)}...`;
 }
 
 function buildProjects(sessions: Record<string, SessionContent>): Project[] {

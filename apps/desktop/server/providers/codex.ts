@@ -18,6 +18,7 @@ import type {
   IntelligenceMode,
   PermissionMode,
   SessionContent,
+  SessionCompactionSummary,
   ToolDetail
 } from "../../src/types.js";
 
@@ -147,16 +148,17 @@ export class CodexProvider implements AgentProvider {
     this.sinks.set(request.sessionId, request.emit);
     this.approvalHandlers.set(request.sessionId, async () => "decline");
     this.activeTurns.set(request.sessionId, { threadId, turnId: compactToolId });
+    const compaction: SessionCompactionSummary = {
+      id: `${request.session.id}-codex-compact-${Date.now()}`,
+      provider: "codex" as const,
+      contextVersion: request.session.contextVersion ?? 0,
+      createdAt: new Date().toISOString(),
+      trigger: "manual" as const,
+      summary: "Codex completed native context compaction."
+    };
     request.session.compactionSummaries = [
       ...(request.session.compactionSummaries ?? []),
-      {
-        id: `${request.session.id}-codex-compact-${Date.now()}`,
-        provider: "codex" as const,
-        contextVersion: request.session.contextVersion ?? 0,
-        createdAt: new Date().toISOString(),
-        trigger: "manual" as const,
-        summary: `Codex compacted its provider-local context for ${request.reason}.`
-      }
+      compaction
     ].slice(-12);
     request.emit({
       id: randomUUID(),
@@ -198,6 +200,9 @@ export class CodexProvider implements AgentProvider {
       sessionId: request.sessionId,
       toolId: compactToolId
     });
+    // Codex app-server reports that compaction completed, but does not expose
+    // a textual compaction summary to forward as handoff context.
+    return undefined;
   }
 
   dispose() {

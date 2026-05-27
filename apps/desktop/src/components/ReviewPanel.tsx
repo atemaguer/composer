@@ -16,6 +16,7 @@ import {
   LoaderCircle,
   Maximize2,
   MessageSquare,
+  Minimize2,
   MoreHorizontal,
   PanelRight,
   Plus,
@@ -85,6 +86,7 @@ type ReviewPanelProps = {
   workspaceFiles?: WorkspaceFileEntry[];
   workspaceFilesLoading?: boolean;
   workspaceFilesError?: string | null;
+  fullscreen?: boolean;
   onTabChange?: (tab: InspectorPanelTab) => void;
   onAddFilePreviewTab?: () => void;
   onCloseFilePreviewTab?: (filePath?: string) => void;
@@ -94,6 +96,7 @@ type ReviewPanelProps = {
   onBranchComparisonChange?: (comparison: ReviewBranchComparison) => void;
   onAddReviewComment?: (attachment: Omit<ComposerReviewCommentAttachment, "id">) => void;
   onRefreshReview?: () => void;
+  onToggleFullscreen?: () => void;
   onClose?: () => void;
 };
 
@@ -160,6 +163,7 @@ export function ReviewPanel({
   workspaceFiles = [],
   workspaceFilesLoading = false,
   workspaceFilesError,
+  fullscreen = false,
   onTabChange,
   onAddFilePreviewTab,
   onCloseFilePreviewTab,
@@ -169,6 +173,7 @@ export function ReviewPanel({
   onBranchComparisonChange,
   onAddReviewComment,
   onRefreshReview,
+  onToggleFullscreen,
   onClose
 }: ReviewPanelProps) {
   const [scopeMenuOpen, setScopeMenuOpen] = useState(false);
@@ -325,7 +330,10 @@ export function ReviewPanel({
     >
       <div
         className={cn(
-          "thin-scrollbar h-full w-[var(--review-content-width)] min-w-[var(--review-content-width)] overflow-x-hidden",
+          "thin-scrollbar h-full overflow-x-hidden",
+          fullscreen
+            ? "w-full min-w-0"
+            : "w-[var(--review-content-width)] min-w-[var(--review-content-width)]",
           showingBoundedPanel
             ? "grid grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
             : "overflow-y-auto"
@@ -409,12 +417,15 @@ export function ReviewPanel({
                 )}
               </div>
               <TooltipButton
-                className={subtleIconButton}
-                aria-label="Expand inspector"
-                tooltip="Expand inspector"
-                onClick={() => undefined}
+                className={cn(
+                  subtleIconButton,
+                  fullscreen && "bg-app-text/[0.08] text-app-text"
+                )}
+                aria-label={fullscreen ? "Exit fullscreen inspector" : "Expand inspector"}
+                tooltip={fullscreen ? "Exit fullscreen" : "Expand inspector"}
+                onClick={onToggleFullscreen}
               >
-                <Maximize2 size={14} />
+                {fullscreen ? <Minimize2 size={14} /> : <Maximize2 size={14} />}
               </TooltipButton>
               <TooltipButton
                 className={subtleIconButton}

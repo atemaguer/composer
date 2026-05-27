@@ -618,7 +618,7 @@ function readProviderSessionRecord(
 
 function readSessionEvents(db: DatabaseSync) {
   return (db.prepare(
-    "SELECT * FROM session_events ORDER BY timestamp ASC, id ASC"
+    "SELECT * FROM session_events ORDER BY timestamp ASC, rowid ASC"
   ).all() as EventRow[]).map(eventFromRow);
 }
 

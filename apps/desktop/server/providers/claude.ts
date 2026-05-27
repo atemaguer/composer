@@ -21,6 +21,7 @@ import type {
   IntelligenceMode,
   PermissionMode,
   SessionContent,
+  SessionCompactionSummary,
   ToolDetail
 } from "../../src/types.js";
 
@@ -33,6 +34,7 @@ export class ClaudeProvider implements AgentProvider {
     const abortController = new AbortController();
     const compactToolId = `${request.sessionId}-claude-handoff-compact-${Date.now()}`;
     let recordedSummary = false;
+    let latestCompaction: SessionCompactionSummary | undefined;
 
     request.emit({
       id: randomUUID(),
@@ -67,7 +69,7 @@ export class ClaudeProvider implements AgentProvider {
               async (input: HookInput) => {
                 if (input.hook_event_name === "PostCompact") {
                   recordedSummary = true;
-                  recordClaudeCompaction(request.session, {
+                  latestCompaction = recordClaudeCompaction(request.session, {
                     id: `${request.session.id}-claude-compact-${Date.now()}`,
                     contextVersion: request.session.contextVersion ?? 0,
                     trigger: input.trigger,
@@ -109,7 +111,7 @@ export class ClaudeProvider implements AgentProvider {
         }
 
         if (message.type === "system" && message.subtype === "compact_boundary") {
-          recordClaudeCompaction(request.session, {
+          latestCompaction = recordClaudeCompaction(request.session, {
             id: `${request.session.id}-claude-boundary-${Date.now()}`,
             contextVersion: request.session.contextVersion ?? 0,
             trigger: message.compact_metadata.trigger,
@@ -125,7 +127,7 @@ export class ClaudeProvider implements AgentProvider {
       }
 
       if (!recordedSummary) {
-        recordClaudeCompaction(request.session, {
+        latestCompaction = recordClaudeCompaction(request.session, {
           id: `${request.session.id}-claude-compact-fallback-${Date.now()}`,
           contextVersion: request.session.contextVersion ?? 0,
           trigger: "manual",
@@ -139,6 +141,7 @@ export class ClaudeProvider implements AgentProvider {
         sessionId: request.sessionId,
         toolId: compactToolId
       });
+      return latestCompaction;
     } finally {
       this.active.delete(request.sessionId);
     }
@@ -505,14 +508,16 @@ function recordClaudeCompaction(
     postTokens?: number;
   }
 ) {
+  const summary: SessionCompactionSummary = {
+    ...compaction,
+    provider: "claude" as const,
+    createdAt: new Date().toISOString()
+  };
   session.compactionSummaries = [
     ...(session.compactionSummaries ?? []),
-    {
-      ...compaction,
-      provider: "claude" as const,
-      createdAt: new Date().toISOString()
-    }
+    summary
   ].slice(-12);
+  return summary;
 }
 
 function answerClaudeQuestion(input: JsonRecord) {

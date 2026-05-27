@@ -105,6 +105,7 @@ export default function App() {
   const setInspectorResizing = useUiStore(
     (state) => state.setInspectorResizing
   );
+  const [inspectorFullscreen, setInspectorFullscreen] = useState(false);
   const searchOpen = useUiStore((state) => state.searchOpen);
   const setSearchOpen = useUiStore((state) => state.setSearchOpen);
   const searchQuery = useUiStore((state) => state.searchQuery);
@@ -696,6 +697,10 @@ export default function App() {
   }
 
   function startInspectorResize(event: PointerEvent<HTMLDivElement>) {
+    if (inspectorFullscreen) {
+      return;
+    }
+
     event.preventDefault();
     event.currentTarget.setPointerCapture(event.pointerId);
     setInspectorResizing(true);
@@ -718,6 +723,10 @@ export default function App() {
   }
 
   function resizeInspectorWithKeyboard(event: KeyboardEvent<HTMLDivElement>) {
+    if (inspectorFullscreen) {
+      return;
+    }
+
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
       return;
     }
@@ -1283,6 +1292,7 @@ export default function App() {
 
   function showInspector(next: boolean) {
     if (!next) {
+      setInspectorFullscreen(false);
       setInspectorOpen(false);
       return;
     }
@@ -1701,11 +1711,19 @@ export default function App() {
         )}
         style={{
           gridTemplateColumns: inspectorOpen
-            ? "minmax(0, 1fr) var(--review-content-width)"
+            ? inspectorFullscreen
+              ? "0 minmax(0, 1fr)"
+              : "minmax(0, 1fr) var(--review-content-width)"
             : "minmax(0, 1fr) 0"
         }}
       >
-        <section className="grid min-h-0 min-w-0 grid-rows-[44px_minmax(0,1fr)] overflow-hidden">
+        <section
+          className={cn(
+            "grid min-h-0 min-w-0 grid-rows-[44px_minmax(0,1fr)] overflow-hidden",
+            inspectorFullscreen && "pointer-events-none"
+          )}
+          aria-hidden={inspectorFullscreen}
+        >
           <AppChrome
             className="h-11"
             mode={shouldShowConversation ? "session" : "new"}
@@ -1809,7 +1827,7 @@ export default function App() {
             inspectorResizing
               ? "transition-none"
               : "transition-[right,opacity] duration-[220ms] ease-in-out",
-            !inspectorOpen && "pointer-events-none opacity-0"
+            (!inspectorOpen || inspectorFullscreen) && "pointer-events-none opacity-0"
           )}
           style={{ right: inspectorOpen ? "var(--review-content-width)" : 0 }}
           onPointerDown={startInspectorResize}
@@ -1848,6 +1866,7 @@ export default function App() {
           workspaceFiles={workspaceFiles}
           workspaceFilesLoading={workspaceFilesLoading}
           workspaceFilesError={workspaceFilesError}
+          fullscreen={inspectorFullscreen}
           onTabChange={selectInspectorTab}
           onAddFilePreviewTab={addFilePreviewTab}
           onCloseFilePreviewTab={closeFilePreviewTab}
@@ -1857,7 +1876,11 @@ export default function App() {
           onBranchComparisonChange={selectBranchComparison}
           onAddReviewComment={addReviewCommentAttachment}
           onRefreshReview={() => void loadReviewDiff({ scope: reviewScope })}
-          onClose={() => setInspectorOpen(false)}
+          onToggleFullscreen={() => setInspectorFullscreen((value) => !value)}
+          onClose={() => {
+            setInspectorFullscreen(false);
+            setInspectorOpen(false);
+          }}
         />
       </main>
 
