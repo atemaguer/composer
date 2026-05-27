@@ -121,7 +121,10 @@ export function Conversation({
   const hasRunningHandoff = useMemo(
     () =>
       timelineItems.some(
-        (item) => isHandoffToolGroup(item) && item.status === "running"
+        (item) =>
+          item.type === "tool_group" &&
+          isHandoffToolGroup(item) &&
+          item.status === "running"
       ),
     [timelineItems]
   );
@@ -205,7 +208,7 @@ export function Conversation({
 
 type ToolGroupItem = Extract<ConversationItem, { type: "tool_group" }>;
 
-function isHandoffToolGroup(item: ConversationItem): item is ToolGroupItem {
+function isHandoffToolGroup(item: ConversationItem) {
   if (item.type !== "tool_group") {
     return false;
   }
@@ -1326,7 +1329,7 @@ function MarkdownLink({
   function handleClick(event: MouseEvent<HTMLAnchorElement>) {
     props.onClick?.(event);
 
-    if (event.defaultPrevented || !isHttpHref(href)) {
+    if (event.defaultPrevented || !href || !isHttpHref(href)) {
       return;
     }
 
