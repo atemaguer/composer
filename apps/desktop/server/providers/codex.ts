@@ -979,6 +979,10 @@ function itemLabel(item: JsonRecord) {
     return `Run ${command}`;
   }
 
+  if (tool && isWriteStdinTool(tool)) {
+    return writeStdinLabel(item);
+  }
+
   if (tool) {
     return `Use ${tool}`;
   }
@@ -988,20 +992,100 @@ function itemLabel(item: JsonRecord) {
 
 function toolDetail(id: string, label: string, item: JsonRecord): ToolDetail {
   const command = asString(item.command);
+  const tool = asString(item.tool) ?? asString(item.name);
+  const isTerminalInput = tool ? isWriteStdinTool(tool) : false;
   const reviewFiles = reviewFilesFromItem(item);
   const hasReviewFiles = reviewFiles.length > 0;
 
   return {
     id,
-    label: hasReviewFiles ? patchReviewLabel(reviewFiles) : label,
+    label: hasReviewFiles
+      ? patchReviewLabel(reviewFiles)
+      : isTerminalInput
+        ? writeStdinLabel(item)
+        : label,
     kind: "call",
-    tone: command && !hasReviewFiles ? "command" : "default",
-    action: hasReviewFiles ? "edit" : command ? "command" : "other",
-    command: hasReviewFiles ? undefined : command,
-    args: stringifyDetails(item),
+    tone: command && !hasReviewFiles && !isTerminalInput ? "command" : "default",
+    action: hasReviewFiles ? "edit" : command && !isTerminalInput ? "command" : "other",
+    command: hasReviewFiles || isTerminalInput ? undefined : command,
+    args: isTerminalInput ? writeStdinArguments(item) : stringifyDetails(item),
     path: reviewFiles[0]?.path,
     reviewFiles: hasReviewFiles ? reviewFiles : undefined
   };
+}
+
+function isWriteStdinTool(toolName: string) {
+  const normalized = normalizeToolName(toolName);
+
+  return normalized === "write_stdin" || normalized.endsWith("_write_stdin");
+}
+
+function normalizeToolName(toolName: string) {
+  return toolName
+    .trim()
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .replace(/^_+/, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function writeStdinLabel(item: JsonRecord) {
+  const input = toolArgumentsRecord(item);
+  const sessionId = writeStdinSessionId(input);
+  const chars = asString(input.chars);
+  const base = chars && chars.length > 0
+    ? "Sent input to terminal"
+    : "Checked terminal output";
+
+  return sessionId ? `${base} ${sessionId}` : base;
+}
+
+function writeStdinArguments(item: JsonRecord) {
+  const input = toolArgumentsRecord(item);
+  const sessionId = writeStdinSessionId(input);
+  const chars = asString(input.chars);
+  const waitMs = asNumber(input.yield_time_ms);
+  const entries: [string, string][] = [];
+
+  entries.push([
+    "operation",
+    chars && chars.length > 0 ? "send terminal input" : "check terminal output"
+  ]);
+
+  if (sessionId) {
+    entries.push(["terminal_session", sessionId]);
+  }
+
+  if (chars && chars.length > 0) {
+    entries.push(["input", JSON.stringify(chars).slice(0, 600)]);
+  }
+
+  if (waitMs !== undefined) {
+    entries.push(["wait", `${waitMs}ms`]);
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function toolArgumentsRecord(item: JsonRecord) {
+  const args = asString(item.arguments);
+
+  if (args) {
+    try {
+      return asRecord(JSON.parse(args));
+    } catch {
+      return {};
+    }
+  }
+
+  return item;
+}
+
+function writeStdinSessionId(input: JsonRecord) {
+  const raw = input.session_id ?? input.sessionId;
+
+  return typeof raw === "number" ? String(raw) : asString(raw);
 }
 
 function reviewFilesFromItem(item: JsonRecord) {
@@ -1160,6 +1244,19 @@ function codexInput(
 
 function asString(value: unknown) {
   return typeof value === "string" ? value : undefined;
+}
+
+function asNumber(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
 }
 
 function stringAt(record: JsonRecord, ...path: string[]) {

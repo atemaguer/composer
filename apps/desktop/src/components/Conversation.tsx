@@ -1,10 +1,11 @@
 import {
-  isValidElement,
   useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
   useState,
+  type AnchorHTMLAttributes,
+  type MouseEvent,
   type ReactNode
 } from "react";
 import {
@@ -46,7 +47,6 @@ import { Composer, type ComposerProps } from "./Composer";
 import { ProviderLogo } from "./ProviderLogo";
 import {
   appAccentHoverText,
-  appAccentScope,
   appAccentText,
   appDangerSoftText,
   appDangerText,
@@ -59,6 +59,8 @@ import {
   subtleIconButton
 } from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
+
+const markdownLinkText = "text-[#b7c3ff] hover:text-[#cbd4ff]";
 
 type ConversationProps = {
   className?: string;
@@ -115,6 +117,13 @@ export function Conversation({
         ? latestToolGroupId(timelineItems)
         : undefined,
     [pendingItems, timelineItems]
+  );
+  const hasRunningHandoff = useMemo(
+    () =>
+      timelineItems.some(
+        (item) => isHandoffToolGroup(item) && item.status === "running"
+      ),
+    [timelineItems]
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
@@ -177,9 +186,9 @@ export function Conversation({
             onOpenFile={onOpenFile}
             onReviewChanges={onReviewChanges}
           />
-          {pendingItems.length > 0 && !hasOutputAfterLatestUser(items) && (
-            <ThinkingIndicator />
-          )}
+          {pendingItems.length > 0 &&
+            !hasRunningHandoff &&
+            !hasOutputAfterLatestUser(items) && <ThinkingIndicator />}
         </div>
       </div>
 
@@ -196,6 +205,23 @@ export function Conversation({
 
 type ToolGroupItem = Extract<ConversationItem, { type: "tool_group" }>;
 
+function isHandoffToolGroup(item: ConversationItem): item is ToolGroupItem {
+  if (item.type !== "tool_group") {
+    return false;
+  }
+
+  const text = normalizeToolMatchText([
+    item.summary,
+    ...item.details.flatMap((detail) => [detail.label, detail.toolName])
+  ]);
+
+  return (
+    /\bhandoff\b/.test(text) ||
+    /\bpreparing handoff context\b/.test(text) ||
+    /\bcompacting context for handoff\b/.test(text)
+  );
+}
+
 function groupConsecutiveToolActivity(
   items: ConversationItem[],
   options: { includeLayoutGroups?: boolean } = {}
@@ -205,6 +231,12 @@ function groupConsecutiveToolActivity(
 
   while (index < items.length) {
     const item = items[index];
+
+    if (isHandoffToolGroup(item)) {
+      grouped.push(item);
+      index += 1;
+      continue;
+    }
 
     if (
       item.type !== "tool_group" ||
@@ -219,6 +251,7 @@ function groupConsecutiveToolActivity(
 
     while (
       items[index]?.type === "tool_group" &&
+      !isHandoffToolGroup(items[index]) &&
       (!(items[index] as ToolGroupItem).layoutGroupId || options.includeLayoutGroups)
     ) {
       batch.push(items[index] as ToolGroupItem);
@@ -252,7 +285,7 @@ function latestToolGroupId(items: ConversationItem[]): string | undefined {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
 
-    if (item.type === "tool_group") {
+    if (item.type === "tool_group" && !isHandoffToolGroup(item)) {
       return item.id;
     }
 
@@ -273,7 +306,7 @@ function latestToolGroupId(items: ConversationItem[]): string | undefined {
 function isStreamOutputItem(item: ConversationItem) {
   return (
     item.type === "assistant_message" ||
-    item.type === "tool_group" ||
+    (item.type === "tool_group" && !isHandoffToolGroup(item)) ||
     item.type === "file_change_summary" ||
     item.type === "notice" ||
     item.type === "turn_status"
@@ -352,6 +385,10 @@ function groupParallelThreadActivity(
 }
 
 function parallelLayoutGroupId(item: ConversationItem) {
+  if (isHandoffToolGroup(item)) {
+    return undefined;
+  }
+
   if (item.type === "assistant_message" || item.type === "tool_group") {
     return item.layoutGroupId;
   }
@@ -388,7 +425,8 @@ function belongsToParallelGroup(
 }
 
 function isParallelThreadItem(item: ConversationItem): item is ParallelThreadItem {
-  return item.type === "assistant_message" || item.type === "tool_group";
+  return item.type === "assistant_message" ||
+    (item.type === "tool_group" && !isHandoffToolGroup(item));
 }
 
 function isParallelThreadMarker(item: ConversationItem) {
@@ -768,6 +806,10 @@ function ConversationItemView({
   }
 
   if (item.type === "tool_group") {
+    if (isHandoffToolGroup(item)) {
+      return <HandoffTimelineMarker item={item} />;
+    }
+
     return (
       <ToolActivityGroup
         item={item}
@@ -815,6 +857,28 @@ function ConversationItemView({
   }
 
   return <NoticeRow label={item.label} />;
+}
+
+function HandoffTimelineMarker({ item }: { item: ToolGroupItem }) {
+  const running = item.status === "running";
+  const label = item.status === "failed" ? "Handoff skipped" : "Handoff point";
+
+  return (
+    <div className="my-1 flex max-w-[820px] items-center gap-3 text-[13px] text-app-dim">
+      <div className="h-px flex-1 bg-app-line" />
+      {running ? (
+        <Shimmer as="span" className="font-medium" duration={1.6} spread={3}>
+          Handing off
+        </Shimmer>
+      ) : (
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-app-line bg-app-text/[0.04] px-2.5 py-1 text-[12px] font-medium text-app-muted">
+          <History size={12} className={dimIcon} />
+          {label}
+        </span>
+      )}
+      <div className="h-px flex-1 bg-app-line" />
+    </div>
+  );
 }
 
 function ParallelThreadGroup({
@@ -1202,8 +1266,7 @@ function ChatMessageMarkdown({
     <MessageResponse
       className={cn(
         "composer-message-markdown min-w-0 text-[13.5px] [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        appAccentScope,
-        "[&_a]:text-[var(--app-accent)] [&_a]:underline-offset-4 hover:[&_a]:underline",
+        "[&_a]:text-[#b7c3ff] [&_a]:underline-offset-4 hover:[&_a]:text-[#cbd4ff] hover:[&_a]:underline",
         "[&_blockquote]:my-2.5 [&_blockquote]:border-l-2 [&_blockquote]:border-app-line-strong [&_blockquote]:pl-3 [&_blockquote]:text-app-muted",
         "[&_code]:rounded [&_code]:bg-app-text/[0.07] [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[0.9em]",
         "[&_h1]:mb-2.5 [&_h1]:mt-4 [&_h1]:text-[18px] [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:mt-4 [&_h2]:text-[16px] [&_h2]:font-semibold [&_h3]:mb-1.5 [&_h3]:mt-3.5 [&_h3]:text-[14px] [&_h3]:font-semibold",
@@ -1241,9 +1304,7 @@ function MarkdownLink({
   onOpenFile,
   node: _node,
   ...props
-}: {
-  children?: ReactNode;
-  href?: string;
+}: AnchorHTMLAttributes<HTMLAnchorElement> & {
   onOpenFile?: (filePath: string) => void;
   node?: unknown;
 }) {
@@ -1252,7 +1313,7 @@ function MarkdownLink({
   if (filePath && onOpenFile) {
     return (
       <TooltipButton
-        className={cn("inline text-left underline-offset-4 hover:underline", appAccentText)}
+        className={cn("inline text-left underline-offset-4 hover:underline", markdownLinkText)}
         tooltip="Open file"
         type="button"
         onClick={() => onOpenFile(filePath)}
@@ -1262,16 +1323,54 @@ function MarkdownLink({
     );
   }
 
+  function handleClick(event: MouseEvent<HTMLAnchorElement>) {
+    props.onClick?.(event);
+
+    if (event.defaultPrevented || !isHttpHref(href)) {
+      return;
+    }
+
+    event.preventDefault();
+    void openExternalHttpLink(href);
+  }
+
   return (
     <a
       {...props}
       href={href}
+      onClick={handleClick}
       rel="noreferrer"
       target={href?.startsWith("#") ? undefined : "_blank"}
     >
       {children}
     </a>
   );
+}
+
+function isHttpHref(href?: string) {
+  if (!href) {
+    return false;
+  }
+
+  try {
+    const url = new URL(href);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+async function openExternalHttpLink(href: string) {
+  try {
+    if (window.composer?.openExternalUrl) {
+      await window.composer.openExternalUrl(href);
+      return;
+    }
+  } catch (error) {
+    console.warn("Failed to open link externally", error);
+  }
+
+  window.open(href, "_blank", "noopener,noreferrer");
 }
 
 function normalizeLocalFileHref(href?: string) {
@@ -1386,87 +1485,10 @@ function MarkdownCode({
   }
 
   return (
-    <CollapsedCodeBlock
-      code={extractTextContent(children)}
-      language={getCodeLanguage(className)}
-    />
+    <code className={className} data-streamdown="block-code">
+      {children}
+    </code>
   );
-}
-
-function CollapsedCodeBlock({
-  code,
-  language
-}: {
-  code: string;
-  language: string;
-}) {
-  const [open, setOpen] = useState(false);
-  const label = language || "code";
-  const lineCount = code.trimEnd().split("\n").filter(Boolean).length || 1;
-
-  return (
-    <div
-      className="composer-code-accordion"
-      data-language={label}
-      data-composer-code-accordion
-    >
-      <TooltipButton
-        className="composer-code-accordion-trigger"
-        onClick={() => setOpen(!open)}
-        aria-expanded={open}
-        tooltip={open ? "Collapse code block" : "Expand code block"}
-        type="button"
-      >
-        <span className="font-mono lowercase">{label}</span>
-        <span className="text-app-dim">
-          {lineCount} {lineCount === 1 ? "line" : "lines"}
-        </span>
-        <ChevronDown
-          size={14}
-          className={cn("transition-transform", !open && "-rotate-90")}
-        />
-      </TooltipButton>
-      {open && <CodeSheet code={code} language={language} />}
-    </div>
-  );
-}
-
-function CodeSheet({ code, language }: { code: string; language: string }) {
-  const lines = code.replace(/\n$/, "").split("\n");
-
-  return (
-    <div className="composer-code-sheet" data-language={language}>
-      <div className="composer-code-sheet-glow" />
-      <pre aria-label={`${language || "code"} block`}>
-        {lines.map((line, index) => (
-          <span className="composer-code-line" key={`${index}-${line}`}>
-            <span className="composer-code-line-number">{index + 1}</span>
-            <code>{line || " "}</code>
-          </span>
-        ))}
-      </pre>
-    </div>
-  );
-}
-
-function getCodeLanguage(className?: string) {
-  return className?.match(/language-([^\s]+)/)?.[1] ?? "text";
-}
-
-function extractTextContent(value: ReactNode): string {
-  if (typeof value === "string" || typeof value === "number") {
-    return String(value);
-  }
-
-  if (Array.isArray(value)) {
-    return value.map(extractTextContent).join("");
-  }
-
-  if (isValidElement<{ children?: ReactNode }>(value)) {
-    return extractTextContent(value.props.children);
-  }
-
-  return "";
 }
 
 export function ToolActivityGroup({

@@ -1313,7 +1313,7 @@ function createToolCallDetail(
     ? undefined
     : extractToolCommand(input);
   const pathValue = extractToolPath(input);
-  const args = summarizeToolArguments(input, action);
+  const args = summarizeToolArguments(input, action, toolName);
   const label = reviewFiles.length > 0
     ? patchReviewLabel(reviewFiles)
     : buildToolCallLabel(toolName, action, input, command, pathValue);
@@ -1352,6 +1352,10 @@ function inferToolAction(
   input: JsonRecord
 ): NonNullable<ToolDetail["action"]> {
   const normalized = toolName.toLowerCase();
+
+  if (isWriteStdinTool(toolName)) {
+    return "other";
+  }
 
   if (normalized.includes("read") || normalized.includes("view")) {
     return "read";
@@ -1402,6 +1406,10 @@ function buildToolCallLabel(
   const formattedName = formatToolName(toolName);
   const filename = pathValue ? path.basename(pathValue) : undefined;
 
+  if (isWriteStdinTool(toolName)) {
+    return writeStdinLabel(input);
+  }
+
   if (action === "read") {
     return filename ? `Read ${filename}` : `Used ${formattedName}`;
   }
@@ -1432,8 +1440,13 @@ function buildToolCallLabel(
 
 function summarizeToolArguments(
   input: JsonRecord,
-  action: NonNullable<ToolDetail["action"]>
+  action: NonNullable<ToolDetail["action"]>,
+  toolName?: string
 ) {
+  if (toolName && isWriteStdinTool(toolName)) {
+    return writeStdinArguments(input);
+  }
+
   const hiddenKeys = new Set([
     "cmd",
     "command",
@@ -1469,6 +1482,64 @@ function summarizeToolArguments(
   return Object.fromEntries(
     entries.map(([key, value]) => [key, trimDetail(valueToDisplay(value))])
   );
+}
+
+function isWriteStdinTool(toolName: string) {
+  const normalized = normalizeToolName(toolName);
+
+  return normalized === "write_stdin" || normalized.endsWith("_write_stdin");
+}
+
+function normalizeToolName(toolName: string) {
+  return toolName
+    .trim()
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .replace(/^_+/, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function writeStdinLabel(input: JsonRecord) {
+  const sessionId = writeStdinSessionId(input);
+  const chars = asString(input.chars);
+  const base = chars && chars.length > 0
+    ? "Sent input to terminal"
+    : "Checked terminal output";
+
+  return sessionId ? `${base} ${sessionId}` : base;
+}
+
+function writeStdinArguments(input: JsonRecord) {
+  const sessionId = writeStdinSessionId(input);
+  const chars = asString(input.chars);
+  const waitMs = asNumber(input.yield_time_ms);
+  const entries: [string, string][] = [];
+
+  entries.push([
+    "operation",
+    chars && chars.length > 0 ? "send terminal input" : "check terminal output"
+  ]);
+
+  if (sessionId) {
+    entries.push(["terminal_session", sessionId]);
+  }
+
+  if (chars && chars.length > 0) {
+    entries.push(["input", trimDetail(JSON.stringify(chars))]);
+  }
+
+  if (waitMs !== undefined) {
+    entries.push(["wait", `${waitMs}ms`]);
+  }
+
+  return Object.fromEntries(entries);
+}
+
+function writeStdinSessionId(input: JsonRecord) {
+  const raw = input.session_id ?? input.sessionId;
+
+  return typeof raw === "number" ? String(raw) : asString(raw);
 }
 
 function extractToolCommand(input: JsonRecord) {
@@ -1718,6 +1789,19 @@ function asArray(value: unknown): unknown[] {
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function asNumber(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : undefined;
+  }
+
+  return undefined;
 }
 
 function trimText(value: string) {
