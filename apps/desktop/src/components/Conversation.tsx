@@ -608,7 +608,7 @@ export function ConversationTimeline({
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   return (
-    <div data-conversation-content className="mx-auto w-full max-w-[1180px]">
+    <div data-conversation-content className="mx-auto w-full max-w-[820px]">
       <div data-conversation-stream className="grid gap-5 pt-3">
         {items.map((item) => (
           <ConversationItemView
