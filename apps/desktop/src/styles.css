@@ -44,45 +44,45 @@
 }
 
 :root {
-  --background: 216 44% 8%;
-  --foreground: 215 30% 92%;
-  --primary: 213 100% 68%;
-  --primary-foreground: 220 40% 8%;
-  --secondary: 215 28% 18%;
-  --secondary-foreground: 214 26% 90%;
-  --muted: 215 22% 18%;
-  --muted-foreground: 216 14% 64%;
-  --border: 215 18% 26%;
-  --input: 215 22% 18%;
-  --ring: 213 100% 68%;
+  --background: 0 0% 5%;
+  --foreground: 0 0% 90%;
+  --primary: 0 0% 78%;
+  --primary-foreground: 0 0% 5%;
+  --secondary: 0 0% 15%;
+  --secondary-foreground: 0 0% 90%;
+  --muted: 0 0% 15%;
+  --muted-foreground: 0 0% 64%;
+  --border: 0 0% 20%;
+  --input: 0 0% 15%;
+  --ring: 0 0% 66%;
   --destructive: 0 82% 64%;
   --radius-md: 8px;
-  --app-bg: #07111c;
-  --app-shell: #091522;
-  --app-sidebar: #101923;
-  --app-panel: #17263a;
-  --app-panel-2: #1a2c42;
-  --app-line: rgba(180, 204, 232, 0.12);
-  --app-line-strong: rgba(180, 204, 232, 0.18);
-  --app-line-bright: rgba(210, 229, 252, 0.28);
-  --app-text: #e7edf5;
-  --app-muted: #aab4c3;
-  --app-dim: #747e8e;
-  --app-accent: #65a7ff;
+  --app-bg: #0b0b0c;
+  --app-shell: #0f0f10;
+  --app-sidebar: #242425;
+  --app-panel: #242425;
+  --app-panel-2: #2b2b2c;
+  --app-line: rgba(255, 255, 255, 0.09);
+  --app-line-strong: rgba(255, 255, 255, 0.14);
+  --app-line-bright: rgba(255, 255, 255, 0.24);
+  --app-text: #e4e4e7;
+  --app-muted: #a1a1aa;
+  --app-dim: #71717a;
+  --app-accent: #a3a3a3;
   --app-success: #71d697;
   --app-warning: rgb(217 119 87);
   --app-danger: #f87171;
   --app-hover: rgba(255, 255, 255, 0.06);
   --app-hover-strong: rgba(255, 255, 255, 0.1);
-  --app-overlay: rgba(7, 17, 28, 0.58);
+  --app-overlay: rgba(0, 0, 0, 0.68);
   --app-code-bg: rgba(255, 255, 255, 0.07);
   --app-pre-bg: rgba(0, 0, 0, 0.25);
-  --app-selection: rgba(101, 167, 255, 0.28);
-  --app-scrollbar: rgba(197, 213, 235, 0.18);
-  --app-scrollbar-hover: rgba(197, 213, 235, 0.3);
-  --app-scrollbar-color: rgba(197, 213, 235, 0.22);
+  --app-selection: rgba(163, 163, 163, 0.24);
+  --app-scrollbar: rgba(212, 212, 216, 0.16);
+  --app-scrollbar-hover: rgba(212, 212, 216, 0.28);
+  --app-scrollbar-color: rgba(212, 212, 216, 0.22);
   --app-body-gradient:
-    radial-gradient(circle at 22% 0%, rgba(38, 91, 138, 0.16), transparent 34%),
+    radial-gradient(circle at 22% 0%, rgba(255, 255, 255, 0.035), transparent 34%),
     linear-gradient(180deg, var(--app-bg) 0%, var(--app-shell) 100%);
   --app-composer-fade:
     linear-gradient(
@@ -97,14 +97,14 @@
   --app-ui-font-size: 14px;
   --app-code-font-size: 12px;
   --app-titlebar-control-left-inset: 96px;
-  --app-font-smoothing: antialiased;
-  --app-text-rendering: geometricPrecision;
+  --app-font-smoothing: auto;
+  --app-text-rendering: auto;
   --app-editor-bg: transparent;
   --app-editor-text: #e4e4e7;
-  --app-editor-muted: rgba(164, 174, 190, 0.62);
-  --app-editor-active-line: rgba(214, 235, 255, 0.04);
-  --app-editor-gutter-active: rgba(214, 235, 255, 0.055);
-  --app-editor-tooltip-bg: #121f2d;
+  --app-editor-muted: rgba(161, 161, 170, 0.62);
+  --app-editor-active-line: rgba(255, 255, 255, 0.045);
+  --app-editor-gutter-active: rgba(255, 255, 255, 0.055);
+  --app-editor-tooltip-bg: #18181b;
 }
 
 html,

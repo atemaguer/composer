@@ -115,8 +115,8 @@ function createCssVariables(
     "--composer-font-smoothing": typography.fontSmoothing
       ? "antialiased"
       : "auto",
-    "--app-font-smoothing": typography.fontSmoothing ? "antialiased" : "auto",
-    "--app-text-rendering": typography.fontSmoothing ? "geometricPrecision" : "auto",
+    "--app-font-smoothing": typography.fontSmoothing ? "auto" : "antialiased",
+    "--app-text-rendering": typography.fontSmoothing ? "auto" : "geometricPrecision",
     "--app-bg": colors.appBg,
     "--app-shell": colors.appShell,
     "--app-sidebar": translucentSidebar

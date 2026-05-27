@@ -872,7 +872,7 @@ function TerminalPanel({ cwd }: { cwd?: string | null }) {
       theme: {
         background: cssVariable("--app-shell", "#091522"),
         black: "#1f2937",
-        blue: cssVariable("--app-accent", "#65a7ff"),
+        blue: cssVariable("--app-accent", "#a3a3a3"),
         brightBlack: "#6b7280",
         brightBlue: "#93c5fd",
         brightCyan: "#67e8f9",
@@ -887,7 +887,7 @@ function TerminalPanel({ cwd }: { cwd?: string | null }) {
         green: cssVariable("--app-success", "#71d697"),
         magenta: "#c084fc",
         red: cssVariable("--app-danger", "#f87171"),
-        selectionBackground: cssVariable("--app-selection", "rgba(101, 167, 255, 0.28)"),
+        selectionBackground: cssVariable("--app-selection", "rgba(163, 163, 163, 0.24)"),
         white: cssVariable("--app-text", "#e7edf5"),
         yellow: "#facc15"
       }
