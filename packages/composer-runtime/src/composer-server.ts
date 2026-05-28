@@ -131,6 +131,11 @@ export function createComposerServer({
         return;
       }
 
+      if (request.method === "GET" && url.pathname.startsWith("/api/sessions/")) {
+        await handleSessionLoadRequest(url, response);
+        return;
+      }
+
       if (request.method === "POST" && url.pathname === "/api/sessions/adopt-parallel") {
         await handleParallelAdoptionRequest(request, response);
         return;
@@ -327,6 +332,26 @@ export function createComposerServer({
 
     const snapshot: SessionSnapshot = runtime.adoptParallelThread(sessionId, provider);
     writeJson(response, 200, { ok: true, snapshot });
+  }
+
+  async function handleSessionLoadRequest(url: URL, response: ServerResponse) {
+    const sessionId = decodeURIComponent(
+      url.pathname.replace(/^\/api\/sessions\//, "")
+    );
+
+    if (!sessionId) {
+      writeJson(response, 400, { error: "Expected session id" });
+      return;
+    }
+
+    const session = runtime.loadSessionContent(sessionId);
+
+    if (!session) {
+      writeJson(response, 404, { error: `Unknown session ${sessionId}` });
+      return;
+    }
+
+    writeJson(response, 200, { ok: true, session });
   }
 
   async function handleReviewDiffRequest(

@@ -33,7 +33,7 @@ export function SearchModal({
   const normalizedQuery = query.trim().toLowerCase();
   const results = useMemo(() => {
     const flattened = projects.flatMap((project) =>
-      project.threads.map((thread) => ({ project, thread }))
+      flattenThreads(project.threads).map((thread) => ({ project, thread }))
     );
 
     if (!normalizedQuery) {
@@ -176,4 +176,11 @@ export function SearchModal({
       </section>
     </div>
   );
+}
+
+function flattenThreads(threads: ProjectThread[]): ProjectThread[] {
+  return threads.flatMap((thread) => [
+    thread,
+    ...flattenThreads(thread.children ?? [])
+  ]);
 }

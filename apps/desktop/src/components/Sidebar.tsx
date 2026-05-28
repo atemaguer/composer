@@ -19,7 +19,13 @@ import {
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
-import type { NavKey, Project, ProviderFilter, SessionProvider } from "../types";
+import type {
+  NavKey,
+  Project,
+  ProjectThread,
+  ProviderFilter,
+  SessionProvider
+} from "../types";
 import { ProviderLogo } from "./ProviderLogo";
 import { ThreadActivityIndicator } from "./ThreadActivityIndicator";
 import {
@@ -127,9 +133,7 @@ export function Sidebar({
       providerFilter === "all"
         ? projects
         : projects.flatMap((project) => {
-            const threads = project.threads.filter(
-              (thread) => thread.provider === providerFilter
-            );
+            const threads = filterThreadTree(project.threads, providerFilter);
 
             return threads.length ? [{ ...project, threads }] : [];
           }),
@@ -158,7 +162,8 @@ export function Sidebar({
 
       for (const project of filteredProjects) {
         const key = projectKey(project);
-        const selectedIndex = project.threads.findIndex(
+        const visibleThreadList = flattenThreads(project.threads);
+        const selectedIndex = visibleThreadList.findIndex(
           (thread) => thread.id === selectedThread
         );
         const currentCount = current[key] ?? INITIAL_THREADS_PER_WORKSPACE;
@@ -186,7 +191,9 @@ export function Sidebar({
   useEffect(() => {
     setVisibleWorkspaceCount((current) => {
       const selectedWorkspaceIndex = filteredProjects.findIndex((project) =>
-        project.threads.some((thread) => thread.id === selectedThread)
+        flattenThreads(project.threads).some(
+          (thread) => thread.id === selectedThread
+        )
       );
       const selectedCount =
         selectedWorkspaceIndex === -1 ? 0 : selectedWorkspaceIndex + 1;
@@ -255,6 +262,57 @@ export function Sidebar({
     autoUpdateState?.status === "install-error";
   const updateInstalling = autoUpdateState?.status === "installing";
   const updateInstallError = autoUpdateState?.status === "install-error";
+  const renderThread = (thread: ProjectThread, depth = 0): ReactNode => (
+    <div key={thread.id} className="grid gap-1">
+      <div
+        className={cn(
+          "group/thread grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md py-1 pr-1 text-[13px] text-app-muted/70 transition-colors",
+          appHoverSurfaceSubtle,
+          selectedThread === thread.id && `${appActiveSurface} text-app-text`
+        )}
+        style={{ paddingLeft: 36 + depth * 18 }}
+      >
+        <TooltipButton
+          className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-left"
+          tooltip={
+            thread.subagent
+              ? `${thread.name} (${thread.subagent.type ?? thread.subagent.role ?? "subagent"})`
+              : thread.name
+          }
+          onClick={() => {
+            setSelectedThread(thread.id);
+            onThreadSelect?.(thread.id);
+          }}
+        >
+          <ProviderLogo
+            provider={thread.provider}
+            className={cn(
+              thread.provider === "claude" && appWarningText,
+              thread.provider === "codex" && appAccentText,
+              thread.provider === "meta" && appSuccessText
+            )}
+          />
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate">{thread.name}</span>
+            {thread.subagent && (
+              <span className="shrink-0 rounded-sm border border-app-border/70 px-1 text-[10px] uppercase tracking-[0.04em] text-app-dim">
+                Subagent
+              </span>
+            )}
+            {runningSessionIds.has(thread.id) && <ThreadActivityIndicator />}
+          </span>
+          <em className="text-[12px] not-italic text-app-dim">{thread.age}</em>
+        </TooltipButton>
+        <ThreadActionButton
+          label={`Archive ${thread.name}`}
+          onClick={() => onThreadArchive?.(thread.id)}
+        >
+          <Archive size={12} />
+        </ThreadActionButton>
+      </div>
+      {thread.children?.map((child) => renderThread(child, depth + 1))}
+    </div>
+  );
 
   return (
     <aside
@@ -513,51 +571,7 @@ export function Sidebar({
                       id={workspaceId}
                       className={cn("grid gap-1", !expanded && "hidden")}
                     >
-                      {visibleThreads.map((thread) => (
-                        <div
-                          key={thread.id}
-                          className={cn(
-                            "group/thread grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md py-1 pl-[36px] pr-1 text-[13px] text-app-muted/70 transition-colors",
-                            appHoverSurfaceSubtle,
-                            selectedThread === thread.id &&
-                              `${appActiveSurface} text-app-text`
-                          )}
-                        >
-                          <TooltipButton
-                            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-left"
-                            tooltip={thread.name}
-                            onClick={() => {
-                              setSelectedThread(thread.id);
-                              onThreadSelect?.(thread.id);
-                            }}
-                          >
-                            <ProviderLogo
-                              provider={thread.provider}
-                              className={cn(
-                                thread.provider === "claude" &&
-                                  appWarningText,
-                                thread.provider === "codex" && appAccentText,
-                                thread.provider === "meta" && appSuccessText
-                              )}
-                            />
-                            <span className="flex min-w-0 items-center gap-1.5">
-                              <span className="truncate">{thread.name}</span>
-                              {runningSessionIds.has(thread.id) && (
-                                <ThreadActivityIndicator />
-                              )}
-                            </span>
-                            <em className="text-[12px] not-italic text-app-dim">
-                              {thread.age}
-                            </em>
-                          </TooltipButton>
-                          <ThreadActionButton
-                            label={`Archive ${thread.name}`}
-                            onClick={() => onThreadArchive?.(thread.id)}
-                          >
-                            <Archive size={12} />
-                          </ThreadActionButton>
-                        </div>
-                      ))}
+                      {visibleThreads.map((thread) => renderThread(thread))}
                       {hiddenThreadCount > 0 && (
                         <TooltipButton
                           className={cn(
@@ -691,6 +705,28 @@ function ThreadActionButton({
 
 function projectKey(project: Project) {
   return project.id ?? project.cwd ?? project.name;
+}
+
+function filterThreadTree(
+  threads: ProjectThread[],
+  providerFilter: ProviderFilter
+): ProjectThread[] {
+  return threads.flatMap((thread) => {
+    const children = filterThreadTree(thread.children ?? [], providerFilter);
+
+    if (thread.provider === providerFilter || children.length > 0) {
+      return [{ ...thread, children }];
+    }
+
+    return [];
+  });
+}
+
+function flattenThreads(threads: ProjectThread[]): ProjectThread[] {
+  return threads.flatMap((thread) => [
+    thread,
+    ...flattenThreads(thread.children ?? [])
+  ]);
 }
 
 function SidebarButton({

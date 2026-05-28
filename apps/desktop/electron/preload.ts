@@ -46,6 +46,8 @@ contextBridge.exposeInMainWorld("composer", {
   openExternalUrl: (url: string) =>
     ipcRenderer.invoke("composer:open-external-url", url) as Promise<void>,
   listLocalSessions: () => ipcRenderer.invoke("composer:list-local-sessions"),
+  loadLocalSession: (sessionId: string) =>
+    ipcRenderer.invoke("composer:load-local-session", sessionId),
   updateSessionVisibility: (request: {
     sessionId: string;
     action: "archive";

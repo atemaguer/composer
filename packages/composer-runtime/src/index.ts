@@ -21,6 +21,8 @@ export {
   type RuntimeSessionVisibilityAction
 } from "./runtime-persistence.js";
 export {
+  loadLocalSessionContent,
+  loadLocalSessionList,
   loadLocalSessions,
   updateLocalSessionVisibility,
   type LocalSessionAction,

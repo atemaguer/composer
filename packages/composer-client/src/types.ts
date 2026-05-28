@@ -165,6 +165,17 @@ export type ProjectThread = {
   provider?: SessionProvider;
   model?: string;
   cwd?: string;
+  parentSessionId?: string;
+  subagent?: SubagentMetadata;
+  children?: ProjectThread[];
+};
+
+export type SubagentMetadata = {
+  id?: string;
+  nickname?: string;
+  role?: string;
+  type?: string;
+  depth?: number;
 };
 
 export type Project = {
@@ -303,12 +314,14 @@ export type SessionContent = {
   providerSessions?: Partial<Record<SessionProvider, ProviderSessionState>>;
   renderMode?: SessionRenderMode;
   parentSessionId?: string;
+  subagent?: SubagentMetadata;
   contextVersion?: number;
   lastProvider?: SessionProvider;
   parallelAdoptedProvider?: DelegateSessionProvider;
   handoffSummaries?: SessionHandoffSummary[];
   compactionSummaries?: SessionCompactionSummary[];
   runtimeStatus?: AgentSessionRuntimeStatus;
+  contentLoaded?: boolean;
   title: string;
   updatedAt?: string;
   cwd?: string;

@@ -220,9 +220,9 @@ function isHandoffToolGroup(item: ConversationItem) {
   ]);
 
   return (
-    /\bhandoff\b/.test(text) ||
     /\bpreparing handoff context\b/.test(text) ||
-    /\bcompacting context for handoff\b/.test(text)
+    /\bcompacting context for handoff\b/.test(text) ||
+    /\bgenerating readable handoff summary\b/.test(text)
   );
 }
 

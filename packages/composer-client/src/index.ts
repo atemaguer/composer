@@ -423,6 +423,19 @@ export class ComposerClient<
     return body.snapshot;
   }
 
+  async loadSession<SessionContent = unknown>(
+    sessionId: string
+  ): Promise<SessionContent | undefined> {
+    const response = await this.fetcher(
+      this.url(`/api/sessions/${encodeURIComponent(sessionId)}`)
+    );
+
+    await assertOk(response, "Session load failed");
+    const body = await response.json() as { session?: SessionContent };
+
+    return body.session;
+  }
+
   async loadReviewDiff(request: ReviewDiffRequest): Promise<ReviewDiff> {
     return this.postJson<ReviewDiff>(
       "/api/review/diff",

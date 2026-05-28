@@ -27,6 +27,7 @@ import type {
   DelegateSessionProvider,
   LiveAgentEvent,
   Project,
+  ProjectThread,
   SessionContent,
   SessionCompactionSummary,
   SessionProvider,
@@ -88,6 +89,7 @@ type RuntimeSessionProvider = SessionProvider;
 export type AgentRuntimeOptions = {
   persistence?: RuntimePersistence;
   providers?: Partial<Record<RuntimeSessionProvider, AgentProvider>>;
+  loadSessionContent?: (sessionId: string) => SessionContent | undefined;
 };
 
 type RestoredRuntimeSessions = {
@@ -128,7 +130,8 @@ function restoreRuntimeSession(session: SessionContent): SessionContent {
       items: session.items ?? [],
       providerSessions: session.providerSessions ?? {},
       pendingItems,
-      runtimeStatus
+      runtimeStatus,
+      contentLoaded: session.contentLoaded ?? true
     };
   }
 
@@ -140,12 +143,16 @@ function restoreRuntimeSession(session: SessionContent): SessionContent {
     runtimeStatus:
       runtimeStatus === "running" || runtimeStatus === "awaiting_approval"
         ? "idle"
-        : runtimeStatus
+        : runtimeStatus,
+    contentLoaded: session.contentLoaded ?? true
   };
 }
 
 export class AgentRuntime {
   private sessions: Record<string, SessionContent>;
+  private readonly loadSessionContentFromStore?: (
+    sessionId: string
+  ) => SessionContent | undefined;
   private broadcastListeners = new Set<EventSink>();
   private approvals = new Map<string, ApprovalResolver>();
   private providers: Record<RuntimeSessionProvider, AgentProvider>;
@@ -161,6 +168,7 @@ export class AgentRuntime {
 
     this.sessions = restored.sessions;
     this.persistence = options.persistence ?? noopRuntimePersistence;
+    this.loadSessionContentFromStore = options.loadSessionContent;
     this.providers = createRuntimeProviders({ persistence: this.persistence });
     Object.assign(this.providers, options.providers);
 
@@ -178,6 +186,32 @@ export class AgentRuntime {
       sessions: this.sessions,
       projects: buildProjects(this.sessions)
     };
+  }
+
+  loadSessionContent(sessionId: string) {
+    const current = this.sessions[sessionId];
+
+    if (current?.contentLoaded) {
+      return current;
+    }
+
+    const loaded = this.loadSessionContentFromStore?.(sessionId);
+
+    if (!loaded) {
+      return current;
+    }
+
+    const restored = restoreRuntimeSession({
+      ...loaded,
+      runtimeStatus: current?.runtimeStatus ?? loaded.runtimeStatus,
+      pendingItems: current?.pendingItems?.length
+        ? current.pendingItems
+        : loaded.pendingItems,
+      contentLoaded: true
+    });
+    this.sessions[restored.id] = restored;
+
+    return restored;
   }
 
   onBroadcast(listener: EventSink) {
@@ -248,7 +282,7 @@ export class AgentRuntime {
   }
 
   sendMessage(request: RunRequest, sink: EventSink) {
-    const session = this.sessions[request.sessionId];
+    const session = this.loadSessionContent(request.sessionId);
 
     if (!session) {
       throw new Error(`Unknown session ${request.sessionId}`);
@@ -1196,17 +1230,56 @@ function buildProjects(sessions: Record<string, SessionContent>): Project[] {
         id: key,
         name: cwd ? path.basename(cwd) : "Unknown workspace",
         cwd,
-        threads: sortedSessions.map((session) => ({
-          id: session.id,
-          name: session.title,
-          age: relativeAge(session.updatedAt),
-          provider: session.provider,
-          model: session.model,
-          cwd: workspaceCwdForSession(session)
-        }))
+        threads: sessionsToThreadTree(sortedSessions)
       };
     })
     .sort((a, b) => latestProjectTimestamp(b, sessions) - latestProjectTimestamp(a, sessions));
+}
+
+function sessionsToThreadTree(sessions: SessionContent[]): ProjectThread[] {
+  type ThreadNode = { session: SessionContent; children: ThreadNode[] };
+  const sortedSessions = [...sessions].sort(
+    (a, b) => sessionTimestamp(b) - sessionTimestamp(a)
+  );
+  const nodes = new Map<string, ThreadNode>();
+
+  for (const session of sortedSessions) {
+    nodes.set(session.id, { session, children: [] });
+  }
+
+  const roots: ThreadNode[] = [];
+
+  for (const session of sortedSessions) {
+    const node = nodes.get(session.id);
+
+    if (!node) {
+      continue;
+    }
+
+    const parent = session.parentSessionId
+      ? nodes.get(session.parentSessionId)
+      : undefined;
+
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  const nodeToThread = (node: ThreadNode): ProjectThread => ({
+    id: node.session.id,
+    name: node.session.title,
+    age: relativeAge(node.session.updatedAt),
+    provider: node.session.provider,
+    model: node.session.model,
+    cwd: workspaceCwdForSession(node.session),
+    parentSessionId: node.session.parentSessionId,
+    subagent: node.session.subagent,
+    children: node.children.map(nodeToThread)
+  });
+
+  return roots.map(nodeToThread);
 }
 
 function workspaceCwdForSession(session: SessionContent) {
@@ -1345,8 +1418,17 @@ function latestProjectTimestamp(
 ) {
   return Math.max(
     0,
-    ...project.threads.map((thread) => sessionTimestamp(sessions[thread.id]))
+    ...flattenThreads(project.threads).map((thread) =>
+      sessionTimestamp(sessions[thread.id])
+    )
   );
+}
+
+function flattenThreads(threads: ProjectThread[]): ProjectThread[] {
+  return threads.flatMap((thread) => [
+    thread,
+    ...flattenThreads(thread.children ?? [])
+  ]);
 }
 
 export function providerSessionId(session: SessionContent) {

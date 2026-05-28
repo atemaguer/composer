@@ -593,6 +593,272 @@ test("Claude array user content reloads as the first user message", async () => 
   });
 });
 
+test("Codex subagent sessions render under their parent thread", async () => {
+  await withTempHome(async ({ home }) => {
+    const cwd = "/tmp/source";
+    writeCodexSession(home, {
+      sessionId: "codex-parent",
+      cwd,
+      user: "Inspect this project",
+      assistant: "Parent answer"
+    });
+    writeCodexSubagentSession(home, {
+      sessionId: "codex-child",
+      parentSessionId: "codex-parent",
+      cwd,
+      nickname: "Newton",
+      role: "worker",
+      user: "Explore the project structure",
+      assistant: "Child answer"
+    });
+
+    const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
+    const snapshot = loadLocalSessions();
+    const child = snapshot.sessions["codex-codex-child"];
+    const parentThread = snapshot.projects[0]?.threads.find(
+      (thread) => thread.id === "codex-codex-parent"
+    );
+
+    assert.equal(child.parentSessionId, "codex-codex-parent");
+    assert.equal(child.title, "Newton subagent");
+    assert.equal(parentThread?.children?.[0]?.id, "codex-codex-child");
+    assert.equal(parentThread.children[0].subagent.nickname, "Newton");
+  });
+});
+
+test("Claude sidechain sessions render under their parent thread", async () => {
+  await withTempHome(async ({ home }) => {
+    const cwd = "/tmp/source";
+    const projectPath = `${home}/.claude/projects/-tmp-source`;
+    writeClaudeSession(home, {
+      sessionId: "claude-parent",
+      projectPath,
+      cwd,
+      user: "Inspect this project",
+      assistant: "Parent answer"
+    });
+    writeClaudeSubagentSession({
+      projectPath,
+      parentSessionId: "claude-parent",
+      agentId: "agent-a1",
+      cwd,
+      agentType: "Explore",
+      user: "Explore the project structure",
+      assistant: "Child answer"
+    });
+
+    const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
+    const snapshot = loadLocalSessions();
+    const child = snapshot.sessions["claude-agent-a1"];
+    const parentThread = snapshot.projects[0]?.threads.find(
+      (thread) => thread.id === "claude-claude-parent"
+    );
+
+    assert.equal(child.parentSessionId, "claude-claude-parent");
+    assert.equal(child.title, "Explore subagent");
+    assert.equal(parentThread?.children?.[0]?.id, "claude-agent-a1");
+    assert.equal(parentThread.children[0].subagent.type, "Explore");
+  });
+});
+
+test("registered Claude sidechain sessions keep native subagent metadata", async () => {
+  await withTempHome(async ({ home }) => {
+    const cwd = "/tmp/source";
+    const projectPath = `${home}/.claude/projects/-tmp-source`;
+    writeClaudeSession(home, {
+      sessionId: "claude-parent",
+      projectPath,
+      cwd,
+      user: "Inspect this project",
+      assistant: "Parent answer"
+    });
+    writeClaudeSubagentSession({
+      projectPath,
+      parentSessionId: "claude-parent",
+      agentId: "agent-a1",
+      cwd,
+      agentType: "Explore",
+      user: "Explore the project structure",
+      assistant: "Child answer"
+    });
+    await writeRegistry({
+      version: 1,
+      sessions: [
+        {
+          id: "composer-parent",
+          title: "Inspect project",
+          sourceCwd: cwd,
+          displayCwd: cwd,
+          activeCwd: cwd,
+          currentProvider: "claude",
+          lastProvider: "claude",
+          renderMode: "single",
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:02.000Z"
+        },
+        {
+          id: "composer-child",
+          title: "Explore subagent",
+          sourceCwd: cwd,
+          displayCwd: cwd,
+          activeCwd: cwd,
+          currentProvider: "claude",
+          lastProvider: "claude",
+          renderMode: "single",
+          createdAt: "2026-05-23T00:00:03.000Z",
+          updatedAt: "2026-05-23T00:00:04.000Z"
+        }
+      ],
+      providerSessions: [
+        {
+          composerSessionId: "composer-parent",
+          provider: "claude",
+          providerSessionId: "claude-parent",
+          role: "primary",
+          lifecycle: "active",
+          cwd,
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:02.000Z"
+        },
+        {
+          composerSessionId: "composer-child",
+          provider: "claude",
+          providerSessionId: "agent-a1",
+          role: "primary",
+          lifecycle: "active",
+          cwd,
+          createdAt: "2026-05-23T00:00:03.000Z",
+          updatedAt: "2026-05-23T00:00:04.000Z"
+        }
+      ],
+      events: []
+    });
+
+    const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
+    const snapshot = loadLocalSessions();
+    const child = snapshot.sessions["composer-child"];
+    const parentThread = snapshot.projects[0]?.threads.find(
+      (thread) => thread.id === "composer-parent"
+    );
+
+    assert.equal(child.parentSessionId, "composer-parent");
+    assert.equal(child.subagent.type, "Explore");
+    assert.equal(parentThread?.children?.[0]?.id, "composer-child");
+    assert.equal(parentThread.children[0].subagent.type, "Explore");
+  });
+});
+
+test("registered Codex subagent sessions keep native subagent metadata", async () => {
+  await withTempHome(async ({ home }) => {
+    const cwd = "/tmp/source";
+    writeCodexSession(home, {
+      sessionId: "codex-parent",
+      cwd,
+      user: "Inspect this project",
+      assistant: "Parent answer"
+    });
+    writeCodexSubagentSession(home, {
+      sessionId: "codex-child",
+      parentSessionId: "codex-parent",
+      cwd,
+      nickname: "Newton",
+      role: "worker",
+      user: "Explore the project structure",
+      assistant: "Child answer"
+    });
+    await writeRegistry({
+      version: 1,
+      sessions: [
+        {
+          id: "composer-parent",
+          title: "Inspect project",
+          sourceCwd: cwd,
+          displayCwd: cwd,
+          activeCwd: cwd,
+          currentProvider: "codex",
+          lastProvider: "codex",
+          renderMode: "single",
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:02.000Z"
+        },
+        {
+          id: "composer-child",
+          title: "Newton subagent",
+          sourceCwd: cwd,
+          displayCwd: cwd,
+          activeCwd: cwd,
+          currentProvider: "codex",
+          lastProvider: "codex",
+          renderMode: "single",
+          createdAt: "2026-05-23T00:00:03.000Z",
+          updatedAt: "2026-05-23T00:00:04.000Z"
+        }
+      ],
+      providerSessions: [
+        {
+          composerSessionId: "composer-parent",
+          provider: "codex",
+          providerSessionId: "codex-parent",
+          role: "primary",
+          lifecycle: "active",
+          cwd,
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:02.000Z"
+        },
+        {
+          composerSessionId: "composer-child",
+          provider: "codex",
+          providerSessionId: "codex-child",
+          role: "primary",
+          lifecycle: "active",
+          cwd,
+          createdAt: "2026-05-23T00:00:03.000Z",
+          updatedAt: "2026-05-23T00:00:04.000Z"
+        }
+      ],
+      events: []
+    });
+
+    const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
+    const snapshot = loadLocalSessions();
+    const child = snapshot.sessions["composer-child"];
+    const parentThread = snapshot.projects[0]?.threads.find(
+      (thread) => thread.id === "composer-parent"
+    );
+
+    assert.equal(child.parentSessionId, "composer-parent");
+    assert.equal(child.subagent.nickname, "Newton");
+    assert.equal(child.subagent.role, "worker");
+    assert.equal(parentThread?.children?.[0]?.id, "composer-child");
+    assert.equal(parentThread.children[0].subagent.nickname, "Newton");
+  });
+});
+
+test("local session list defers transcript content until selected", async () => {
+  await withTempHome(async ({ home }) => {
+    writeCodexSession(home, {
+      sessionId: "codex-lazy",
+      cwd: "/tmp/source",
+      user: "Explain this project",
+      assistant: "Lazy answer"
+    });
+
+    const { loadLocalSessionContent, loadLocalSessionList } = await import(
+      "../dist-server/electron/session-loader.js"
+    );
+    const snapshot = loadLocalSessionList();
+    const listed = snapshot.sessions["codex-codex-lazy"];
+    const loaded = loadLocalSessionContent("codex-codex-lazy");
+
+    assert.equal(listed.contentLoaded, false);
+    assert.equal(listed.items.length, 0);
+    assert.equal(snapshot.projects[0]?.threads[0]?.id, "codex-codex-lazy");
+    assert.equal(loaded.contentLoaded, true);
+    assert.equal(loaded.items[0]?.type, "user_message");
+    assert.equal(loaded.items[1]?.type, "assistant_message");
+  });
+});
+
 async function withTempHome(callback) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "composer-home-"));
   const home = path.join(root, "home");
@@ -637,6 +903,54 @@ function writeCodexSession(home, { sessionId, cwd, user, assistant }) {
   );
 }
 
+function writeCodexSubagentSession(
+  home,
+  { sessionId, parentSessionId, cwd, nickname, role, user, assistant }
+) {
+  const dir = path.join(home, ".codex", "sessions", "2026", "05", "23");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, `rollout-2026-05-23T00-00-03-${sessionId}.jsonl`),
+    [
+      {
+        type: "session_meta",
+        timestamp: "2026-05-23T00:00:03.000Z",
+        payload: {
+          id: sessionId,
+          cwd,
+          thread_source: "subagent",
+          agent_nickname: nickname,
+          agent_role: role,
+          source: {
+            subagent: {
+              thread_spawn: {
+                parent_thread_id: parentSessionId,
+                depth: 1,
+                agent_nickname: nickname,
+                agent_role: role
+              }
+            }
+          }
+        }
+      },
+      {
+        type: "event_msg",
+        timestamp: "2026-05-23T00:00:04.000Z",
+        payload: { type: "user_message", message: user }
+      },
+      {
+        type: "response_item",
+        timestamp: "2026-05-23T00:00:05.000Z",
+        payload: {
+          type: "message",
+          role: "assistant",
+          content: [{ type: "output_text", text: assistant }]
+        }
+      }
+    ].map((row) => JSON.stringify(row)).join("\n") + "\n"
+  );
+}
+
 function writeClaudeSession(home, { sessionId, projectPath, cwd, user, assistant }) {
   fs.mkdirSync(projectPath, { recursive: true });
   fs.writeFileSync(
@@ -654,6 +968,47 @@ function writeClaudeSession(home, { sessionId, projectPath, cwd, user, assistant
         sessionId,
         cwd,
         timestamp: "2026-05-23T00:00:02.000Z",
+        message: {
+          role: "assistant",
+          model: "claude-sonnet-4-6",
+          content: [{ type: "text", text: assistant }]
+        }
+      }
+    ].map((row) => JSON.stringify(row)).join("\n") + "\n"
+  );
+}
+
+function writeClaudeSubagentSession({
+  projectPath,
+  parentSessionId,
+  agentId,
+  cwd,
+  agentType,
+  user,
+  assistant
+}) {
+  const dir = path.join(projectPath, parentSessionId, "subagents");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, `${agentId}.jsonl`),
+    [
+      {
+        type: "user",
+        isSidechain: true,
+        agentId,
+        sessionId: parentSessionId,
+        cwd,
+        timestamp: "2026-05-23T00:00:03.000Z",
+        message: { role: "user", content: user }
+      },
+      {
+        type: "assistant",
+        isSidechain: true,
+        agentId,
+        attributionAgent: agentType,
+        sessionId: parentSessionId,
+        cwd,
+        timestamp: "2026-05-23T00:00:04.000Z",
         message: {
           role: "assistant",
           model: "claude-sonnet-4-6",

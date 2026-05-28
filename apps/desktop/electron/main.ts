@@ -16,6 +16,8 @@ import { fileURLToPath } from "node:url";
 import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 
 import {
+  loadLocalSessionContent,
+  loadLocalSessionList,
   loadLocalSessions,
   updateLocalSessionVisibility
 } from "./session-loader.js";
@@ -52,7 +54,14 @@ type TerminalSession = {
 };
 
 ipcMain.handle("composer:get-telemetry-identity", () => telemetryIdentity());
-ipcMain.handle("composer:list-local-sessions", () => loadLocalSessions());
+ipcMain.handle("composer:list-local-sessions", () => loadLocalSessionList());
+ipcMain.handle("composer:load-local-session", (_event, requestedSessionId: unknown) => {
+  if (typeof requestedSessionId !== "string" || !requestedSessionId) {
+    throw new Error("Expected a session id");
+  }
+
+  return loadLocalSessionContent(requestedSessionId) ?? null;
+});
 ipcMain.handle("composer:open-external-url", (_event, requestedUrl: unknown) => {
   if (typeof requestedUrl !== "string") {
     throw new Error("Expected a URL");
@@ -83,7 +92,7 @@ ipcMain.handle("composer:update-session-visibility", (_event, request: unknown) 
   }
 
   updateLocalSessionVisibility(session, action);
-  return loadLocalSessions();
+  return loadLocalSessionList();
 });
 ipcMain.handle("composer:get-agent-server", async () => {
   const port = await ensureAgentServer();

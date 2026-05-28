@@ -55,6 +55,7 @@ declare global {
       }>;
       openExternalUrl?: (url: string) => Promise<void>;
       listLocalSessions?: () => Promise<SessionSnapshot>;
+      loadLocalSession?: (sessionId: string) => Promise<SessionContent | null>;
       updateSessionVisibility?: (request: {
         sessionId: string;
         action: "archive";

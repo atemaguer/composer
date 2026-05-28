@@ -1,7 +1,8 @@
 import {
   AgentRuntime,
   createComposerServer,
-  loadLocalSessions,
+  loadLocalSessionContent,
+  loadLocalSessionList,
   localRuntimePersistence
 } from "./index.js";
 
@@ -13,7 +14,8 @@ export type StartComposerRuntimeServerOptions = {
 export async function startComposerRuntimeServer(
   options: StartComposerRuntimeServerOptions = {}
 ) {
-  const runtime = new AgentRuntime(loadLocalSessions(), {
+  const runtime = new AgentRuntime(loadLocalSessionList(), {
+    loadSessionContent: loadLocalSessionContent,
     persistence: localRuntimePersistence
   });
   const composerServer = createComposerServer({ runtime });

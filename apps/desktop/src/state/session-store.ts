@@ -52,7 +52,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
   setSessions: (value) =>
     set((state) => ({ sessions: resolveState(value, state.sessions) })),
   setSnapshot: (snapshot) =>
-    set(normalizedSnapshotState(snapshot)),
+    set((state) => normalizedSnapshotState(snapshot, state.sessions)),
   upsertSession: (session) =>
     set((state) => {
       const normalized = normalizeSession(session);
@@ -131,11 +131,12 @@ export function isSessionRunning(session: SessionContent) {
 }
 
 export function normalizedSnapshotState(
-  snapshot: SessionSnapshot
+  snapshot: SessionSnapshot,
+  existingSessions: Record<string, SessionContent> = {}
 ): Pick<SessionStoreState, "projects" | "sessions"> {
   return {
     projects: snapshot.projects,
-    sessions: normalizeSessions(snapshot.sessions)
+    sessions: normalizeSessions(snapshot.sessions, existingSessions)
   };
 }
 
@@ -145,15 +146,38 @@ export function normalizeSession(session: SessionContent): SessionContent {
     items: session.items ?? [],
     pendingItems: session.pendingItems ?? [],
     providerSessions: session.providerSessions ?? {},
-    runtimeStatus: session.runtimeStatus ?? "idle"
+    runtimeStatus: session.runtimeStatus ?? "idle",
+    contentLoaded: session.contentLoaded ?? true
   };
 }
 
 export function normalizeSessions(
-  sessions: Record<string, SessionContent>
+  sessions: Record<string, SessionContent>,
+  existingSessions: Record<string, SessionContent> = {}
 ): Record<string, SessionContent> {
   return Object.fromEntries(
-    Object.entries(sessions).map(([id, session]) => [id, normalizeSession(session)])
+    Object.entries(sessions).map(([id, session]) => {
+      const normalized = normalizeSession(session);
+      const existing = existingSessions[id];
+
+      if (!normalized.contentLoaded && existing?.contentLoaded) {
+        return [
+          id,
+          normalizeSession({
+            ...normalized,
+            items: existing.items,
+            pendingItems: existing.pendingItems,
+            providerSessions: {
+              ...normalized.providerSessions,
+              ...existing.providerSessions
+            },
+            contentLoaded: true
+          })
+        ];
+      }
+
+      return [id, normalized];
+    })
   );
 }
 
@@ -162,7 +186,7 @@ export function applyAgentEventToState(
   event: LiveAgentEvent
 ): Partial<SessionStoreState> {
   if (event.type === "sessions.snapshot") {
-    return normalizedSnapshotState(event.snapshot);
+    return normalizedSnapshotState(event.snapshot, state.sessions);
   }
 
   if (event.type === "session.started" || event.type === "session.updated") {
@@ -491,20 +515,43 @@ export function upsertSessionProject(
   session: SessionContent
 ) {
   const project = workspaceProjectForSession(session);
+  const existingThread = findThread(projects, session.id);
   const thread: ProjectThread = {
     id: session.id,
     name: session.title,
     age: relativeAge(session.updatedAt),
     provider: session.provider,
     model: session.model,
-    cwd: session.cwd
+    cwd: session.cwd,
+    parentSessionId: session.parentSessionId,
+    subagent: session.subagent,
+    children: existingThread?.children ?? []
   };
   const withoutThread = projects
     .map((item) => ({
       ...item,
-      threads: item.threads.filter((threadItem) => threadItem.id !== session.id)
+      threads: removeThreadFromTree(item.threads, session.id)
     }))
     .filter((item) => item.threads.length > 0 || projectKey(item) === project.id);
+
+  if (session.parentSessionId) {
+    const parentSessionId = session.parentSessionId;
+    let inserted = false;
+    const withNestedThread = withoutThread.map((item) => {
+      const threads = insertChildThread(
+        item.threads,
+        parentSessionId,
+        thread
+      );
+      inserted ||= threads !== item.threads;
+      return threads === item.threads ? item : { ...item, threads };
+    });
+
+    if (inserted) {
+      return withNestedThread;
+    }
+  }
+
   const existing = withoutThread.find((item) => projectKey(item) === project.id);
 
   if (existing) {
@@ -536,9 +583,93 @@ export function removeThreadFromProjects(projects: Project[], sessionId: string)
   return projects
     .map((project) => ({
       ...project,
-      threads: project.threads.filter((thread) => thread.id !== sessionId)
+      threads: removeThreadFromTree(project.threads, sessionId)
     }))
     .filter((project) => project.threads.length > 0);
+}
+
+function removeThreadFromTree(threads: ProjectThread[], sessionId: string) {
+  let changed = false;
+  const next: ProjectThread[] = [];
+
+  for (const thread of threads) {
+    if (thread.id === sessionId) {
+      changed = true;
+      continue;
+    }
+
+    const existingChildren = thread.children ?? [];
+    const children = removeThreadFromTree(existingChildren, sessionId);
+
+    if (children !== existingChildren) {
+      changed = true;
+      next.push({ ...thread, children });
+    } else {
+      next.push(thread);
+    }
+  }
+
+  return changed ? next : threads;
+}
+
+function insertChildThread(
+  threads: ProjectThread[],
+  parentSessionId: string,
+  child: ProjectThread
+): ProjectThread[] {
+  let changed = false;
+  const next = threads.map((thread) => {
+    if (thread.id === parentSessionId) {
+      changed = true;
+      return {
+        ...thread,
+        children: [child, ...(thread.children ?? [])]
+      };
+    }
+
+    const existingChildren = thread.children ?? [];
+    const children = insertChildThread(existingChildren, parentSessionId, child);
+
+    if (children !== existingChildren) {
+      changed = true;
+      return { ...thread, children };
+    }
+
+    return thread;
+  });
+
+  return changed ? next : threads;
+}
+
+function findThread(projects: Project[], sessionId: string) {
+  for (const project of projects) {
+    const thread = findThreadInTree(project.threads, sessionId);
+
+    if (thread) {
+      return thread;
+    }
+  }
+
+  return undefined;
+}
+
+function findThreadInTree(
+  threads: ProjectThread[],
+  sessionId: string
+): ProjectThread | undefined {
+  for (const thread of threads) {
+    if (thread.id === sessionId) {
+      return thread;
+    }
+
+    const child = findThreadInTree(thread.children ?? [], sessionId);
+
+    if (child) {
+      return child;
+    }
+  }
+
+  return undefined;
 }
 
 function relativeAge(value?: string) {

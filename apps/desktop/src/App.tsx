@@ -228,6 +228,7 @@ export default function App() {
   const socketRef = useRef<ComposerEventSocket<LiveAgentEvent> | null>(null);
   const processedAgentEventsRef = useRef<Set<string>>(new Set());
   const expectingNewSessionRef = useRef(false);
+  const loadingSessionIdsRef = useRef<Set<string>>(new Set());
   const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
   const [sessionsLoading, setSessionsLoading] = useState(
@@ -619,8 +620,11 @@ export default function App() {
     }
 
     if (!session) {
+      ensureSessionLoaded(threadId);
       return;
     }
+
+    ensureSessionLoaded(threadId);
 
     const nextProvider = composerProviderForSession(session, provider);
     setProvider(nextProvider);
@@ -630,6 +634,45 @@ export default function App() {
     if (sessionWorkspace) {
       setSelectedWorkspaceId(sessionWorkspace);
     }
+  }
+
+  function ensureSessionLoaded(threadId: string) {
+    const session = sessions[threadId];
+
+    if (!session || session.contentLoaded || loadingSessionIdsRef.current.has(threadId)) {
+      return;
+    }
+
+    loadingSessionIdsRef.current.add(threadId);
+    const load = agentClient
+      ? agentClient.loadSession<SessionContent>(threadId)
+      : window.composer?.loadLocalSession?.(threadId) ?? Promise.resolve(null);
+
+    void load
+      .then((loadedSession) => {
+        if (!loadedSession) {
+          return;
+        }
+
+        upsertSession(loadedSession);
+
+        if (useSessionStore.getState().selectedThread !== threadId) {
+          return;
+        }
+
+        setProvider(composerProviderForSession(loadedSession, provider));
+        const sessionWorkspace = sessionWorkspaceCwd(loadedSession);
+
+        if (sessionWorkspace) {
+          setSelectedWorkspaceId(sessionWorkspace);
+        }
+      })
+      .catch((error) => {
+        console.warn(`Could not load session ${threadId}`, error);
+      })
+      .finally(() => {
+        loadingSessionIdsRef.current.delete(threadId);
+      });
   }
 
   function navigateAppRoute(pathname: string, options?: { replace?: boolean }) {
@@ -2445,12 +2488,14 @@ function createThreadTabs({
       })
     ) ??
     projects.find((project) =>
-      project.threads.some((thread) => thread.id === selectedThread)
+      flattenProjectThreads(project.threads).some(
+        (thread) => thread.id === selectedThread
+      )
     ) ??
     projects[0];
 
   const tabs = workspaceProject
-    ? workspaceProject.threads
+    ? flattenProjectThreads(workspaceProject.threads)
         .filter((thread) => threadMatchesProviderFilter(thread, providerFilter))
         .map((thread) => threadToTab(workspaceProject, thread, runningSessionIds))
     : [];
@@ -2461,7 +2506,7 @@ function createThreadTabs({
 
   const activeThread = projects
     .flatMap((project) =>
-      project.threads
+      flattenProjectThreads(project.threads)
         .filter((thread) => threadMatchesProviderFilter(thread, providerFilter))
         .map((thread) => threadToTab(project, thread, runningSessionIds))
     )
@@ -2475,6 +2520,13 @@ function threadMatchesProviderFilter(
   providerFilter: ProviderFilter
 ) {
   return providerFilter === "all" || thread.provider === providerFilter;
+}
+
+function flattenProjectThreads(threads: ProjectThread[]): ProjectThread[] {
+  return threads.flatMap((thread) => [
+    thread,
+    ...flattenProjectThreads(thread.children ?? [])
+  ]);
 }
 
 function projectMatchesWorkspace(

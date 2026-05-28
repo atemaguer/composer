@@ -117,6 +117,17 @@ type ProjectThread = {
   provider?: SessionProvider;
   model?: string;
   cwd?: string;
+  parentSessionId?: string;
+  subagent?: SubagentMetadata;
+  children?: ProjectThread[];
+};
+
+type SubagentMetadata = {
+  id?: string;
+  nickname?: string;
+  role?: string;
+  type?: string;
+  depth?: number;
 };
 
 type SessionRenderMode = "single" | "hybrid";
@@ -141,11 +152,13 @@ type SessionContent = {
   providerSessionId?: string;
   renderMode?: SessionRenderMode;
   parentSessionId?: string;
+  subagent?: SubagentMetadata;
   providerSessions?: Partial<Record<SessionProvider, ProviderSessionState>>;
   contextVersion?: number;
   lastProvider?: SessionProvider;
   parallelAdoptedProvider?: "codex" | "claude";
   runtimeStatus?: "idle" | "running" | "awaiting_approval" | "error";
+  contentLoaded?: boolean;
   title: string;
   updatedAt?: string;
   cwd?: string;
@@ -169,12 +182,73 @@ const MAX_TEXT_LENGTH = 4_000;
 const MAX_DETAIL_LENGTH = 520;
 
 export function loadLocalSessions(): SessionSnapshot {
+  return loadLocalSessionSnapshot({ includeItems: true });
+}
+
+export function loadLocalSessionList(): SessionSnapshot {
+  return loadLocalSessionSnapshot({ includeItems: false });
+}
+
+export function loadLocalSessionContent(sessionId: string) {
+  const registry = readComposerSessionRegistry();
+  const sessionRecord = registry.sessions.find((session) => session.id === sessionId);
+
+  if (sessionRecord && sessionRecord.status !== "archived") {
+    const providerRecords = activeProviderRecordsForSession(
+      sessionRecord,
+      registry.providerSessions.filter((record) =>
+        record.composerSessionId === sessionRecord.id
+      )
+    );
+    const nativeSessions = uniqueSessionsById(
+      providerRecords
+        .map((record) =>
+          loadNativeProviderSession(
+            record.provider,
+            record.providerSessionId,
+            { includeItems: true }
+          )
+        )
+        .filter((session): session is SessionContent => Boolean(session))
+    );
+    const nativeByProviderSession = nativeSessionMap(nativeSessions);
+    const composerSessionByProviderSession = composerSessionByProviderSessionMap(registry);
+
+    return composerSessionFromRecord(
+      sessionRecord,
+      providerRecords,
+      nativeByProviderSession,
+      composerSessionByProviderSession,
+      { includeItems: true }
+    ) ?? undefined;
+  }
+
+  if (sessionId.startsWith("codex-")) {
+    return loadNativeProviderSession("codex", sessionId.slice("codex-".length), {
+      includeItems: true
+    });
+  }
+
+  if (sessionId.startsWith("claude-")) {
+    return loadNativeProviderSession("claude", sessionId.slice("claude-".length), {
+      includeItems: true
+    });
+  }
+
+  return undefined;
+}
+
+function loadLocalSessionSnapshot(options: { includeItems: boolean }): SessionSnapshot {
   const registry = readComposerSessionRegistry();
   const delegateKeys = composerDelegateProviderSessionKeys(registry);
-  const claudeSessions = loadClaudeSessions();
-  const codexSessions = loadCodexSessions();
+  const claudeSessions = loadClaudeSessions(options);
+  const codexSessions = loadCodexSessions(options);
   const nativeSessions = uniqueSessionsById([...claudeSessions, ...codexSessions]);
-  const composerSessions = composerSessionsFromRegistry(registry, nativeSessions);
+  const composerSessions = composerSessionsFromRegistry(
+    registry,
+    nativeSessions,
+    options
+  );
   const localSessions = nativeSessions
     .filter((session) =>
       !session.providerSessionId ||
@@ -198,19 +272,8 @@ function uniqueSessionsById(sessions: SessionContent[]) {
   return [...new Map(sessions.map((session) => [session.id, session])).values()];
 }
 
-function delegateSessionKey(provider: SessionProvider, providerSessionId: string) {
-  if (provider !== "codex" && provider !== "claude") {
-    return `${provider}:${providerSessionId}`;
-  }
-
-  return `${provider}:${providerSessionId}`;
-}
-
-function composerSessionsFromRegistry(
-  registry: ComposerSessionRegistry,
-  nativeSessions: SessionContent[]
-) {
-  const nativeByProviderSession = new Map(
+function nativeSessionMap(nativeSessions: SessionContent[]) {
+  return new Map(
     nativeSessions
       .filter((session) =>
         (session.provider === "codex" || session.provider === "claude") &&
@@ -221,6 +284,32 @@ function composerSessionsFromRegistry(
         session
       ])
   );
+}
+
+function composerSessionByProviderSessionMap(registry: ComposerSessionRegistry) {
+  return new Map(
+    registry.providerSessions.map((record) => [
+      providerSessionKey(record.provider, record.providerSessionId),
+      record.composerSessionId
+    ])
+  );
+}
+
+function delegateSessionKey(provider: SessionProvider, providerSessionId: string) {
+  if (provider !== "codex" && provider !== "claude") {
+    return `${provider}:${providerSessionId}`;
+  }
+
+  return `${provider}:${providerSessionId}`;
+}
+
+function composerSessionsFromRegistry(
+  registry: ComposerSessionRegistry,
+  nativeSessions: SessionContent[],
+  options: { includeItems: boolean }
+) {
+  const nativeByProviderSession = nativeSessionMap(nativeSessions);
+  const composerSessionByProviderSession = composerSessionByProviderSessionMap(registry);
   const sessions: SessionContent[] = [];
 
   for (const sessionRecord of registry.sessions) {
@@ -245,7 +334,9 @@ function composerSessionsFromRegistry(
     const session = composerSessionFromRecord(
       sessionRecord,
       activeRecords,
-      nativeByProviderSession
+      nativeByProviderSession,
+      composerSessionByProviderSession,
+      options
     );
 
     if (session) {
@@ -273,7 +364,9 @@ function activeProviderRecordsForSession(
 function composerSessionFromRecord(
   sessionRecord: ComposerSessionRecord,
   providerRecords: ComposerProviderSessionRecord[],
-  nativeByProviderSession: Map<string, SessionContent>
+  nativeByProviderSession: Map<string, SessionContent>,
+  composerSessionByProviderSession: Map<string, string>,
+  options: { includeItems: boolean }
 ): SessionContent | null {
   const renderMode = sessionRecord.renderMode ??
     (sessionRecord.hybridMode === "parallel-initial" && !sessionRecord.parallelAdoptedProvider
@@ -291,7 +384,8 @@ function composerSessionFromRecord(
       sessionRecord,
       providerRecords,
       nativeByProviderSession,
-      providerSessions
+      providerSessions,
+      options
     );
   }
 
@@ -318,6 +412,13 @@ function composerSessionFromRecord(
     providerSessionId: visibleRecord?.providerSessionId ?? visibleNative?.providerSessionId,
     providerSessions,
     renderMode: "single",
+    parentSessionId: remapNativeParentSessionId(
+      visibleNative?.parentSessionId,
+      visibleNative?.provider,
+      composerSessionByProviderSession
+    ),
+    subagent: visibleNative?.subagent,
+    contentLoaded: options.includeItems,
     parallelAdoptedProvider: sessionRecord.parallelAdoptedProvider,
     lastProvider: sessionRecord.lastProvider ?? visibleProvider,
     title: sessionRecord.title ?? visibleNative?.title ?? titleFromCwd(sessionRecord.sourceCwd) ?? "Composer session",
@@ -325,15 +426,36 @@ function composerSessionFromRecord(
     cwd: sessionRecord.activeCwd ?? visibleRecord?.cwd ?? visibleNative?.cwd ?? sessionRecord.sourceCwd,
     displayCwd: sessionRecord.displayCwd ?? sessionRecord.sourceCwd,
     model: visibleNative?.model,
-    items: visibleNative?.items ?? []
+    items: options.includeItems ? visibleNative?.items ?? [] : []
   });
+}
+
+function remapNativeParentSessionId(
+  parentSessionId: string | undefined,
+  provider: SessionProvider | undefined,
+  composerSessionByProviderSession: Map<string, string>
+) {
+  if (
+    !parentSessionId ||
+    (provider !== "codex" && provider !== "claude") ||
+    !parentSessionId.startsWith(`${provider}-`)
+  ) {
+    return parentSessionId;
+  }
+
+  const parentProviderSessionId = parentSessionId.slice(provider.length + 1);
+
+  return composerSessionByProviderSession.get(
+    providerSessionKey(provider, parentProviderSessionId)
+  ) ?? parentSessionId;
 }
 
 function composerParallelSessionFromRecord(
   sessionRecord: ComposerSessionRecord,
   providerRecords: ComposerProviderSessionRecord[],
   nativeByProviderSession: Map<string, SessionContent>,
-  providerSessions: Partial<Record<SessionProvider, ProviderSessionState>>
+  providerSessions: Partial<Record<SessionProvider, ProviderSessionState>>,
+  options: { includeItems: boolean }
 ): SessionContent | null {
   const columns: Array<{
     provider: SessionProvider;
@@ -356,7 +478,7 @@ function composerParallelSessionFromRecord(
     columns.push({
       provider,
       title: `${provider === "codex" ? "Codex" : "Claude"} thread`,
-      items: agentOutputItems(native.items)
+      items: options.includeItems ? agentOutputItems(native.items) : []
     });
   }
 
@@ -369,11 +491,14 @@ function composerParallelSessionFromRecord(
       providerSessionKey(record.provider, record.providerSessionId)
     ))
     .filter((session): session is SessionContent => Boolean(session));
-  const firstUser = nativeMatches
-    .flatMap((session) => session.items)
-    .find((item): item is Extract<ConversationItem, { type: "user_message" }> =>
-      item.type === "user_message"
-    );
+  const firstUser = options.includeItems
+    ? nativeMatches
+        .flatMap((session) => session.items)
+        .find(
+          (item): item is Extract<ConversationItem, { type: "user_message" }> =>
+            item.type === "user_message"
+        )
+    : undefined;
   const items: ConversationItem[] = [
     ...(firstUser
       ? [{
@@ -396,6 +521,7 @@ function composerParallelSessionFromRecord(
     provider: "meta",
     providerSessions,
     renderMode: "hybrid",
+    contentLoaded: options.includeItems,
     lastProvider: sessionRecord.lastProvider,
     parallelAdoptedProvider: sessionRecord.parallelAdoptedProvider,
     title: sessionRecord.title ?? nativeMatches[0]?.title ?? titleFromCwd(sessionRecord.sourceCwd) ?? "Composer session",
@@ -403,7 +529,7 @@ function composerParallelSessionFromRecord(
     cwd: sessionRecord.activeCwd ?? sessionRecord.sourceCwd,
     displayCwd: sessionRecord.displayCwd ?? sessionRecord.sourceCwd,
     model: "Codex + Claude parallel",
-    items
+    items: options.includeItems ? items : []
   });
 }
 
@@ -456,7 +582,7 @@ function agentOutputItems(items: ConversationItem[]) {
   );
 }
 
-function loadCodexSessions(): SessionContent[] {
+function loadCodexSessions(options: { includeItems: boolean }): SessionContent[] {
   const codexRoot = path.join(os.homedir(), ".codex");
   const index = readCodexIndex(codexRoot);
   const files = findJsonl(path.join(codexRoot, "sessions"))
@@ -465,18 +591,40 @@ function loadCodexSessions(): SessionContent[] {
   const sessions: SessionContent[] = [];
 
   for (const file of files) {
-    const parsed = parseCodexSession(file.fullPath, index);
+    const parsed = parseCodexSession(file.fullPath, index, options);
 
-    if (parsed && parsed.items.length > 0) {
+    if (parsed && (!options.includeItems || parsed.items.length > 0)) {
       sessions.push(parsed);
-    }
-
-    if (sessions.length >= MAX_SESSIONS_PER_PROVIDER) {
-      break;
     }
   }
 
-  return sessions;
+  return selectSessionTree(sessions, MAX_SESSIONS_PER_PROVIDER);
+}
+
+function loadNativeProviderSession(
+  provider: "codex" | "claude",
+  providerSessionId: string,
+  options: { includeItems: boolean }
+) {
+  const filePath = findSessionFile({
+    id: `${provider}-${providerSessionId}`,
+    provider,
+    providerSessionId
+  });
+
+  if (!filePath) {
+    return undefined;
+  }
+
+  if (provider === "codex") {
+    return parseCodexSession(
+      filePath,
+      readCodexIndex(path.join(os.homedir(), ".codex")),
+      options
+    ) ?? undefined;
+  }
+
+  return parseClaudeSession(filePath, options) ?? undefined;
 }
 
 export function updateLocalSessionVisibility(
@@ -505,13 +653,15 @@ export function updateLocalSessionVisibility(
 
 function parseCodexSession(
   filePath: string,
-  index: Map<string, { title: string; updatedAt?: string }>
+  index: Map<string, { title: string; updatedAt?: string }>,
+  options: { includeItems: boolean } = { includeItems: true }
 ): SessionContent | null {
-  const rows = readJsonl(filePath);
+  const includeItems = options.includeItems;
+  const rows = includeItems ? readJsonl(filePath) : readJsonlPreview(filePath);
   let id = codexIdFromPath(filePath);
   let cwd: string | undefined;
   let model: string | undefined;
-  let updatedAt = latestTimestamp(rows) ?? isoFromMtime(filePath);
+  let updatedAt = includeItems ? latestTimestamp(rows) ?? isoFromMtime(filePath) : isoFromMtime(filePath);
   let title = "";
   const items: ConversationItem[] = [];
   const toolGroupsByCallId = new Map<
@@ -521,19 +671,27 @@ function parseCodexSession(
   let toolIndex = 0;
   let firstRawUserText = "";
   let firstUserText = "";
+  let parentSessionId: string | undefined;
+  let subagent: SubagentMetadata | undefined;
 
   for (const row of rows) {
     const type = asString(row.type);
     const payload = asRecord(row.payload);
     const timestamp = asString(row.timestamp);
 
-    if (timestamp) {
+    if (includeItems && timestamp) {
       updatedAt = timestamp;
     }
 
     if (type === "session_meta") {
       id = asString(payload.id) ?? id;
       cwd = asString(payload.cwd) ?? cwd;
+      const subagentThread = codexSubagentThread(payload);
+
+      if (subagentThread) {
+        parentSessionId = `codex-${subagentThread.parentProviderSessionId}`;
+        subagent = subagentThread.metadata;
+      }
       continue;
     }
 
@@ -560,7 +718,7 @@ function parseCodexSession(
             imageUrlsFromPayload(payload)
           );
 
-          if (parsedMessage.attachments.length > 0) {
+          if (includeItems && parsedMessage.attachments.length > 0) {
             items.push({
               id: `${id}-user-attachments-${items.length}`,
               type: "attachment_group",
@@ -569,16 +727,18 @@ function parseCodexSession(
           }
 
           firstUserText ||= parsedMessage.body;
-          items.push({
-            id: `${id}-user-${items.length}`,
-            type: "user_message",
-            body: trimText(parsedMessage.body),
-            timestamp: formatTime(timestamp)
-          });
+          if (includeItems) {
+            items.push({
+              id: `${id}-user-${items.length}`,
+              type: "user_message",
+              body: trimText(parsedMessage.body),
+              timestamp: formatTime(timestamp)
+            });
+          }
         }
       }
 
-      if (eventType === "patch_apply_end") {
+      if (includeItems && eventType === "patch_apply_end") {
         const callId = asString(payload.call_id);
         const changes = asRecord(payload.changes);
         const reviewFiles = Object.entries(changes)
@@ -656,7 +816,7 @@ function parseCodexSession(
         continue;
       }
 
-      if (role === "assistant") {
+      if (includeItems && role === "assistant") {
         items.push({
           id: `${id}-assistant-${items.length}`,
           type: "assistant_message",
@@ -673,9 +833,10 @@ function parseCodexSession(
     }
 
     if (
-      payloadType === "function_call" ||
-      payloadType === "custom_tool_call" ||
-      payloadType === "image_generation_call"
+      includeItems &&
+      (payloadType === "function_call" ||
+        payloadType === "custom_tool_call" ||
+        payloadType === "image_generation_call")
     ) {
       toolIndex += 1;
       const name = asString(payload.name) ?? "tool";
@@ -706,8 +867,9 @@ function parseCodexSession(
     }
 
     if (
-      payloadType === "function_call_output" ||
-      payloadType === "custom_tool_call_output"
+      includeItems &&
+      (payloadType === "function_call_output" ||
+        payloadType === "custom_tool_call_output")
     ) {
       toolIndex += 1;
       const detail = createToolOutputDetail(
@@ -734,7 +896,11 @@ function parseCodexSession(
     return null;
   }
 
-  title = indexed?.title ?? titleFromText(firstUserText) ?? titleFromPath(filePath);
+  title =
+    subagentTitle(subagent) ??
+    indexed?.title ??
+    titleFromText(firstUserText) ??
+    titleFromPath(filePath);
   updatedAt = indexed?.updatedAt ?? updatedAt;
 
   return finishSession({
@@ -742,6 +908,9 @@ function parseCodexSession(
     provider: "codex",
     providerSessionId: id,
     renderMode: "single",
+    parentSessionId,
+    subagent,
+    contentLoaded: includeItems,
     title,
     updatedAt,
     cwd,
@@ -750,7 +919,7 @@ function parseCodexSession(
   });
 }
 
-function loadClaudeSessions(): SessionContent[] {
+function loadClaudeSessions(options: { includeItems: boolean }): SessionContent[] {
   const projectsRoot = path.join(os.homedir(), ".claude", "projects");
   const files = findClaudeProjectJsonl(projectsRoot).sort(
     (a, b) => b.mtimeMs - a.mtimeMs
@@ -758,35 +927,64 @@ function loadClaudeSessions(): SessionContent[] {
   const sessions: SessionContent[] = [];
 
   for (const file of files) {
-    const parsed = parseClaudeSession(file.fullPath);
+    const parsed = parseClaudeSession(file.fullPath, options);
 
-    if (parsed && parsed.items.length > 0) {
+    if (parsed && (!options.includeItems || parsed.items.length > 0)) {
       sessions.push(parsed);
-    }
-
-    if (sessions.length >= MAX_SESSIONS_PER_PROVIDER) {
-      break;
     }
   }
 
-  return sessions;
+  return selectSessionTree(sessions, MAX_SESSIONS_PER_PROVIDER);
 }
 
-function parseClaudeSession(filePath: string): SessionContent | null {
-  const rows = readJsonl(filePath);
+function parseClaudeSession(
+  filePath: string,
+  options: { includeItems: boolean } = { includeItems: true }
+): SessionContent | null {
+  const includeItems = options.includeItems;
+  const rows = includeItems ? readJsonl(filePath) : readJsonlPreview(filePath);
   const fileSessionId = path.basename(filePath, ".jsonl");
-  let sessionId = fileSessionId;
+  const pathSubagent = claudeSubagentFromPath(filePath);
+  let sessionId = pathSubagent?.metadata.id ?? fileSessionId;
+  let parentSessionId = pathSubagent?.parentProviderSessionId
+    ? `claude-${pathSubagent.parentProviderSessionId}`
+    : undefined;
+  let subagent = pathSubagent?.metadata;
   let cwd: string | undefined = cwdFromClaudeProjectPath(filePath);
   let model: string | undefined;
-  let updatedAt = latestTimestamp(rows) ?? isoFromMtime(filePath);
+  let updatedAt = includeItems ? latestTimestamp(rows) ?? isoFromMtime(filePath) : isoFromMtime(filePath);
   let firstUserText = "";
   const items: ConversationItem[] = [];
   let toolIndex = 0;
 
   for (const row of rows) {
-    sessionId = asString(row.sessionId) ?? sessionId;
+    const rowSessionId = asString(row.sessionId);
+    const rowAgentId = asString(row.agentId);
+    const isSidechain = row.isSidechain === true || Boolean(subagent);
+
+    if (isSidechain) {
+      if (rowSessionId) {
+        parentSessionId = `claude-${rowSessionId}`;
+      }
+
+      if (rowAgentId && !subagent?.id) {
+        sessionId = rowAgentId;
+      }
+
+      const attributionAgent = asString(row.attributionAgent);
+      subagent = {
+        ...subagent,
+        id: subagent?.id ?? rowAgentId ?? sessionId,
+        type: subagent?.type ?? attributionAgent
+      };
+    } else {
+      sessionId = rowSessionId ?? sessionId;
+    }
+
     cwd = asString(row.cwd) ?? cwd;
-    updatedAt = asString(row.timestamp) ?? updatedAt;
+    if (includeItems) {
+      updatedAt = asString(row.timestamp) ?? updatedAt;
+    }
 
     if (row.type === "permission-mode") {
       // Claude permission mode rows are runtime metadata. They are useful for
@@ -800,12 +998,14 @@ function parseClaudeSession(filePath: string): SessionContent | null {
 
       if (typeof content === "string") {
         firstUserText ||= content;
-        items.push({
-          id: `${sessionId}-user-${items.length}`,
-          type: "user_message",
-          body: trimText(userVisiblePrompt(content)),
-          timestamp: formatTime(asString(row.timestamp))
-        });
+        if (includeItems) {
+          items.push({
+            id: `${sessionId}-user-${items.length}`,
+            type: "user_message",
+            body: trimText(userVisiblePrompt(content)),
+            timestamp: formatTime(asString(row.timestamp))
+          });
+        }
       } else if (Array.isArray(content)) {
         const hasToolResult = content.some((part) => {
           const block = asRecord(part);
@@ -817,12 +1017,14 @@ function parseClaudeSession(filePath: string): SessionContent | null {
 
           if (userText) {
             firstUserText ||= userText;
-            items.push({
-              id: `${sessionId}-user-${items.length}`,
-              type: "user_message",
-              body: trimText(userVisiblePrompt(userText)),
-              timestamp: formatTime(asString(row.timestamp))
-            });
+            if (includeItems) {
+              items.push({
+                id: `${sessionId}-user-${items.length}`,
+                type: "user_message",
+                body: trimText(userVisiblePrompt(userText)),
+                timestamp: formatTime(asString(row.timestamp))
+              });
+            }
           }
 
           continue;
@@ -830,7 +1032,7 @@ function parseClaudeSession(filePath: string): SessionContent | null {
 
         const resultText = extractClaudeToolResultText(content);
 
-        if (resultText) {
+        if (includeItems && resultText) {
           toolIndex += 1;
           const detail = createToolOutputDetail(
             `${sessionId}-tool-result-${toolIndex}-detail`,
@@ -869,7 +1071,7 @@ function parseClaudeSession(filePath: string): SessionContent | null {
         if (blockType === "text") {
           const body = asString(contentBlock.text);
 
-          if (body) {
+          if (includeItems && body) {
             items.push({
               id: `${sessionId}-assistant-${items.length}`,
               type: "assistant_message",
@@ -880,7 +1082,7 @@ function parseClaudeSession(filePath: string): SessionContent | null {
           // Claude thinking blocks are internal reasoning state, not
           // user-visible assistant transcript content.
           continue;
-        } else if (blockType === "tool_use") {
+        } else if (includeItems && blockType === "tool_use") {
           toolIndex += 1;
           const name = asString(contentBlock.name) ?? "tool";
           const input = asRecord(contentBlock.input);
@@ -914,7 +1116,14 @@ function parseClaudeSession(filePath: string): SessionContent | null {
     provider: "claude",
     providerSessionId: sessionId,
     renderMode: "single",
-    title: titleFromText(firstUserText) ?? titleFromCwd(cwd) ?? titleFromPath(filePath),
+    parentSessionId,
+    subagent,
+    contentLoaded: includeItems,
+    title:
+      subagentTitle(subagent) ??
+      titleFromText(firstUserText) ??
+      titleFromCwd(cwd) ??
+      titleFromPath(filePath),
     updatedAt,
     cwd,
     model,
@@ -936,7 +1145,8 @@ function finishSession(session: Omit<SessionContent, "pendingItems">) {
   return {
     ...session,
     items: cappedItems,
-    pendingItems: []
+    pendingItems: [],
+    contentLoaded: session.contentLoaded ?? true
   } satisfies SessionContent;
 }
 
@@ -959,31 +1169,128 @@ function readCodexIndex(codexRoot: string) {
   return index;
 }
 
-function readJsonl(filePath: string) {
-  const rows: JsonRecord[] = [];
+function codexSubagentThread(payload: JsonRecord):
+  | { parentProviderSessionId: string; metadata: SubagentMetadata }
+  | undefined {
+  const source = asRecord(payload.source);
+  const sourceSubagent = asRecord(source.subagent);
+  const threadSpawn = asRecord(sourceSubagent.thread_spawn);
+  const parentProviderSessionId = asString(threadSpawn.parent_thread_id);
+  const threadSource = asString(payload.thread_source);
 
+  if (!parentProviderSessionId && threadSource !== "subagent") {
+    return undefined;
+  }
+
+  const metadata: SubagentMetadata = {
+    id: asString(threadSpawn.agent_path) ?? asString(payload.agent_path),
+    nickname:
+      asString(threadSpawn.agent_nickname) ?? asString(payload.agent_nickname),
+    role: asString(threadSpawn.agent_role) ?? asString(payload.agent_role),
+    depth: asNumber(threadSpawn.depth) ?? asNumber(payload.depth)
+  };
+
+  return parentProviderSessionId
+    ? { parentProviderSessionId, metadata }
+    : undefined;
+}
+
+function claudeSubagentFromPath(filePath: string):
+  | { parentProviderSessionId: string; metadata: SubagentMetadata }
+  | undefined {
+  const subagentsDir = `${path.sep}subagents${path.sep}`;
+  const markerIndex = filePath.indexOf(subagentsDir);
+
+  if (markerIndex === -1) {
+    return undefined;
+  }
+
+  const beforeSubagents = filePath.slice(0, markerIndex);
+  const parentProviderSessionId = path.basename(beforeSubagents);
+  const id = path.basename(filePath, ".jsonl");
+
+  if (!parentProviderSessionId || !id) {
+    return undefined;
+  }
+
+  return {
+    parentProviderSessionId,
+    metadata: {
+      id
+    }
+  };
+}
+
+function subagentTitle(subagent?: SubagentMetadata) {
+  if (!subagent) {
+    return undefined;
+  }
+
+  const displayName = subagent.nickname ?? subagent.type;
+
+  if (displayName) {
+    return `${displayName} subagent`;
+  }
+
+  if (subagent.role) {
+    return `${formatToolName(subagent.role)} subagent`;
+  }
+
+  return "Subagent";
+}
+
+function readJsonl(filePath: string) {
   try {
     const content = fs.readFileSync(filePath, "utf8");
 
-    for (const line of content.split("\n")) {
-      const trimmed = line.trim();
+    return parseJsonlLines(content.split("\n"));
+  } catch {
+    return [];
+  }
+}
 
-      if (!trimmed) {
-        continue;
+function readJsonlPreview(filePath: string, maxBytes = 256 * 1024) {
+  try {
+    const fd = fs.openSync(filePath, "r");
+
+    try {
+      const buffer = Buffer.alloc(maxBytes);
+      const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
+      const chunk = buffer.subarray(0, bytesRead).toString("utf8");
+      const lines = chunk.split("\n");
+
+      if (bytesRead === maxBytes && !chunk.endsWith("\n")) {
+        lines.pop();
       }
 
-      try {
-        const parsed = JSON.parse(trimmed);
-
-        if (parsed && typeof parsed === "object") {
-          rows.push(parsed as JsonRecord);
-        }
-      } catch {
-        // Individual malformed rows should not block the rest of the session.
-      }
+      return parseJsonlLines(lines);
+    } finally {
+      fs.closeSync(fd);
     }
   } catch {
     return [];
+  }
+}
+
+function parseJsonlLines(lines: string[]) {
+  const rows: JsonRecord[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    if (!trimmed) {
+      continue;
+    }
+
+    try {
+      const parsed = JSON.parse(trimmed);
+
+      if (parsed && typeof parsed === "object") {
+        rows.push(parsed as JsonRecord);
+      }
+    } catch {
+      // Individual malformed rows should not block the rest of the session.
+    }
   }
 
   return rows;
@@ -1009,6 +1316,9 @@ function findJsonl(root: string) {
       const fullPath = path.join(dir, entry.name);
 
       if (entry.isDirectory()) {
+        if (entry.name.startsWith(".")) {
+          continue;
+        }
         walk(fullPath, depth + 1);
       } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
         files.push({
@@ -1056,6 +1366,10 @@ function findClaudeProjectJsonl(projectsRoot: string) {
           fullPath,
           mtimeMs: safeMtimeMs(fullPath)
         });
+      } else if (entry.isDirectory()) {
+        for (const file of findJsonl(fullPath)) {
+          files.push(file);
+        }
       }
     }
   }
@@ -1133,7 +1447,10 @@ function uniqueFilePath(filePath: string) {
   throw new Error(`Could not allocate archive path for ${filePath}`);
 }
 
-function sessionToThread(session: SessionContent): ProjectThread {
+function sessionToThread(
+  session: SessionContent,
+  children: ProjectThread[] = []
+): ProjectThread {
   const cwd = workspaceCwdForSession(session);
 
   return {
@@ -1142,8 +1459,77 @@ function sessionToThread(session: SessionContent): ProjectThread {
     age: relativeAge(session.updatedAt),
     provider: session.provider,
     model: session.model,
-    cwd
+    cwd,
+    parentSessionId: session.parentSessionId,
+    subagent: session.subagent,
+    children
   };
+}
+
+function sessionsToThreadTree(sessions: SessionContent[]): ProjectThread[] {
+  const sortedSessions = [...sessions].sort(compareSessionsByUpdatedAt);
+  type ThreadNode = { session: SessionContent; children: ThreadNode[] };
+  const nodes = new Map<string, ThreadNode>();
+
+  for (const session of sortedSessions) {
+    nodes.set(session.id, { session, children: [] });
+  }
+
+  const roots: ThreadNode[] = [];
+
+  for (const session of sortedSessions) {
+    const node = nodes.get(session.id);
+
+    if (!node) {
+      continue;
+    }
+
+    const parent = session.parentSessionId
+      ? nodes.get(session.parentSessionId)
+      : undefined;
+
+    if (parent) {
+      parent.children.push(node);
+    } else {
+      roots.push(node);
+    }
+  }
+
+  const nodeToThread = (node: ThreadNode): ProjectThread =>
+    sessionToThread(node.session, node.children.map(nodeToThread));
+
+  return roots.map(nodeToThread);
+}
+
+function selectSessionTree(sessions: SessionContent[], maxRootSessions: number) {
+  const byId = new Map(sessions.map((session) => [session.id, session]));
+  const sortedSessions = [...sessions].sort(compareSessionsByUpdatedAt);
+  const selectedRootIds = new Set<string>();
+
+  for (const session of sortedSessions) {
+    const rootId =
+      session.parentSessionId && byId.has(session.parentSessionId)
+        ? session.parentSessionId
+        : session.parentSessionId
+          ? undefined
+          : session.id;
+
+    if (!rootId) {
+      continue;
+    }
+
+    selectedRootIds.add(rootId);
+
+    if (selectedRootIds.size >= maxRootSessions) {
+      break;
+    }
+  }
+
+  return sortedSessions.filter(
+    (session) =>
+      selectedRootIds.has(session.id) ||
+      (session.parentSessionId && selectedRootIds.has(session.parentSessionId))
+  );
 }
 
 function groupSessionsByWorkspace(sessions: SessionContent[]): Project[] {
@@ -1175,9 +1561,7 @@ function groupSessionsByWorkspace(sessions: SessionContent[]): Project[] {
       id: workspace.id,
       name: workspace.name,
       cwd: workspace.cwd,
-      threads: workspace.sessions
-        .sort(compareSessionsByUpdatedAt)
-        .map(sessionToThread)
+      threads: sessionsToThreadTree(workspace.sessions)
     }))
     .sort((a, b) => latestThreadTimestamp(b, sessions) - latestThreadTimestamp(a, sessions));
 }
@@ -1211,8 +1595,17 @@ function latestThreadTimestamp(project: Project, sessions: SessionContent[]) {
 
   return Math.max(
     0,
-    ...project.threads.map((thread) => sessionTimestamp(sessionById.get(thread.id)))
+    ...flattenThreads(project.threads).map((thread) =>
+      sessionTimestamp(sessionById.get(thread.id))
+    )
   );
+}
+
+function flattenThreads(threads: ProjectThread[]): ProjectThread[] {
+  return threads.flatMap((thread) => [
+    thread,
+    ...flattenThreads(thread.children ?? [])
+  ]);
 }
 
 function sessionTimestamp(session?: Pick<SessionContent, "updatedAt">) {
