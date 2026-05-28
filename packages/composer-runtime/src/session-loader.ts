@@ -1317,6 +1317,10 @@ function parseClaudeSession(
       const content = message.content;
 
       if (typeof content === "string") {
+        if (isHiddenHandoffTranscriptText(content)) {
+          continue;
+        }
+
         firstUserText ||= content;
         if (includeItems) {
           items.push({
@@ -1337,6 +1341,10 @@ function parseClaudeSession(
           const userText = extractText(content);
 
           if (userText) {
+            if (isHiddenHandoffTranscriptText(userText)) {
+              continue;
+            }
+
             firstUserText ||= userText;
             if (includeItems) {
               items.push({
@@ -1355,6 +1363,10 @@ function parseClaudeSession(
         const resultText = extractClaudeToolResultText(content);
 
         if (includeItems && resultText) {
+          if (isHiddenHandoffTranscriptText(resultText)) {
+            continue;
+          }
+
           toolIndex += 1;
           const detail = createToolOutputDetail(
             `${sessionId}-tool-result-${toolIndex}-detail`,
@@ -1393,6 +1405,10 @@ function parseClaudeSession(
 
         if (blockType === "text") {
           const body = asString(contentBlock.text);
+
+          if (body && isHiddenHandoffTranscriptText(body)) {
+            continue;
+          }
 
           if (includeItems && body) {
             items.push({
@@ -2730,6 +2746,18 @@ function userVisiblePrompt(value: string) {
 function isContinuationSummary(value: string) {
   return /^This session is being continued from a previous conversation/i.test(
     value.trim()
+  );
+}
+
+function isHiddenHandoffTranscriptText(value: string) {
+  const text = value.trim();
+
+  return (
+    /^<local-command-caveat>[\s\S]*<\/local-command-caveat>$/i.test(text) ||
+    /^<local-command-stdout>[\s\S]*<\/local-command-stdout>$/i.test(text) ||
+    /^<command-name>\s*\/?compact\s*<\/command-name>[\s\S]*Composer multi-provider handoff/i.test(text) ||
+    /^Composer provider handoff context\./i.test(text) ||
+    isContinuationSummary(text)
   );
 }
 
