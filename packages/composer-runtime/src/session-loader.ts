@@ -14,6 +14,7 @@ import {
   providerSessionKey,
   readComposerSessionRegistry,
   type ComposerProviderSessionRecord,
+  type ComposerSessionEvent,
   type ComposerSessionRegistry,
   type ComposerSessionRecord
 } from "./composer-session-registry.js";
@@ -51,12 +52,15 @@ type ConversationItem =
       type: "user_message";
       body: string;
       timestamp?: string;
+      sortTimestamp?: string;
       steered?: boolean;
     }
   | {
       id: string;
       type: "assistant_message";
       body: string;
+      provider?: SessionProvider;
+      sortTimestamp?: string;
     }
   | {
       id: string;
@@ -68,7 +72,10 @@ type ConversationItem =
       type: "tool_group";
       summary: string;
       details: ToolDetail[];
+      provider?: SessionProvider;
+      sortTimestamp?: string;
       defaultOpen?: boolean;
+      status?: ToolStatus;
     }
   | {
       id: string;
@@ -221,6 +228,7 @@ export function loadLocalSessionContent(sessionId: string) {
     return composerSessionFromRecord(
       sessionRecord,
       providerRecords,
+      registry.events,
       nativeByProviderSession,
       composerSessionByProviderSession,
       { includeItems: true }
@@ -355,6 +363,7 @@ function composerSessionsFromRegistry(
     const session = composerSessionFromRecord(
       sessionRecord,
       activeRecords,
+      registry.events,
       nativeByProviderSession,
       composerSessionByProviderSession,
       options
@@ -385,6 +394,7 @@ function activeProviderRecordsForSession(
 function composerSessionFromRecord(
   sessionRecord: ComposerSessionRecord,
   providerRecords: ComposerProviderSessionRecord[],
+  registryEvents: ComposerSessionEvent[],
   nativeByProviderSession: Map<string, SessionContent>,
   composerSessionByProviderSession: Map<string, string>,
   options: { includeItems: boolean }
@@ -406,6 +416,18 @@ function composerSessionFromRecord(
       providerRecords,
       nativeByProviderSession,
       providerSessions,
+      options
+    );
+  }
+
+  if (shouldRenderHandoffTimeline(sessionRecord, providerRecords)) {
+    return composerHandoffSessionFromRecord(
+      sessionRecord,
+      providerRecords,
+      registryEvents,
+      nativeByProviderSession,
+      providerSessions,
+      composerSessionByProviderSession,
       options
     );
   }
@@ -463,6 +485,262 @@ function composerSessionFromRecord(
     model: visibleNative?.model,
     items: options.includeItems ? visibleNative?.items ?? [] : []
   });
+}
+
+function shouldRenderHandoffTimeline(
+  sessionRecord: ComposerSessionRecord,
+  providerRecords: ComposerProviderSessionRecord[]
+) {
+  if (sessionRecord.parallelAdoptedProvider) {
+    return false;
+  }
+
+  const providers = new Set(providerRecords.map((record) => record.provider));
+
+  return (
+    providers.size > 1 &&
+    providerRecords.some((record) =>
+      record.mode === "handoff" ||
+      record.role === "handoff" ||
+      record.lifecycle === "handoff"
+    )
+  );
+}
+
+function composerHandoffSessionFromRecord(
+  sessionRecord: ComposerSessionRecord,
+  providerRecords: ComposerProviderSessionRecord[],
+  registryEvents: ComposerSessionEvent[],
+  nativeByProviderSession: Map<string, SessionContent>,
+  providerSessions: Partial<Record<SessionProvider, ProviderSessionState>>,
+  composerSessionByProviderSession: Map<string, string>,
+  options: { includeItems: boolean }
+): SessionContent | null {
+  const nativeMatches = providerRecords
+    .map((record) => nativeByProviderSession.get(
+      providerSessionKey(record.provider, record.providerSessionId)
+    ))
+    .filter((session): session is SessionContent => Boolean(session));
+  const visibleRecord =
+    latestProviderRecord(providerRecords.filter((record) =>
+      record.provider === sessionRecord.currentProvider
+    )) ?? latestProviderRecord(providerRecords);
+  const visibleNative = visibleRecord
+    ? nativeByProviderSession.get(
+        providerSessionKey(visibleRecord.provider, visibleRecord.providerSessionId)
+      )
+    : nativeMatches[0];
+  const cwd =
+    sessionRecord.activeCwd ??
+    visibleRecord?.cwd ??
+    visibleNative?.cwd ??
+    sessionRecord.sourceCwd;
+  const displayCwd = sessionRecord.displayCwd ?? sessionRecord.sourceCwd;
+
+  if (
+    (visibleRecord?.provider ?? visibleNative?.provider) === "codex" &&
+    (isCodexChatSessionCwd(cwd) || isCodexChatSessionCwd(displayCwd))
+  ) {
+    return null;
+  }
+
+  return finishSession({
+    id: sessionRecord.id,
+    provider: visibleRecord?.provider ?? visibleNative?.provider ?? "meta",
+    providerSessionId: visibleRecord?.providerSessionId ?? visibleNative?.providerSessionId,
+    providerSessions,
+    renderMode: "single",
+    parentSessionId: remapNativeParentSessionId(
+      visibleNative?.parentSessionId,
+      visibleNative?.provider,
+      composerSessionByProviderSession
+    ),
+    subagent: visibleNative?.subagent,
+    contentLoaded: options.includeItems,
+    lastProvider: sessionRecord.lastProvider ?? visibleRecord?.provider,
+    title: sessionRecord.title ?? visibleNative?.title ?? titleFromCwd(sessionRecord.sourceCwd) ?? "Composer session",
+    updatedAt: latestSessionUpdatedAt(sessionRecord, nativeMatches),
+    cwd,
+    displayCwd,
+    model: visibleNative?.model,
+    items: options.includeItems
+      ? interleavedHandoffItems(
+          sessionRecord,
+          providerRecords,
+          registryEvents,
+          nativeByProviderSession
+        )
+      : []
+  });
+}
+
+function interleavedHandoffItems(
+  sessionRecord: ComposerSessionRecord,
+  providerRecords: ComposerProviderSessionRecord[],
+  registryEvents: ComposerSessionEvent[],
+  nativeByProviderSession: Map<string, SessionContent>
+) {
+  const events = providerRecords.flatMap((record) => {
+    const native = nativeByProviderSession.get(
+      providerSessionKey(record.provider, record.providerSessionId)
+    );
+
+    if (!native) {
+      return [];
+    }
+
+    return native.items.map((item, index) => ({
+      id: `${record.provider}-${record.providerSessionId}-item-${index}`,
+      timestamp: itemSortTimestamp(item) ??
+        record.updatedAt ??
+        record.createdAt ??
+        sessionRecord.updatedAt,
+      order: index,
+      item: stampProviderOnItem(item, record.provider)
+    }));
+  });
+  const handoffMarkers = handoffTimelineEvents(
+    sessionRecord,
+    providerRecords,
+    registryEvents
+  ).map((event, index) => ({
+    id: `${sessionRecord.id}-handoff-marker-${index}`,
+    timestamp: event.timestamp,
+    order: -1,
+    item: handoffMarkerItem(sessionRecord.id, index, event)
+  }));
+
+  return [...events, ...handoffMarkers]
+    .sort((a, b) =>
+      Date.parse(a.timestamp) - Date.parse(b.timestamp) ||
+      a.order - b.order ||
+      a.id.localeCompare(b.id)
+    )
+    .map((entry) => entry.item);
+}
+
+function handoffTimelineEvents(
+  sessionRecord: ComposerSessionRecord,
+  providerRecords: ComposerProviderSessionRecord[],
+  registryEvents: ComposerSessionEvent[]
+) {
+  const providerKeys = new Set(
+    providerRecords.map((record) =>
+      providerSessionKey(record.provider, record.providerSessionId)
+    )
+  );
+  const attachEvents = registryEvents
+    .filter((event) =>
+      event.composerSessionId === sessionRecord.id &&
+      event.type === "provider_session_attached" &&
+      isDelegateProvider(event.provider) &&
+      event.providerSessionId &&
+      providerKeys.has(providerSessionKey(event.provider, event.providerSessionId))
+    )
+    .map((event) => ({
+      timestamp: event.timestamp,
+      provider: event.provider,
+      providerSessionId: event.providerSessionId,
+      handoff:
+        event.data?.mode === "handoff" ||
+        event.data?.role === "handoff" ||
+        event.data?.lifecycle === "handoff"
+    }))
+    .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
+  const events = attachEvents.filter((event, index) => {
+    let previous:
+      | { provider?: SessionProvider }
+      | undefined;
+
+    for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+      const candidate = attachEvents[previousIndex];
+
+      if (candidate.provider !== event.provider) {
+        previous = candidate;
+        break;
+      }
+    }
+
+    return event.handoff && Boolean(previous);
+  });
+
+  if (events.length > 0) {
+    return events;
+  }
+
+  const orderedRecords = [...providerRecords].sort((a, b) =>
+    Date.parse(a.createdAt) - Date.parse(b.createdAt)
+  );
+
+  return orderedRecords
+    .filter((record) =>
+      record.createdAt !== orderedRecords[0]?.createdAt &&
+      (record.mode === "handoff" ||
+        record.role === "handoff" ||
+        record.lifecycle === "handoff")
+    )
+    .map((record) => ({
+      timestamp: record.createdAt,
+      provider: record.provider,
+      providerSessionId: record.providerSessionId
+    }));
+}
+
+function handoffMarkerItem(
+  sessionId: string,
+  index: number,
+  event: {
+    timestamp: string;
+    provider?: SessionProvider;
+    providerSessionId?: string;
+  }
+): ConversationItem {
+  const providerLabel = event.provider === "claude"
+    ? "Claude"
+    : event.provider === "codex"
+      ? "Codex"
+      : "provider";
+  const id = `${sessionId}-handoff-${index}`;
+
+  return {
+    id,
+    type: "tool_group",
+    summary: `Preparing handoff context for ${providerLabel}`,
+    sortTimestamp: event.timestamp,
+    details: [
+      {
+        id: `${id}-detail`,
+        label: "Preparing handoff context",
+        kind: "summary",
+        tone: "summary",
+        action: "other",
+        args: event.providerSessionId
+          ? { provider: providerLabel, session: event.providerSessionId }
+          : { provider: providerLabel }
+      }
+    ],
+    defaultOpen: false,
+    status: "completed"
+  };
+}
+
+function stampProviderOnItem(
+  item: ConversationItem,
+  provider: SessionProvider
+): ConversationItem {
+  if (item.type === "assistant_message" || item.type === "tool_group") {
+    return { ...item, provider };
+  }
+
+  return item;
+}
+
+function itemSortTimestamp(item: ConversationItem) {
+  return "sortTimestamp" in item ? item.sortTimestamp : undefined;
+}
+
+function isDelegateProvider(provider: SessionProvider | undefined): provider is "codex" | "claude" {
+  return provider === "codex" || provider === "claude";
 }
 
 function remapNativeParentSessionId(
@@ -767,7 +1045,8 @@ function parseCodexSession(
               id: `${id}-user-${items.length}`,
               type: "user_message",
               body: trimText(parsedMessage.body),
-              timestamp: formatTime(timestamp)
+              timestamp: formatTime(timestamp),
+              sortTimestamp: timestamp
             });
           }
         }
@@ -800,6 +1079,7 @@ function parseCodexSession(
             if (item?.type === "tool_group") {
               const detail = item.details[existing.detailIndex];
               item.summary = label;
+              item.sortTimestamp = timestamp ?? item.sortTimestamp;
               detail.label = label;
               detail.tone = "default";
               detail.toolName = "Apply Patch";
@@ -829,6 +1109,7 @@ function parseCodexSession(
             type: "tool_group",
             summary: detail.label,
             details: [detail],
+            sortTimestamp: timestamp,
             defaultOpen: false
           });
         }
@@ -855,7 +1136,8 @@ function parseCodexSession(
         items.push({
           id: `${id}-assistant-${items.length}`,
           type: "assistant_message",
-          body: trimText(body)
+          body: trimText(body),
+          sortTimestamp: timestamp
         });
       }
       continue;
@@ -888,6 +1170,7 @@ function parseCodexSession(
         type: "tool_group",
         summary: detail.label,
         details: [detail],
+        sortTimestamp: timestamp,
         defaultOpen: false
       });
       const callId = asString(payload.call_id);
@@ -921,6 +1204,7 @@ function parseCodexSession(
         type: "tool_group",
         summary: detail.label,
         details: [detail],
+        sortTimestamp: timestamp,
         defaultOpen: false
       });
     }
@@ -993,6 +1277,7 @@ function parseClaudeSession(
   let toolIndex = 0;
 
   for (const row of rows) {
+    const rowTimestamp = asString(row.timestamp);
     const rowSessionId = asString(row.sessionId);
     const rowAgentId = asString(row.agentId);
     const isSidechain = row.isSidechain === true || Boolean(subagent);
@@ -1018,7 +1303,7 @@ function parseClaudeSession(
 
     cwd = asString(row.cwd) ?? cwd;
     if (includeItems) {
-      updatedAt = asString(row.timestamp) ?? updatedAt;
+      updatedAt = rowTimestamp ?? updatedAt;
     }
 
     if (row.type === "permission-mode") {
@@ -1038,7 +1323,8 @@ function parseClaudeSession(
             id: `${sessionId}-user-${items.length}`,
             type: "user_message",
             body: trimText(userVisiblePrompt(content)),
-            timestamp: formatTime(asString(row.timestamp))
+            timestamp: formatTime(rowTimestamp),
+            sortTimestamp: rowTimestamp
           });
         }
       } else if (Array.isArray(content)) {
@@ -1057,7 +1343,8 @@ function parseClaudeSession(
                 id: `${sessionId}-user-${items.length}`,
                 type: "user_message",
                 body: trimText(userVisiblePrompt(userText)),
-                timestamp: formatTime(asString(row.timestamp))
+                timestamp: formatTime(rowTimestamp),
+                sortTimestamp: rowTimestamp
               });
             }
           }
@@ -1083,6 +1370,7 @@ function parseClaudeSession(
             type: "tool_group",
             summary: detail.label,
             details: [detail],
+            sortTimestamp: rowTimestamp,
             defaultOpen: false
           });
         }
@@ -1110,7 +1398,8 @@ function parseClaudeSession(
             items.push({
               id: `${sessionId}-assistant-${items.length}`,
               type: "assistant_message",
-              body: trimText(body)
+              body: trimText(body),
+              sortTimestamp: rowTimestamp
             });
           }
         } else if (blockType === "thinking") {
@@ -1132,6 +1421,7 @@ function parseClaudeSession(
             type: "tool_group",
             summary: detail.label,
             details: [detail],
+            sortTimestamp: rowTimestamp,
             defaultOpen: false
           });
         }

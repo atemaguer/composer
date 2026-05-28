@@ -560,6 +560,109 @@ test("adopted parallel sessions reload as the chosen provider only", async () =>
   });
 });
 
+test("registered handoff sessions reload interleaved provider transcripts", async () => {
+  await withTempHome(async ({ home }) => {
+    const sourceCwd = "/tmp/source";
+    const codexCwd = `${sourceCwd}/.composer/worktrees/repo/session/codex`;
+    const claudeCwd = codexCwd;
+    writeCodexSession(home, {
+      sessionId: "codex-session",
+      cwd: codexCwd,
+      user: "explain this project",
+      assistant: "Codex initial answer",
+      startSecond: 0
+    });
+    writeClaudeSession(home, {
+      sessionId: "claude-session",
+      projectPath: `${home}/.claude/projects/-tmp-source--composer-worktrees-repo-session-codex`,
+      cwd: claudeCwd,
+      user: "what did codex do?",
+      assistant: "Claude continued from Codex",
+      startSecond: 4
+    });
+    await writeRegistry({
+      version: 1,
+      sessions: [
+        {
+          id: "meta-live-test",
+          title: "Explain project",
+          sourceCwd,
+          displayCwd: sourceCwd,
+          activeCwd: claudeCwd,
+          currentProvider: "claude",
+          lastProvider: "claude",
+          renderMode: "single",
+          hybridMode: "handoff",
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:06.000Z"
+        }
+      ],
+      providerSessions: [
+        {
+          composerSessionId: "meta-live-test",
+          provider: "codex",
+          providerSessionId: "codex-session",
+          mode: "handoff",
+          role: "handoff",
+          lifecycle: "handoff",
+          cwd: codexCwd,
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:03.000Z"
+        },
+        {
+          composerSessionId: "meta-live-test",
+          provider: "claude",
+          providerSessionId: "claude-session",
+          mode: "handoff",
+          role: "handoff",
+          lifecycle: "handoff",
+          cwd: claudeCwd,
+          createdAt: "2026-05-23T00:00:04.000Z",
+          updatedAt: "2026-05-23T00:00:06.000Z"
+        }
+      ],
+      events: [
+        {
+          id: "attach-codex",
+          composerSessionId: "meta-live-test",
+          type: "provider_session_attached",
+          provider: "codex",
+          providerSessionId: "codex-session",
+          timestamp: "2026-05-23T00:00:00.000Z",
+          data: { mode: "handoff", role: "handoff", lifecycle: "handoff" }
+        },
+        {
+          id: "attach-claude",
+          composerSessionId: "meta-live-test",
+          type: "provider_session_attached",
+          provider: "claude",
+          providerSessionId: "claude-session",
+          timestamp: "2026-05-23T00:00:03.000Z",
+          data: { mode: "handoff", role: "handoff", lifecycle: "handoff" }
+        }
+      ]
+    });
+
+    const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
+    const session = loadLocalSessions().sessions["meta-live-test"];
+
+    assert.equal(session.provider, "claude");
+    assert.equal(session.renderMode, "single");
+    assert.deepEqual(
+      session.items.map((item) =>
+        item.type === "tool_group" ? item.summary : item.body
+      ),
+      [
+        "explain this project",
+        "Codex initial answer",
+        "Preparing handoff context for Claude",
+        "what did codex do?",
+        "Claude continued from Codex"
+      ]
+    );
+  });
+});
+
 test("Claude array user content reloads as the first user message", async () => {
   await withTempHome(async ({ home }) => {
     const sessionId = "claude-array-session";
@@ -1358,7 +1461,20 @@ function writeCodexSubagentSession(
   );
 }
 
-function writeClaudeSession(home, { sessionId, projectPath, cwd, user, assistant }) {
+function writeClaudeSession(
+  home,
+  {
+    sessionId,
+    projectPath,
+    cwd,
+    user,
+    assistant,
+    startSecond = 0
+  }
+) {
+  const timestamp = (offset) =>
+    new Date(Date.UTC(2026, 4, 23, 0, 0, startSecond + offset)).toISOString();
+
   fs.mkdirSync(projectPath, { recursive: true });
   fs.writeFileSync(
     path.join(projectPath, `${sessionId}.jsonl`),
@@ -1367,14 +1483,14 @@ function writeClaudeSession(home, { sessionId, projectPath, cwd, user, assistant
         type: "user",
         sessionId,
         cwd,
-        timestamp: "2026-05-23T00:00:01.000Z",
+        timestamp: timestamp(1),
         message: { role: "user", content: user }
       },
       {
         type: "assistant",
         sessionId,
         cwd,
-        timestamp: "2026-05-23T00:00:02.000Z",
+        timestamp: timestamp(2),
         message: {
           role: "assistant",
           model: "claude-sonnet-4-6",
