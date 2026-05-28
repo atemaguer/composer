@@ -1,0 +1,212 @@
+import { useCallback, useEffect, useMemo, useRef } from "react";
+import {
+  ComposerClient,
+  type ApprovalDecision,
+  type ComposerEventSocket,
+  type LiveAgentEvent,
+  type SessionContent
+} from "@composer/client";
+import { useTui } from "./store.js";
+import type { TuiState } from "./types.js";
+
+/**
+ * Imperative surface the React UI calls into. Every method is fire-and-forget
+ * and manages its own async work; results flow back through reducer dispatches.
+ */
+export type RuntimeApi = {
+  /** Send a prompt to the runtime; ignored when blank or already busy. */
+  sendPrompt: (prompt: string) => void;
+  /** Abort the in-flight request (both locally and on the server). */
+  interrupt: () => void;
+  /** Resolve an outstanding approval over the event socket. */
+  resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
+  /** Hydrate a past session (if needed) and select it. */
+  loadSession: (sessionId: string) => void;
+  /** Ask the server for a fresh session snapshot. */
+  refreshSessions: () => void;
+};
+
+export function useRuntime(connection: {
+  httpUrl: string;
+  wsUrl: string;
+}): RuntimeApi {
+  const { state, dispatch } = useTui();
+
+  // Hold the latest state so async callbacks read current values instead of
+  // values captured at the time the callback was created (stale-closure fix).
+  const stateRef = useRef<TuiState>(state);
+  stateRef.current = state;
+
+  const client = useMemo(
+    () =>
+      new ComposerClient<LiveAgentEvent>({
+        httpUrl: connection.httpUrl,
+        wsUrl: connection.wsUrl
+      }),
+    [connection.httpUrl, connection.wsUrl]
+  );
+
+  const socketRef = useRef<ComposerEventSocket<LiveAgentEvent> | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const lastRequestIdRef = useRef<string | null>(null);
+  // Tracks in-flight session loads so we never fetch the same session twice.
+  const loadingSessionsRef = useRef<Set<string>>(new Set());
+
+  // Open the event socket once per connection and tear it down on unmount.
+  useEffect(() => {
+    const socket = client.openEventSocket({
+      onEvent: (event) => dispatch({ type: "event", event })
+    });
+    socketRef.current = socket;
+
+    const requestSnapshot = () => socket.requestSnapshot();
+
+    if (socket.socket.readyState === socket.socket.OPEN) {
+      requestSnapshot();
+    } else {
+      socket.socket.addEventListener?.("open", requestSnapshot, { once: true });
+      // Fall back to a direct call in case the open event was missed; the
+      // socket abstraction only forwards sends once readyState === OPEN.
+      requestSnapshot();
+    }
+
+    return () => {
+      socket.socket.removeEventListener?.("open", requestSnapshot);
+      if (socketRef.current === socket) {
+        socketRef.current = null;
+      }
+      socket.close();
+    };
+  }, [client, dispatch]);
+
+  const sendPrompt = useCallback(
+    (prompt: string) => {
+      const trimmed = prompt.trim();
+      const current = stateRef.current;
+
+      if (!trimmed || current.busy) {
+        return;
+      }
+
+      const provider = current.provider;
+      const model = current.modelByProvider[provider];
+      const intelligence = current.intelligenceByProvider[provider];
+      const permissionMode = current.permission;
+      const cwd = current.cwd;
+      const sessionId = current.selectedThread ?? undefined;
+      const requestId = crypto.randomUUID();
+      lastRequestIdRef.current = requestId;
+
+      // Optimistically render the user's message. A brand-new conversation is
+      // keyed by requestId until `session.started` migrates it to the real id.
+      dispatch({
+        type: "userMessage",
+        sessionId: sessionId ?? requestId,
+        body: trimmed,
+        isNew: !sessionId
+      });
+      dispatch({ type: "setInput", value: "" });
+
+      const controller = new AbortController();
+      abortRef.current = controller;
+
+      void (async () => {
+        try {
+          for await (const event of client.chatEvents({
+            requestId,
+            sessionId,
+            provider,
+            prompt: trimmed,
+            cwd,
+            permissionMode,
+            intelligence,
+            model,
+            signal: controller.signal
+          })) {
+            dispatch({ type: "event", event });
+          }
+        } catch (err) {
+          if (err instanceof Error && err.name === "AbortError") {
+            // Interruption is expected; the reducer handles UI state.
+          } else {
+            dispatch({ type: "setError", error: String(err) });
+          }
+        } finally {
+          dispatch({ type: "setBusy", busy: false });
+          if (abortRef.current === controller) {
+            abortRef.current = null;
+          }
+        }
+      })();
+    },
+    [client, dispatch]
+  );
+
+  const interrupt = useCallback(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+
+    const requestId = lastRequestIdRef.current;
+    if (requestId) {
+      void client.interrupt({ requestId }).catch(() => undefined);
+      socketRef.current?.interrupt({ requestId });
+    }
+
+    dispatch({ type: "setBusy", busy: false });
+  }, [client, dispatch]);
+
+  const resolveApproval = useCallback(
+    (approvalId: string, decision: ApprovalDecision) => {
+      socketRef.current?.resolveApproval(approvalId, decision);
+      dispatch({ type: "removeApproval", approvalId });
+    },
+    [dispatch]
+  );
+
+  const loadSession = useCallback(
+    (sessionId: string) => {
+      const existing = stateRef.current.sessions[sessionId];
+
+      if (existing?.contentLoaded) {
+        dispatch({ type: "selectThread", sessionId });
+        return;
+      }
+
+      if (loadingSessionsRef.current.has(sessionId)) {
+        return;
+      }
+
+      loadingSessionsRef.current.add(sessionId);
+
+      void (async () => {
+        try {
+          const session = await client.loadSession<SessionContent>(sessionId);
+          if (session) {
+            dispatch({ type: "upsertSession", session });
+          }
+          dispatch({ type: "selectThread", sessionId });
+        } catch (err) {
+          dispatch({ type: "setError", error: String(err) });
+        } finally {
+          loadingSessionsRef.current.delete(sessionId);
+        }
+      })();
+    },
+    [client, dispatch]
+  );
+
+  const refreshSessions = useCallback(() => {
+    socketRef.current?.requestSnapshot();
+  }, []);
+
+  return useMemo(
+    () => ({
+      sendPrompt,
+      interrupt,
+      resolveApproval,
+      loadSession,
+      refreshSessions
+    }),
+    [sendPrompt, interrupt, resolveApproval, loadSession, refreshSessions]
+  );
+}

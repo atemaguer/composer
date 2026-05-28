@@ -2,8 +2,6 @@
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
 import path from "node:path";
-import { spawn, type ChildProcessByStdio } from "node:child_process";
-import { Readable } from "node:stream";
 import {
   ComposerClient,
   isRuntimeProviderId,
@@ -14,11 +12,17 @@ import {
   type PermissionMode,
   type SessionProvider
 } from "@composer/client";
+import {
+  READY_PATTERN,
+  spawnServer,
+  startSidecar,
+  stopProcess,
+  type Sidecar
+} from "./connection.js";
 import { resolveServerEntrypoint } from "./server-entrypoint.js";
+import { launchTui } from "./launch-tui.js";
 
 type LiveAgentEvent = BaseLiveAgentEvent;
-
-type ServerProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 type CliOptions = {
   server?: string;
@@ -30,14 +34,6 @@ type CliOptions = {
   json: boolean;
 };
 
-type Sidecar = {
-  process: ServerProcess;
-  url: string;
-  port: number;
-  stop: () => Promise<void>;
-};
-
-const READY_PATTERN = /COMPOSER_AGENT_SERVER_READY\s+(\d+)/;
 const CLI_READY_PREFIX = "COMPOSER_CLI_SERVER_READY";
 
 void main().catch((error) => {
@@ -49,9 +45,26 @@ void main().catch((error) => {
 async function main() {
   const [command, ...args] = process.argv.slice(2);
 
-  if (!command || command === "--help" || command === "-h") {
+  // Bare invocation in an interactive terminal launches the TUI. Explicit
+  // `--help`/`-h` keep showing usage; `serve`/`run` stay the scripted paths.
+  if (!command) {
+    if (process.stdin.isTTY && process.stdout.isTTY) {
+      process.exitCode = await launchTui(args);
+      return;
+    }
     printHelp();
-    process.exitCode = command ? 0 : 1;
+    process.exitCode = 1;
+    return;
+  }
+
+  if (command === "--help" || command === "-h") {
+    printHelp();
+    process.exitCode = 0;
+    return;
+  }
+
+  if (command === "tui") {
+    process.exitCode = await launchTui(args);
     return;
   }
 
@@ -159,76 +172,6 @@ async function run(args: string[]) {
   }
 }
 
-async function startSidecar(): Promise<Sidecar> {
-  const entrypoint = await resolveServerEntrypoint();
-  const child = spawnServer(entrypoint, 0, process.cwd());
-  let stdoutBuffer = "";
-  let stderrBuffer = "";
-
-  child.stderr.on("data", (chunk: Buffer) => {
-    const text = chunk.toString("utf8");
-    stderrBuffer += text;
-    process.stderr.write(text);
-  });
-
-  child.stdout.on("data", (chunk: Buffer) => {
-    const text = chunk.toString("utf8");
-    stdoutBuffer += text;
-
-    for (const line of text.split(/\r?\n/)) {
-      if (line && !READY_PATTERN.test(line)) {
-        process.stderr.write(`${line}\n`);
-      }
-    }
-  });
-
-  const port = await waitForReadyPort(child, () => stdoutBuffer, () => stderrBuffer);
-
-  return {
-    process: child,
-    port,
-    url: `http://127.0.0.1:${port}`,
-    stop: () => stopProcess(child)
-  };
-}
-
-function spawnServer(entrypoint: string, port: number, cwd: string) {
-  return spawn(process.execPath, [entrypoint], {
-    cwd,
-    env: {
-      ...process.env,
-      COMPOSER_AGENT_SERVER_PORT: String(port),
-      ELECTRON_RUN_AS_NODE: "1"
-    },
-    stdio: ["ignore", "pipe", "pipe"]
-  });
-}
-
-async function waitForReadyPort(
-  child: ServerProcess,
-  readStdout: () => string,
-  readStderr: () => string
-) {
-  const started = Date.now();
-
-  while (Date.now() - started < 30_000) {
-    const match = readStdout().match(READY_PATTERN);
-    if (match) {
-      return Number(match[1]);
-    }
-
-    if (child.exitCode !== null || child.signalCode !== null) {
-      throw new Error(
-        `Composer server exited before it was ready.${formatCapturedError(readStdout(), readStderr())}`
-      );
-    }
-
-    await delay(25);
-  }
-
-  await stopProcess(child);
-  throw new Error(`Timed out waiting for Composer server readiness.${formatCapturedError(readStdout(), readStderr())}`);
-}
 
 async function sendPrompt(
   serverUrl: string,
@@ -541,37 +484,10 @@ function normalizeServerUrl(value: string) {
   return url.toString().replace(/\/$/u, "");
 }
 
-async function stopProcess(child: ServerProcess) {
-  if (child.exitCode !== null || child.signalCode !== null) {
-    return;
-  }
-
-  child.kill("SIGTERM");
-
-  const timeout = setTimeout(() => {
-    if (child.exitCode === null && child.signalCode === null) {
-      child.kill("SIGKILL");
-    }
-  }, 2_000);
-
-  try {
-    await once(child, "exit");
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function formatCapturedError(stdout: string, stderr: string) {
-  const captured = [stdout.trim(), stderr.trim()].filter(Boolean).join("\n");
-  return captured ? `\n${captured}` : "";
-}
-
-function delay(ms: number) {
-  return new Promise((resolve) => setTimeout(resolve, ms));
-}
-
 function printHelp() {
   process.stdout.write(`Usage:
+  composer                       Launch the interactive TUI (in a terminal).
+  composer tui                   Launch the interactive TUI explicitly.
   composer serve [--port <n>]
   composer run [options] [message...]
 

@@ -8,6 +8,7 @@
   "files": [
     "dist",
     "dist-server",
+    "src/tui",
     "README.md"
   ],
   "bin": {
@@ -21,11 +22,15 @@
     "@anthropic-ai/claude-agent-sdk": "^0.2.128",
     "@composer/client": "0.1.0",
     "@composer/runtime": "0.1.0",
+    "@opentui/core": "^0.3.0",
+    "@opentui/react": "^0.3.0",
     "ai": "^6.0.174",
+    "react": "^19.2.0",
     "ws": "^8.20.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
+    "@types/react": "^19.2.0",
     "typescript": "^6.0.3"
   },
   "scripts": {
@@ -33,7 +38,7 @@
     "build": "npm --workspace @composer/runtime run build && npm run build:bin && tsc -p tsconfig.server.json",
     "prepack": "npm run build && node scripts/prepare-package.mjs",
     "postpack": "node scripts/prepare-package.mjs --clean",
-    "typecheck": "npm --workspace @composer/runtime run build && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "typecheck": "npm --workspace @composer/runtime run build && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.tui.json --noEmit",
     "test": "npm run build:bin && node --test test/*.test.mjs"
   }
 }

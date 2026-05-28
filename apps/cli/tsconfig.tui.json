@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "jsxImportSource": "@opentui/react",
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "lib": ["ESNext", "DOM"],
+    "types": ["node", "react"]
+  },
+  "include": ["src/tui/**/*.ts", "src/tui/**/*.tsx", "src/connection.ts", "src/server-entrypoint.ts"]
+}
