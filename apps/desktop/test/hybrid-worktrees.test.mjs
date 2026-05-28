@@ -1024,6 +1024,24 @@ test("runtime detects and refreshes local subagent sessions during a parent run"
     items: [],
     pendingItems: []
   };
+  const idleSiblingMetadata = {
+    id: "codex-codex-idle-sibling",
+    provider: "codex",
+    providerSessionId: "codex-idle-sibling",
+    renderMode: "single",
+    parentSessionId: "codex-codex-parent",
+    subagent: {
+      nickname: "Curie",
+      role: "worker"
+    },
+    contentLoaded: false,
+    runtimeStatus: "idle",
+    title: "Curie subagent",
+    cwd: "/tmp/source",
+    updatedAt: "2026-05-23T00:00:01.000Z",
+    items: [],
+    pendingItems: []
+  };
   const childSession = () => ({
     ...childMetadata,
     contentLoaded: true,
@@ -1041,6 +1059,19 @@ test("runtime detects and refreshes local subagent sessions during a parent run"
     ],
     pendingItems: []
   });
+  const idleSiblingSession = () => ({
+    ...idleSiblingMetadata,
+    contentLoaded: true,
+    runtimeStatus: "idle",
+    items: [
+      {
+        id: "idle-sibling-assistant",
+        type: "assistant_message",
+        body: "Already finished"
+      }
+    ],
+    pendingItems: []
+  });
   const runtime = new AgentRuntime(
     {
       sessions: {
@@ -1053,13 +1084,18 @@ test("runtime detects and refreshes local subagent sessions during a parent run"
       loadSessionList: () => ({
         sessions: exposeChild
           ? {
-              [childMetadata.id]: childMetadata
+              [childMetadata.id]: childMetadata,
+              [idleSiblingMetadata.id]: idleSiblingMetadata
             }
           : {},
         projects: []
       }),
       loadSessionContent: (sessionId) =>
-        sessionId === childMetadata.id ? childSession() : undefined,
+        sessionId === childMetadata.id
+          ? childSession()
+          : sessionId === idleSiblingMetadata.id
+            ? idleSiblingSession()
+            : undefined,
       providers: {
         codex: {
           async run(request) {
@@ -1127,10 +1163,14 @@ test("runtime detects and refreshes local subagent sessions during a parent run"
     );
 
     const child = runtime.snapshot().sessions[childMetadata.id];
+    const idleSibling = runtime.snapshot().sessions[idleSiblingMetadata.id];
 
     assert.equal(child.parentSessionId, "composer-parent");
     assert.equal(child.subagent.nickname, "Newton");
     assert.equal(child.items[0].body, "Updated child answer");
+    assert.equal(idleSibling.parentSessionId, "composer-parent");
+    assert.equal(idleSibling.runtimeStatus, "idle");
+    assert.equal(idleSibling.pendingItems.length, 0);
   } finally {
     unsubscribe();
     await runtime.dispose();

@@ -588,6 +588,11 @@ export class CodexProvider implements AgentProvider {
       const item = asRecord(params.item);
       const itemId = asString(item.id) ?? randomUUID();
       const itemType = asString(item.type);
+
+      if (isCodexTranscriptItemType(itemType)) {
+        return;
+      }
+
       if (itemType === "contextCompaction") {
         session.emit({
           id: randomUUID(),
@@ -988,6 +993,14 @@ function itemLabel(item: JsonRecord) {
   }
 
   return type.replace(/([a-z])([A-Z])/g, "$1 $2");
+}
+
+function isCodexTranscriptItemType(itemType?: string) {
+  return (
+    itemType === "userMessage" ||
+    itemType === "agentMessage" ||
+    itemType === "reasoning"
+  );
 }
 
 function toolDetail(id: string, label: string, item: JsonRecord): ToolDetail {

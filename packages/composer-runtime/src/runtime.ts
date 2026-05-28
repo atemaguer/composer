@@ -169,6 +169,7 @@ export class AgentRuntime {
   private localSessionMonitorRunning = false;
   private monitoredParentSessionIds = new Set<string>();
   private localSessionFingerprints = new Map<string, string>();
+  private localSubagentSourceFingerprints = new Map<string, string>();
   private persistence: RuntimePersistence;
 
   constructor(snapshot: SessionSnapshot, options: AgentRuntimeOptions = {}) {
@@ -735,6 +736,7 @@ export class AgentRuntime {
     }
 
     this.monitoredParentSessionIds.clear();
+    this.localSubagentSourceFingerprints.clear();
   }
 
   private refreshLocalSubagentSessions(options: { markIdle?: boolean } = {}) {
@@ -771,12 +773,23 @@ export class AgentRuntime {
             ? this.loadSessionContentFromStore(metadata.id)
             : undefined;
         const source = loaded ?? metadata;
+        const sourceFingerprint = localSessionSourceFingerprint(source);
+        const previousSourceFingerprint =
+          this.localSubagentSourceFingerprints.get(metadata.id);
+        const sourceChanged =
+          previousSourceFingerprint !== undefined &&
+          previousSourceFingerprint !== sourceFingerprint;
+        const running =
+          options.markIdle !== true &&
+          (isRuntimeSessionRunning(source) || sourceChanged);
         const session = normalizeLocalSubagentSession(
           source,
           parentSessionId,
-          options.markIdle === true
+          running
         );
         const fingerprint = localSessionFingerprint(session);
+
+        this.localSubagentSourceFingerprints.set(metadata.id, sourceFingerprint);
 
         if (this.localSessionFingerprints.get(session.id) === fingerprint) {
           continue;
@@ -837,16 +850,15 @@ function shouldPersistRuntimeEvent(event: LiveAgentEvent) {
 function normalizeLocalSubagentSession(
   session: SessionContent,
   parentSessionId: string,
-  idle: boolean
+  running: boolean
 ): SessionContent {
   return {
     ...session,
     parentSessionId,
     items: session.items ?? [],
     providerSessions: session.providerSessions ?? {},
-    pendingItems: idle
-      ? []
-      : session.pendingItems?.length
+    pendingItems: running
+      ? session.pendingItems?.length
         ? session.pendingItems
         : [
             {
@@ -855,10 +867,23 @@ function normalizeLocalSubagentSession(
               label: `${subagentRuntimeLabel(session)} is running`,
               status: "running"
             }
-          ],
-    runtimeStatus: idle ? "idle" : "running",
+          ]
+      : [],
+    runtimeStatus: running
+      ? "running"
+      : session.runtimeStatus === "error"
+        ? "error"
+        : "idle",
     contentLoaded: session.contentLoaded ?? true
   };
+}
+
+function isRuntimeSessionRunning(session: SessionContent) {
+  return Boolean(
+    session.pendingItems?.length ||
+      session.runtimeStatus === "running" ||
+      session.runtimeStatus === "awaiting_approval"
+  );
 }
 
 function subagentRuntimeLabel(session: SessionContent) {
@@ -888,6 +913,17 @@ function localSessionFingerprint(session: SessionContent) {
     pendingCount: session.pendingItems.length,
     lastItem,
     lastPending
+  });
+}
+
+function localSessionSourceFingerprint(session: SessionContent) {
+  const lastItem = session.items[session.items.length - 1];
+
+  return JSON.stringify({
+    updatedAt: session.updatedAt,
+    contentLoaded: session.contentLoaded,
+    itemCount: session.items.length,
+    lastItem
   });
 }
 

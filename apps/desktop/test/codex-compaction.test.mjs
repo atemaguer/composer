@@ -122,6 +122,30 @@ test("CodexProvider.compact falls back to visible transcript summary on failure"
   assert.match(summary?.summary ?? "", /npm run typecheck/);
 });
 
+test("CodexProvider does not render transcript items as tool calls", async () => {
+  const { CodexProvider } = await import("../dist-server/server/providers/codex.js");
+  const provider = new CodexProvider();
+  const events = [];
+
+  provider.activeTurns.set("composer-session", {
+    threadId: "source-thread",
+    turnId: "turn-1"
+  });
+  provider.sinks.set("composer-session", (event) => events.push(event));
+
+  for (const itemType of ["userMessage", "reasoning", "agentMessage"]) {
+    provider.handleNotification("item/started", {
+      threadId: "source-thread",
+      item: {
+        id: `item-${itemType}`,
+        type: itemType
+      }
+    });
+  }
+
+  assert.deepEqual(events, []);
+});
+
 function createSession() {
   return {
     id: "composer-session",
