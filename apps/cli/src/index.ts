@@ -1,9 +1,7 @@
 #!/usr/bin/env node
 import { randomUUID } from "node:crypto";
-import { access } from "node:fs/promises";
 import { once } from "node:events";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { Readable } from "node:stream";
 import {
@@ -16,6 +14,7 @@ import {
   type PermissionMode,
   type SessionProvider
 } from "@composer/client";
+import { resolveServerEntrypoint } from "./server-entrypoint.js";
 
 type LiveAgentEvent = BaseLiveAgentEvent;
 
@@ -540,23 +539,6 @@ function normalizeServerUrl(value: string) {
   }
 
   return url.toString().replace(/\/$/u, "");
-}
-
-async function resolveServerEntrypoint() {
-  const override = process.env.COMPOSER_SERVER_ENTRYPOINT;
-  const entrypoint = override
-    ? path.resolve(override)
-    : fileURLToPath(new URL("../../desktop/dist-server/server/index.js", import.meta.url));
-
-  try {
-    await access(entrypoint);
-  } catch {
-    throw new Error(
-      `Composer server entrypoint not found at ${entrypoint}. Run npm --workspace composer run server:build first.`
-    );
-  }
-
-  return entrypoint;
 }
 
 async function stopProcess(child: ServerProcess) {

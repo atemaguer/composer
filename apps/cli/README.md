@@ -80,10 +80,16 @@ approval, the CLI prints a status summary, interrupts the request, and exits wit
 an error explaining that the user should rerun with `--permission-mode
 full-access` or continue in the desktop app.
 
+## Server Entrypoint
+
+The packaged CLI expects a bundled server entrypoint at
+`dist-server/server/index.js` inside the `@composer/cli` package. This keeps the
+CLI from resolving desktop build output at runtime. Local tests can override the
+entrypoint with `COMPOSER_SERVER_ENTRYPOINT=/path/to/server.js`.
+
 ## Non-Goals
 
 - No interactive TUI.
 - No interactive approval handling.
 - No OpenCode provider implementation.
 - No remote serving or authentication.
-- No separate runtime package extraction.

@@ -15,11 +15,17 @@
     "server/composer-server.ts",
     "server/capabilities.ts",
     "server/provider-factories.ts",
+    "server/parallel-worktrees.ts",
+    "server/review-diff.ts",
     "server/runtime.ts",
     "server/runtime-persistence.ts",
+    "server/session-worktrees.ts",
     "server/desktop-persistence.ts",
     "server/providers/**/*.ts",
     "electron/session-loader.ts",
+    "electron/composer-session-registry.ts",
+    "electron/cli-env.ts",
+    "electron/patch-review.ts",
     "src/types.ts"
   ]
 }

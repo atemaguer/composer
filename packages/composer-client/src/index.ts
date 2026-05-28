@@ -11,6 +11,46 @@ export type AgentImageAttachment = {
   path?: string;
 };
 
+export type {
+  AgentSessionRuntimeStatus,
+  AgentSettings,
+  ApprovalDecision,
+  ApprovalRequest,
+  CapabilityProvider,
+  ComposerCapability,
+  ComposerCapabilityCatalog,
+  ComposerCapabilityCategory,
+  ComposerCapabilityComponent,
+  ComposerCapabilityKind,
+  ComposerCapabilitySource,
+  ComposerChatDataTypes,
+  ConversationAttachment,
+  ConversationItem,
+  DiffRowData,
+  FileChangeRow,
+  FileChangeSummaryItem,
+  PendingConversationItem,
+  Project,
+  ProjectThread,
+  ProviderSessionState,
+  ReviewBranchComparison,
+  ReviewBranchList,
+  ReviewBranchRef,
+  ReviewDiff,
+  ReviewDiffFile,
+  ReviewDiffHunk,
+  ReviewDiffLine,
+  ReviewDiffScope,
+  SessionCompactionSummary,
+  SessionContent,
+  SessionHandoffSummary,
+  SessionRenderMode,
+  SessionSnapshot,
+  ToolDetail,
+  ToolStatus
+} from "./types.js";
+export type { LiveAgentEvent } from "./types.js";
+
 export type BaseLiveAgentEvent = {
   id: string;
   type: string;
