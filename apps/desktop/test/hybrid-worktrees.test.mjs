@@ -690,6 +690,129 @@ test("registered handoff sessions reload interleaved provider transcripts", asyn
   });
 });
 
+test("registered handoff sessions backfill markers from provider records", async () => {
+  await withTempHome(async ({ home }) => {
+    const sourceCwd = "/tmp/source";
+    const codexCwd = `${sourceCwd}/.composer/worktrees/repo/session/codex`;
+    const claudeCwd = codexCwd;
+    writeCodexSession(home, {
+      sessionId: "codex-session",
+      cwd: codexCwd,
+      user: "explain this project",
+      assistant: "Codex initial answer",
+      startSecond: 0
+    });
+    writeClaudeSession(home, {
+      sessionId: "claude-session",
+      projectPath: `${home}/.claude/projects/-tmp-source--composer-worktrees-repo-session-codex`,
+      cwd: claudeCwd,
+      user: "what was done in this session?",
+      assistant: "Claude answered from Codex handoff",
+      startSecond: 4,
+      handoffNoise: true
+    });
+    writeCodexSession(home, {
+      sessionId: "codex-session-followup",
+      cwd: codexCwd,
+      user: "what did claude do?",
+      assistant: "Codex answered from Claude handoff",
+      startSecond: 12
+    });
+    await writeRegistry({
+      version: 1,
+      sessions: [
+        {
+          id: "meta-live-test",
+          title: "Explain project",
+          sourceCwd,
+          displayCwd: sourceCwd,
+          activeCwd: codexCwd,
+          currentProvider: "codex",
+          lastProvider: "codex",
+          renderMode: "single",
+          hybridMode: "handoff",
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:14.000Z"
+        }
+      ],
+      providerSessions: [
+        {
+          composerSessionId: "meta-live-test",
+          provider: "codex",
+          providerSessionId: "codex-session",
+          mode: "handoff",
+          role: "handoff",
+          lifecycle: "handoff",
+          cwd: codexCwd,
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:03.000Z"
+        },
+        {
+          composerSessionId: "meta-live-test",
+          provider: "claude",
+          providerSessionId: "claude-session",
+          mode: "handoff",
+          role: "handoff",
+          lifecycle: "handoff",
+          cwd: claudeCwd,
+          createdAt: "2026-05-23T00:00:04.000Z",
+          updatedAt: "2026-05-23T00:00:11.000Z"
+        },
+        {
+          composerSessionId: "meta-live-test",
+          provider: "codex",
+          providerSessionId: "codex-session-followup",
+          mode: "handoff",
+          role: "handoff",
+          lifecycle: "handoff",
+          cwd: codexCwd,
+          createdAt: "2026-05-23T00:00:12.000Z",
+          updatedAt: "2026-05-23T00:00:14.000Z"
+        }
+      ],
+      events: [
+        {
+          id: "attach-codex",
+          composerSessionId: "meta-live-test",
+          type: "provider_session_attached",
+          provider: "codex",
+          providerSessionId: "codex-session",
+          timestamp: "2026-05-23T00:00:00.000Z",
+          data: { mode: "handoff", role: "handoff", lifecycle: "handoff" }
+        },
+        {
+          id: "attach-codex-followup",
+          composerSessionId: "meta-live-test",
+          type: "provider_session_attached",
+          provider: "codex",
+          providerSessionId: "codex-session-followup",
+          timestamp: "2026-05-23T00:00:12.000Z",
+          data: { mode: "handoff", role: "handoff", lifecycle: "handoff" }
+        }
+      ]
+    });
+
+    const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
+    const session = loadLocalSessions().sessions["meta-live-test"];
+
+    assert.deepEqual(
+      session.items.map((item) =>
+        item.type === "tool_group" ? item.summary : item.body
+      ),
+      [
+        "explain this project",
+        "Codex initial answer",
+        "Preparing handoff context for Claude",
+        "what was done in this session?",
+        "Claude answered from Codex handoff",
+        "Preparing handoff context for Codex",
+        "what did claude do?",
+        "Codex answered from Claude handoff"
+      ]
+    );
+  });
+});
+
 test("Claude array user content reloads as the first user message", async () => {
   await withTempHome(async ({ home }) => {
     const sessionId = "claude-array-session";

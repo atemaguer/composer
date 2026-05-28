@@ -624,12 +624,18 @@ function handoffTimelineEvents(
   providerRecords: ComposerProviderSessionRecord[],
   registryEvents: ComposerSessionEvent[]
 ) {
+  type HandoffEvent = {
+    timestamp: string;
+    provider: "codex" | "claude";
+    providerSessionId?: string;
+    handoff?: boolean;
+  };
   const providerKeys = new Set(
     providerRecords.map((record) =>
       providerSessionKey(record.provider, record.providerSessionId)
     )
   );
-  const attachEvents = registryEvents
+  const attachEvents: HandoffEvent[] = registryEvents
     .filter((event) =>
       event.composerSessionId === sessionRecord.id &&
       event.type === "provider_session_attached" &&
@@ -639,7 +645,7 @@ function handoffTimelineEvents(
     )
     .map((event) => ({
       timestamp: event.timestamp,
-      provider: event.provider,
+      provider: event.provider as "codex" | "claude",
       providerSessionId: event.providerSessionId,
       handoff:
         event.data?.mode === "handoff" ||
@@ -647,32 +653,68 @@ function handoffTimelineEvents(
         event.data?.lifecycle === "handoff"
     }))
     .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
-  const events = attachEvents.filter((event, index) => {
-    const previous = index > 0 ? attachEvents[index - 1] : undefined;
-
-    return event.handoff && Boolean(previous) && previous?.provider !== event.provider;
-  });
-
-  if (events.length > 0) {
-    return events;
-  }
+  const events = handoffTransitions(attachEvents);
 
   const orderedRecords = [...providerRecords].sort((a, b) =>
     Date.parse(a.createdAt) - Date.parse(b.createdAt)
   );
-
-  return orderedRecords
-    .filter((record) =>
-      record.createdAt !== orderedRecords[0]?.createdAt &&
-      (record.mode === "handoff" ||
-        record.role === "handoff" ||
-        record.lifecycle === "handoff")
+  const eventKeys = new Set(
+    events.map((event) =>
+      providerSessionKey(event.provider, event.providerSessionId ?? "")
+    )
+  );
+  const recordEvents = handoffTransitions(
+    orderedRecords
+      .filter((record) => isDelegateProvider(record.provider))
+      .map((record) => ({
+        timestamp: record.createdAt,
+        provider: record.provider as "codex" | "claude",
+        providerSessionId: record.providerSessionId,
+        handoff:
+          record.mode === "handoff" ||
+          record.role === "handoff" ||
+          record.lifecycle === "handoff"
+      }))
+  )
+    .filter(
+      (event) =>
+        !eventKeys.has(providerSessionKey(event.provider, event.providerSessionId ?? ""))
     )
     .map((record) => ({
-      timestamp: record.createdAt,
+      timestamp: record.timestamp,
       provider: record.provider,
       providerSessionId: record.providerSessionId
     }));
+
+  return [...events, ...recordEvents].sort(
+    (a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)
+  );
+}
+
+function handoffTransitions<
+  Event extends {
+    timestamp: string;
+    provider?: SessionProvider;
+    providerSessionId?: string;
+    handoff?: boolean;
+  }
+>(events: Event[]) {
+  return events.filter((event, index) => {
+    let previous:
+      | { provider?: SessionProvider }
+      | undefined;
+
+    for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
+      const candidate = events[previousIndex];
+
+      if (candidate.provider !== event.provider) {
+        previous = candidate;
+        break;
+      }
+    }
+
+    return event.handoff && Boolean(previous);
+  });
 }
 
 function handoffMarkerItem(
