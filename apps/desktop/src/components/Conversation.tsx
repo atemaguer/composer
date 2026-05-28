@@ -1,4 +1,5 @@
 import {
+  Fragment,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -100,7 +101,9 @@ export function Conversation({
     () =>
       groupParallelThreadActivity(
         groupConsecutiveToolActivity(
-          items.filter((item) => item.type !== "jump_marker")
+          items.filter(
+            (item) => item.type !== "jump_marker" && !isParallelSupervisorMessage(item)
+          )
         )
       ),
     [items]
@@ -186,6 +189,7 @@ export function Conversation({
             cwd={cwd}
             activeToolLabels={activeToolLabels}
             activeToolId={activeToolId}
+            hasPendingWork={pendingItems.length > 0}
             parallelAdoption={parallelAdoption}
             onOpenFile={onOpenFile}
             onReviewChanges={onReviewChanges}
@@ -311,15 +315,30 @@ function isStreamOutputItem(item: ConversationItem) {
   return (
     item.type === "assistant_message" ||
     (item.type === "tool_group" && !isHandoffToolGroup(item)) ||
+    item.type === "parallel_thread_group" ||
     item.type === "file_change_summary" ||
     item.type === "notice" ||
     item.type === "turn_status"
   );
 }
 
-function ThinkingIndicator() {
+function isParallelSupervisorMessage(item: ConversationItem) {
+  if (item.type !== "assistant_message") {
+    return false;
+  }
+
+  return /\*\*compose supervisor\*\*/i.test(item.body) &&
+    /\bparallel\b/i.test(item.body);
+}
+
+function ThinkingIndicator({ contained = false }: { contained?: boolean }) {
   return (
-    <div className="mx-auto mt-4 grid w-full max-w-[820px] gap-2 text-[14px] text-app-muted">
+    <div
+      className={cn(
+        "grid w-full gap-2 text-[14px] text-app-muted",
+        contained ? "pt-1" : "mx-auto mt-4 max-w-[820px]"
+      )}
+    >
       <Shimmer as="span" className="w-fit font-medium" duration={1.6} spread={3}>
         Thinking
       </Shimmer>
@@ -727,6 +746,7 @@ export function ConversationTimeline({
   cwd,
   activeToolLabels = [],
   activeToolId,
+  hasPendingWork = false,
   parallelAdoption,
   onOpenFile,
   onReviewChanges
@@ -735,6 +755,7 @@ export function ConversationTimeline({
   cwd?: string;
   activeToolLabels?: string[];
   activeToolId?: string;
+  hasPendingWork?: boolean;
   parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
@@ -749,6 +770,7 @@ export function ConversationTimeline({
             cwd={cwd}
             activeToolLabels={activeToolLabels}
             activeToolId={activeToolId}
+            hasPendingWork={hasPendingWork}
             parallelAdoption={parallelAdoption}
             onOpenFile={onOpenFile}
             onReviewChanges={onReviewChanges}
@@ -764,6 +786,7 @@ function ConversationItemView({
   cwd,
   activeToolLabels = [],
   activeToolId,
+  hasPendingWork = false,
   parallelAdoption,
   onOpenFile,
   onReviewChanges
@@ -772,6 +795,7 @@ function ConversationItemView({
   cwd?: string;
   activeToolLabels?: string[];
   activeToolId?: string;
+  hasPendingWork?: boolean;
   parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
@@ -825,6 +849,7 @@ function ConversationItemView({
         cwd={cwd}
         activeToolLabels={activeToolLabels}
         activeToolId={activeToolId}
+        hasPendingWork={hasPendingWork}
         parallelAdoption={parallelAdoption}
         onOpenFile={onOpenFile}
         onReviewChanges={onReviewChanges}
@@ -882,6 +907,7 @@ function ParallelThreadGroup({
   cwd,
   activeToolLabels = [],
   activeToolId,
+  hasPendingWork = false,
   parallelAdoption,
   onOpenFile,
   onReviewChanges
@@ -890,6 +916,7 @@ function ParallelThreadGroup({
   cwd?: string;
   activeToolLabels?: string[];
   activeToolId?: string;
+  hasPendingWork?: boolean;
   parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
@@ -897,79 +924,137 @@ function ParallelThreadGroup({
   const hasSelection = Boolean(parallelAdoption?.selectedProvider);
 
   return (
-    <div className="grid gap-3">
-      <div className="grid gap-1.5">
-        <div className="flex min-w-0 items-center gap-2 text-[12px] font-medium uppercase tracking-[0.08em] text-app-dim">
-          <span className="h-px w-6 bg-app-line" />
-          <span>Parallel threads</span>
-        </div>
-        {item.prompt && (
-          <div className="max-w-[820px] truncate text-[13px] text-app-muted">
-            {item.prompt}
-          </div>
-        )}
-      </div>
-      <div className="grid gap-3 lg:grid-cols-2">
-        {item.columns.map((column) => (
-          <section
-            key={column.provider}
-            className={cn(
-              "min-w-0 overflow-hidden rounded-xl border border-app-line bg-app-panel/45",
-              "shadow-[inset_0_1px_0_color-mix(in_srgb,var(--color-app-text)_4%,transparent)] transition",
-              hasSelection &&
-                parallelAdoption?.selectedProvider !== column.provider &&
-                "opacity-60",
-              parallelAdoption?.selectedProvider === column.provider &&
-                "border-app-line-bright bg-app-panel/70"
-            )}
-            aria-label={column.title}
-          >
-            <div className="grid min-h-[42px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-app-line px-3 text-[12px] font-medium text-app-muted">
-              <div className="flex min-w-0 items-center gap-2">
-                <ProviderLogo
-                  provider={column.provider}
-                  className={cn(
-                    "h-3.5 w-3.5",
-                    column.provider === "claude" && appSuccessText,
-                    column.provider === "codex" && appAccentText
-                  )}
-                />
-                <span className="truncate">{column.title}</span>
-              </div>
-              {parallelAdoption?.selectedProvider === column.provider && (
-                <span className="inline-flex h-5 items-center rounded-full border border-app-line bg-app-text/[0.05] px-2 text-[11px] text-app-text">
-                  Selected
-                </span>
+    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] lg:gap-x-5">
+        {item.columns.map((column) => {
+          const columnItems = parallelColumnItems(column.items);
+          const showColumnThinking = hasPendingWork && columnItems.length === 0;
+
+          return (
+            <Fragment key={column.provider}>
+            <section
+              className={cn(
+                "min-w-0 transition",
+                hasSelection &&
+                  parallelAdoption?.selectedProvider !== column.provider &&
+                  "opacity-60"
               )}
-            </div>
-            <div className="grid min-w-0 gap-4 p-3">
-              {parallelColumnItems(column.items).map((columnItem, index) => (
-                <ConversationItemView
-                  key={`${columnItem.id}-${index}`}
-                  item={columnItem}
-                  cwd={cwd}
-                  activeToolLabels={activeToolLabels}
-                  activeToolId={activeToolId}
-                  parallelAdoption={parallelAdoption}
-                  onOpenFile={onOpenFile}
-                  onReviewChanges={onReviewChanges}
-                />
-              ))}
-            </div>
-            {parallelAdoption?.required && isDelegateProvider(column.provider) && (
-              <div className="border-t border-app-line p-3">
-                <ParallelContinueButton
-                  provider={column.provider}
-                  selected={parallelAdoption.selectedProvider === column.provider}
-                  onAdopt={parallelAdoption.onAdopt}
-                />
+              aria-label={column.title}
+            >
+              <div className="mb-3 flex min-h-7 min-w-0 items-center justify-between gap-3 text-[12px] font-medium text-app-muted">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <ProviderLogo
+                      provider={column.provider}
+                      className={cn(
+                        "h-3.5 w-3.5",
+                        column.provider === "claude" && appSuccessText,
+                        column.provider === "codex" && appAccentText
+                      )}
+                    />
+                    <span className="truncate text-app-text">
+                      {providerLabel(column.provider)}
+                    </span>
+                  </div>
+                  {parallelColumnConfig(column.provider, column.items) && (
+                    <span className="truncate text-[11px] font-normal text-app-dim">
+                      {parallelColumnConfig(column.provider, column.items)}
+                    </span>
+                  )}
+                </div>
+                {parallelAdoption?.selectedProvider === column.provider && (
+                  <span className="inline-flex h-5 items-center rounded-full bg-app-text/[0.06] px-2 text-[11px] text-app-text">
+                    Selected
+                  </span>
+                )}
               </div>
+              <div className="grid min-w-0 gap-4">
+                {columnItems.map((columnItem, index) => (
+                  <ConversationItemView
+                    key={`${columnItem.id}-${index}`}
+                    item={columnItem}
+                    cwd={cwd}
+                    activeToolLabels={activeToolLabels}
+                    activeToolId={activeToolId}
+                    hasPendingWork={hasPendingWork}
+                    parallelAdoption={parallelAdoption}
+                    onOpenFile={onOpenFile}
+                    onReviewChanges={onReviewChanges}
+                  />
+                ))}
+                {showColumnThinking && <ThinkingIndicator contained />}
+              </div>
+              {parallelAdoption?.required && isDelegateProvider(column.provider) && (
+                <div className="pt-4">
+                  <ParallelContinueButton
+                    provider={column.provider}
+                    selected={parallelAdoption.selectedProvider === column.provider}
+                    onAdopt={parallelAdoption.onAdopt}
+                  />
+                </div>
+              )}
+            </section>
+            {item.columns.length === 2 && column.provider === item.columns[0]?.provider && (
+              <div className="hidden w-px bg-app-line/80 lg:block" aria-hidden="true" />
             )}
-          </section>
-        ))}
-      </div>
+          </Fragment>
+          );
+        })}
     </div>
   );
+}
+
+function parallelColumnConfig(provider: SessionProvider, items: ConversationItem[]) {
+  for (const item of items) {
+    if (item.type !== "tool_group") {
+      continue;
+    }
+
+    for (const detail of item.details) {
+      if (detail.toolName !== "meta_supervisor") {
+        continue;
+      }
+
+      const model = formatParallelModel(provider, detail.args?.model);
+      const intelligence = detail.args?.intelligence;
+
+      return [model, intelligence].filter(Boolean).join(" · ");
+    }
+  }
+
+  return undefined;
+}
+
+function formatParallelModel(provider: SessionProvider, model?: string) {
+  if (!model) {
+    return undefined;
+  }
+
+  if (/^gpt-/i.test(model)) {
+    return model.toUpperCase();
+  }
+
+  const claudeMatch = /^claude-(.+)$/i.exec(model);
+
+  if (claudeMatch) {
+    const parts = claudeMatch[1].split("-");
+    const hasDottedVersion =
+      parts.length >= 2 &&
+      /^\d+$/.test(parts[parts.length - 2] ?? "") &&
+      /^\d+$/.test(parts[parts.length - 1] ?? "");
+    const modelParts = hasDottedVersion
+      ? [
+          ...parts.slice(0, -2),
+          `${parts[parts.length - 2]}.${parts[parts.length - 1]}`
+        ]
+      : parts;
+    const label = modelParts
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+
+    return provider === "claude" ? label : `Claude ${label}`;
+  }
+
+  return model;
 }
 
 function ParallelContinueButton({
@@ -1007,9 +1092,30 @@ function isDelegateProvider(provider: SessionProvider): provider is DelegateSess
 
 function parallelColumnItems(items: ConversationItem[]) {
   return groupConsecutiveToolActivity(
-    items.filter((item) => !isParallelDelegateWrapper(item)),
+    items
+      .filter((item) => !isParallelDelegateWrapper(item))
+      .map(stripParallelProviderPrefixes),
     { includeLayoutGroups: true }
   );
+}
+
+function stripParallelProviderPrefixes(item: ConversationItem): ConversationItem {
+  if (item.type !== "tool_group") {
+    return item;
+  }
+
+  return {
+    ...item,
+    summary: stripProviderPrefix(item.summary),
+    details: item.details.map((detail) => ({
+      ...detail,
+      label: stripProviderPrefix(detail.label)
+    }))
+  };
+}
+
+function stripProviderPrefix(value: string) {
+  return value.replace(/^\[(?:Codex|Claude)\]\s+/i, "");
 }
 
 function isParallelDelegateWrapper(item: ConversationItem) {

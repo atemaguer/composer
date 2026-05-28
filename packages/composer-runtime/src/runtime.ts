@@ -403,7 +403,7 @@ export class AgentRuntime {
   }
 
   adoptParallelThread(sessionId: string, provider: DelegateSessionProvider) {
-    const session = this.sessions[sessionId];
+    const session = this.loadSessionContent(sessionId) ?? this.sessions[sessionId];
 
     if (!session) {
       throw new Error(`Unknown session ${sessionId}`);
@@ -1250,6 +1250,12 @@ export function adoptedParallelItems(
   provider: DelegateSessionProvider
 ): ConversationItem[] {
   return items.flatMap((item): ConversationItem[] => {
+    if (item.type === "parallel_thread_group") {
+      const column = item.columns.find((candidate) => candidate.provider === provider);
+
+      return column ? adoptedParallelColumnItems(column.items) : [];
+    }
+
     if (item.type === "user_message" || item.type === "attachment_group") {
       return [item];
     }
@@ -1285,6 +1291,34 @@ export function adoptedParallelItems(
 
     const { provider: _provider, layoutGroupId: _layoutGroupId, layoutTitle: _layoutTitle, ...rest } = item;
     return [rest];
+  });
+}
+
+function adoptedParallelColumnItems(items: ConversationItem[]): ConversationItem[] {
+  return items.flatMap((item): ConversationItem[] => {
+    if (item.type === "parallel_thread_group") {
+      return [];
+    }
+
+    if (item.type === "assistant_message") {
+      if (isParallelDelegateHeader(item)) {
+        return [];
+      }
+
+      const { provider: _provider, layoutGroupId: _layoutGroupId, layoutTitle: _layoutTitle, ...rest } = item;
+      return [rest];
+    }
+
+    if (item.type === "tool_group") {
+      if (isParallelDelegateToolWrapper(item)) {
+        return [];
+      }
+
+      const { provider: _provider, layoutGroupId: _layoutGroupId, layoutTitle: _layoutTitle, ...rest } = item;
+      return [rest];
+    }
+
+    return [item];
   });
 }
 

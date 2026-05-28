@@ -37,7 +37,64 @@ test("parallel initial creates only the Codex Composer-managed worktree", async 
       run("git", ["rev-parse", "--is-inside-work-tree"], worktree.cwd),
       "true"
     );
+    assert.match(
+      run("git", ["branch", "--show-current"], worktree.cwd),
+      /^composer\/parallel-codex-session-one(?:-\d+)?$/
+    );
     assert.equal(fs.existsSync(path.join(path.dirname(worktree.cwd), "claude")), false);
+  } finally {
+    process.env.HOME = originalHome;
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("parallel initial bootstraps non-git project folders", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "composer-hybrid-non-git-"));
+  const repo = path.join(root, "repo");
+  const home = path.join(root, "home");
+  const originalHome = process.env.HOME;
+
+  try {
+    fs.mkdirSync(path.join(repo, "src"), { recursive: true });
+    fs.mkdirSync(path.join(repo, "node_modules", "ignored"), { recursive: true });
+    fs.mkdirSync(home, { recursive: true });
+    fs.writeFileSync(path.join(repo, "README.md"), "# Test\n");
+    fs.writeFileSync(path.join(repo, "src", "index.ts"), "export const ok = true;\n");
+    fs.writeFileSync(path.join(repo, "node_modules", "ignored", "index.js"), "ignored\n");
+
+    process.env.HOME = home;
+
+    const { createCodexParallelWorktree } = await import(
+      "../dist-server/server/parallel-worktrees.js"
+    );
+    const worktree = createCodexParallelWorktree({
+      baseCwd: repo,
+      parentSessionId: "session/non-git"
+    });
+
+    assert.equal(worktree.provider, "codex");
+    assert.equal(run("git", ["rev-parse", "--is-inside-work-tree"], repo), "true");
+    assert.equal(run("git", ["branch", "--show-current"], repo), "main");
+    assert.equal(run("git", ["show-ref", "--verify", "refs/heads/main"], repo).length > 0, true);
+    assert.equal(
+      run("git", ["log", "-1", "--format=%s"], repo),
+      "Initialize Composer workspace"
+    );
+    assert.equal(
+      run("git", ["rev-parse", "--is-inside-work-tree"], worktree.cwd),
+      "true"
+    );
+    assert.match(
+      run("git", ["branch", "--show-current"], worktree.cwd),
+      /^composer\/parallel-codex-session-non-git(?:-\d+)?$/
+    );
+    assert.equal(
+      run("git", ["merge-base", "main", "HEAD"], worktree.cwd),
+      run("git", ["rev-parse", "main"], worktree.cwd)
+    );
+    assert.equal(fs.existsSync(path.join(worktree.cwd, "README.md")), true);
+    assert.equal(fs.existsSync(path.join(worktree.cwd, "src", "index.ts")), true);
+    assert.equal(fs.existsSync(path.join(worktree.cwd, "node_modules")), false);
   } finally {
     process.env.HOME = originalHome;
     fs.rmSync(root, { recursive: true, force: true });
@@ -145,6 +202,72 @@ test("parallel adoption keeps only the chosen provider transcript", async () => 
       body: "Codex answer"
     }
   ]);
+
+  assert.deepEqual(
+    adoptedParallelItems([
+      {
+        id: "user",
+        type: "user_message",
+        body: "explain this project"
+      },
+      {
+        id: "parallel",
+        type: "parallel_thread_group",
+        columns: [
+          {
+            provider: "codex",
+            title: "Codex thread",
+            items: [
+              {
+                id: "codex-wrapper",
+                type: "tool_group",
+                summary: "Codex parallel delegate started",
+                details: [
+                  {
+                    id: "codex-wrapper-detail",
+                    label: "Codex parallel delegate",
+                    kind: "call",
+                    toolName: "meta_supervisor",
+                    action: "other"
+                  }
+                ]
+              },
+              {
+                id: "codex-answer",
+                type: "assistant_message",
+                body: "Codex answer",
+                provider: "codex",
+                layoutGroupId: "parallel-1"
+              }
+            ]
+          },
+          {
+            provider: "claude",
+            title: "Claude thread",
+            items: [
+              {
+                id: "claude-answer",
+                type: "assistant_message",
+                body: "Claude answer"
+              }
+            ]
+          }
+        ]
+      }
+    ], "codex"),
+    [
+      {
+        id: "user",
+        type: "user_message",
+        body: "explain this project"
+      },
+      {
+        id: "codex-answer",
+        type: "assistant_message",
+        body: "Codex answer"
+      }
+    ]
+  );
 });
 
 test("parallel adoption discards the unchosen provider session before handoff", async () => {

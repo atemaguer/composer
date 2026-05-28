@@ -122,7 +122,9 @@ export class MetaProvider implements AgentProvider {
       label: "Compose supervisor is coordinating"
     });
     request.session.renderMode = "hybrid";
-    emitSupervisorMessage(request, turnId, strategyDescription(strategy));
+    if (strategy !== "parallel-initial") {
+      emitSupervisorMessage(request, turnId, strategyDescription(strategy));
+    }
 
     try {
       if (strategy === "parallel-initial") {
@@ -176,11 +178,6 @@ export class MetaProvider implements AgentProvider {
           throw new Error(failures.join("\n"));
         }
 
-        emitSupervisorMessage(
-          request,
-          turnId,
-          "Parallel run complete. Codex and Claude both received the initial message in separate provider threads and isolated git worktrees."
-        );
         request.emit({
           id: randomUUID(),
           type: "turn.completed",
@@ -312,7 +309,8 @@ export class MetaProvider implements AgentProvider {
           provider: delegate.provider,
           role: delegate.role,
           phase: delegate.phase,
-          model: delegate.settings.model ?? ""
+          model: delegate.settings.model ?? "",
+          intelligence: delegate.settings.intelligence ?? ""
         }
       }
     });
@@ -409,7 +407,8 @@ export class MetaProvider implements AgentProvider {
         args: {
           provider: delegate.provider,
           role: delegate.role,
-          model: delegate.settings.model ?? ""
+          model: delegate.settings.model ?? "",
+          intelligence: delegate.settings.intelligence ?? ""
         }
       }
     });
@@ -525,12 +524,12 @@ function remapDelegateEvent(
       provider,
       layoutGroupId,
       layoutTitle: layoutGroupId ? `${providerLabel(provider)} thread` : undefined,
-      label: `[${providerLabel(provider)}] ${event.label}`,
+      label: event.label,
       detail: event.detail
         ? {
             ...event.detail,
             id: `${provider}-${event.detail.id}`,
-            label: `[${providerLabel(provider)}] ${event.detail.label}`
+            label: event.detail.label
           }
         : undefined
     };
@@ -561,7 +560,7 @@ function remapDelegateEvent(
         ? {
             ...event.detail,
             id: `${provider}-${event.detail.id}`,
-            label: `[${providerLabel(provider)}] ${event.detail.label}`
+            label: event.detail.label
           }
         : undefined
     };
