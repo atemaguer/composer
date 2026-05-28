@@ -161,12 +161,19 @@ export function normalizeSessions(
       const existing = existingSessions[id];
 
       if (!normalized.contentLoaded && existing?.contentLoaded) {
+        const incomingRunning = isSessionRunning(normalized);
+
         return [
           id,
           normalizeSession({
             ...normalized,
             items: existing.items,
-            pendingItems: existing.pendingItems,
+            pendingItems: incomingRunning
+              ? normalized.pendingItems.length
+                ? normalized.pendingItems
+                : existing.pendingItems
+              : [],
+            runtimeStatus: incomingRunning ? normalized.runtimeStatus : "idle",
             providerSessions: {
               ...normalized.providerSessions,
               ...existing.providerSessions

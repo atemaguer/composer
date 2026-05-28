@@ -230,6 +230,9 @@ export default function App() {
   const expectingNewSessionRef = useRef(false);
   const loadingSessionIdsRef = useRef<Set<string>>(new Set());
   const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
+  const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [providerFilter, setProviderFilter] = useState<ProviderFilter>("all");
   const [sessionsLoading, setSessionsLoading] = useState(
     () =>
@@ -644,6 +647,7 @@ export default function App() {
     }
 
     loadingSessionIdsRef.current.add(threadId);
+    setLoadingSessionIds((current) => new Set(current).add(threadId));
     const load = agentClient
       ? agentClient.loadSession<SessionContent>(threadId)
       : window.composer?.loadLocalSession?.(threadId) ?? Promise.resolve(null);
@@ -672,6 +676,11 @@ export default function App() {
       })
       .finally(() => {
         loadingSessionIdsRef.current.delete(threadId);
+        setLoadingSessionIds((current) => {
+          const next = new Set(current);
+          next.delete(threadId);
+          return next;
+        });
       });
   }
 
@@ -1815,6 +1824,10 @@ export default function App() {
                 inspectorOpen={inspectorOpen}
                 items={activeSession.items}
                 pendingItems={activePendingItems}
+                transcriptLoading={
+                  !activeSession.contentLoaded &&
+                  loadingSessionIds.has(activeSession.id)
+                }
                 composer={composerControls}
                 parallelAdoption={{
                   required: activeSessionNeedsParallelAdoption,

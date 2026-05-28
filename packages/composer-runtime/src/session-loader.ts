@@ -1333,6 +1333,7 @@ function parseClaudeSession(
   let updatedAt = includeItems ? latestTimestamp(rows) ?? isoFromMtime(filePath) : isoFromMtime(filePath);
   let firstUserText = "";
   const items: ConversationItem[] = [];
+  const toolGroupsByCallId = new Map<string, { itemIndex: number }>();
   let toolIndex = 0;
 
   for (const row of rows) {
@@ -1419,10 +1420,20 @@ function parseClaudeSession(
           continue;
         }
 
-        const resultText = extractClaudeToolResultText(content);
+        if (!includeItems) {
+          continue;
+        }
 
-        if (includeItems && resultText) {
-          if (isHiddenHandoffTranscriptText(resultText)) {
+        for (const part of content) {
+          const block = asRecord(part);
+
+          if (asString(block.type) !== "tool_result") {
+            continue;
+          }
+
+          const resultText = extractText(block.content);
+
+          if (!resultText || isHiddenHandoffTranscriptText(resultText)) {
             continue;
           }
 
@@ -1434,6 +1445,19 @@ function parseClaudeSession(
 
           if (!isInformativeOutputDetail(detail)) {
             continue;
+          }
+
+          const toolUseId = asString(block.tool_use_id);
+          const existing = toolUseId ? toolGroupsByCallId.get(toolUseId) : undefined;
+
+          if (existing) {
+            const item = items[existing.itemIndex];
+
+            if (item?.type === "tool_group") {
+              item.details.push(detail);
+              item.status = detail.status === "failed" ? "failed" : item.status;
+              continue;
+            }
           }
 
           items.push({
@@ -1499,6 +1523,12 @@ function parseClaudeSession(
             sortTimestamp: rowTimestamp,
             defaultOpen: false
           });
+
+          const toolUseId = asString(contentBlock.id);
+
+          if (toolUseId) {
+            toolGroupsByCallId.set(toolUseId, { itemIndex: items.length - 1 });
+          }
         }
       }
       continue;
@@ -2100,21 +2130,6 @@ function extractText(value: unknown): string {
       }
 
       return "";
-    })
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function extractClaudeToolResultText(content: unknown[]) {
-  return content
-    .map((part) => {
-      const block = asRecord(part);
-
-      if (asString(block.type) !== "tool_result") {
-        return "";
-      }
-
-      return extractText(block.content);
     })
     .filter(Boolean)
     .join("\n\n");

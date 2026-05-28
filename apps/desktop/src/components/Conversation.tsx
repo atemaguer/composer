@@ -70,6 +70,7 @@ type ConversationProps = {
   inspectorOpen: boolean;
   items: ConversationItem[];
   pendingItems: PendingConversationItem[];
+  transcriptLoading?: boolean;
   composer: ComposerProps;
   parallelAdoption?: ParallelAdoptionControls;
   onOpenFile?: (filePath: string) => void;
@@ -92,6 +93,7 @@ export function Conversation({
   cwd,
   items,
   pendingItems,
+  transcriptLoading = false,
   composer,
   parallelAdoption,
   onOpenFile,
@@ -194,6 +196,9 @@ export function Conversation({
             onOpenFile={onOpenFile}
             onReviewChanges={onReviewChanges}
           />
+          {transcriptLoading && timelineItems.length === 0 && (
+            <TranscriptLoadingState />
+          )}
           {pendingItems.length > 0 &&
             !hasRunningHandoff &&
             !hasOutputAfterLatestUser(items) && <ThinkingIndicator />}
@@ -212,6 +217,31 @@ export function Conversation({
 }
 
 type ToolGroupItem = Extract<ConversationItem, { type: "tool_group" }>;
+
+function TranscriptLoadingState() {
+  return (
+    <div className="mx-auto grid w-full max-w-[820px] gap-6 pt-4">
+      <Shimmer as="span" className="w-fit text-[14px] font-medium text-app-muted" duration={1.6} spread={3}>
+        Loading session
+      </Shimmer>
+      <div className="grid gap-4">
+        <div className="ml-auto grid w-full max-w-[520px] justify-items-end gap-2">
+          <div className="h-12 w-[min(100%,460px)] rounded-2xl bg-app-panel/80" />
+          <div className="h-3 w-16 rounded-full bg-app-text/[0.07]" />
+        </div>
+        <div className="grid max-w-[720px] gap-3">
+          <div className="h-4 w-4/5 rounded-full bg-app-text/[0.08]" />
+          <div className="h-4 w-full rounded-full bg-app-text/[0.07]" />
+          <div className="h-4 w-2/3 rounded-full bg-app-text/[0.06]" />
+        </div>
+        <div className="grid max-w-[520px] gap-2">
+          <div className="h-5 w-56 rounded-full bg-app-text/[0.07]" />
+          <div className="h-5 w-72 rounded-full bg-app-text/[0.055]" />
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function isHandoffToolGroup(item: ConversationItem) {
   if (item.type !== "tool_group") {

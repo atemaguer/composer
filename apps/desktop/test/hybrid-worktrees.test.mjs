@@ -1606,6 +1606,137 @@ test("selected local session content is not truncated", async () => {
   });
 });
 
+test("Claude tool results stay attached to their interleaved tool calls", async () => {
+  await withTempHome(async ({ home }) => {
+    const projectPath = `${home}/.claude/projects/-tmp-source`;
+    const sessionId = "claude-interleaved";
+    const cwd = "/tmp/source";
+    const timestamp = (offset) =>
+      new Date(Date.UTC(2026, 4, 23, 0, 0, offset)).toISOString();
+
+    fs.mkdirSync(projectPath, { recursive: true });
+    fs.writeFileSync(
+      path.join(projectPath, `${sessionId}.jsonl`),
+      [
+        {
+          type: "user",
+          sessionId,
+          cwd,
+          timestamp: timestamp(1),
+          message: { role: "user", content: "implement this" }
+        },
+        {
+          type: "assistant",
+          sessionId,
+          cwd,
+          timestamp: timestamp(2),
+          message: {
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [
+              { type: "text", text: "I'll inspect first." },
+              {
+                type: "tool_use",
+                id: "toolu_read",
+                name: "Read",
+                input: { file_path: "/tmp/source/src/App.tsx" }
+              }
+            ]
+          }
+        },
+        {
+          type: "user",
+          sessionId,
+          cwd,
+          timestamp: timestamp(3),
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_read",
+                content: "1\tconsole.log('app')"
+              }
+            ]
+          }
+        },
+        {
+          type: "assistant",
+          sessionId,
+          cwd,
+          timestamp: timestamp(4),
+          message: {
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [
+              { type: "text", text: "Now I'll edit it." },
+              {
+                type: "tool_use",
+                id: "toolu_edit",
+                name: "Edit",
+                input: {
+                  file_path: "/tmp/source/src/App.tsx",
+                  old_string: "app",
+                  new_string: "updated"
+                }
+              }
+            ]
+          }
+        },
+        {
+          type: "user",
+          sessionId,
+          cwd,
+          timestamp: timestamp(5),
+          message: {
+            role: "user",
+            content: [
+              {
+                type: "tool_result",
+                tool_use_id: "toolu_edit",
+                content: "The file has been updated successfully."
+              }
+            ]
+          }
+        },
+        {
+          type: "assistant",
+          sessionId,
+          cwd,
+          timestamp: timestamp(6),
+          message: {
+            role: "assistant",
+            model: "claude-sonnet-4-6",
+            content: [{ type: "text", text: "Done." }]
+          }
+        }
+      ].map((row) => JSON.stringify(row)).join("\n") + "\n"
+    );
+
+    const { loadLocalSessionContent } = await import(
+      "../dist-server/electron/session-loader.js"
+    );
+    const loaded = loadLocalSessionContent(`claude-${sessionId}`);
+
+    assert.equal(loaded.items.length, 6);
+    assert.deepEqual(
+      loaded.items.map((item) => item.type),
+      [
+        "user_message",
+        "assistant_message",
+        "tool_group",
+        "assistant_message",
+        "tool_group",
+        "assistant_message"
+      ]
+    );
+    assert.equal(loaded.items[2]?.details.length, 2);
+    assert.equal(loaded.items[4]?.details.length, 2);
+    assert.equal(loaded.items[3]?.body, "Now I'll edit it.");
+    assert.equal(loaded.items[5]?.body, "Done.");
+  });
+});
+
 async function withTempHome(callback) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "composer-home-"));
   const home = path.join(root, "home");
