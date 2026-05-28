@@ -626,6 +626,86 @@ test("Codex subagent sessions render under their parent thread", async () => {
   });
 });
 
+test("Codex standalone chat sessions do not render as project sessions", async () => {
+  await withTempHome(async ({ home }) => {
+    const chatCwd = path.join(
+      home,
+      "Documents",
+      "Codex",
+      "2026-05-23",
+      "use-browser-use-to-go-and"
+    );
+    writeCodexSession(home, {
+      sessionId: "codex-chat",
+      cwd: chatCwd,
+      user: "Delete a remote resource",
+      assistant: "Done"
+    });
+
+    const { loadLocalSessions, loadLocalSessionList } = await import(
+      "../dist-server/electron/session-loader.js"
+    );
+
+    assert.equal(loadLocalSessions().sessions["codex-codex-chat"], undefined);
+    assert.equal(loadLocalSessionList().sessions["codex-codex-chat"], undefined);
+  });
+});
+
+test("registered Codex standalone chat sessions do not render as project sessions", async () => {
+  await withTempHome(async ({ home }) => {
+    const chatCwd = path.join(
+      home,
+      "Documents",
+      "Codex",
+      "2026-05-23",
+      "use-browser-use-to-go-and"
+    );
+    writeCodexSession(home, {
+      sessionId: "codex-chat",
+      cwd: chatCwd,
+      user: "Delete a remote resource",
+      assistant: "Done"
+    });
+    await writeRegistry({
+      version: 1,
+      sessions: [
+        {
+          id: "composer-chat",
+          title: "Delete remote resource",
+          sourceCwd: chatCwd,
+          displayCwd: chatCwd,
+          activeCwd: chatCwd,
+          currentProvider: "codex",
+          lastProvider: "codex",
+          renderMode: "single",
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:02.000Z"
+        }
+      ],
+      providerSessions: [
+        {
+          composerSessionId: "composer-chat",
+          provider: "codex",
+          providerSessionId: "codex-chat",
+          role: "primary",
+          lifecycle: "active",
+          cwd: chatCwd,
+          createdAt: "2026-05-23T00:00:00.000Z",
+          updatedAt: "2026-05-23T00:00:02.000Z"
+        }
+      ],
+      events: []
+    });
+
+    const { loadLocalSessions, loadLocalSessionList } = await import(
+      "../dist-server/electron/session-loader.js"
+    );
+
+    assert.equal(loadLocalSessions().sessions["composer-chat"], undefined);
+    assert.equal(loadLocalSessionList().sessions["composer-chat"], undefined);
+  });
+});
+
 test("Claude sidechain sessions render under their parent thread", async () => {
   await withTempHome(async ({ home }) => {
     const cwd = "/tmp/source";

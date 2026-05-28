@@ -423,6 +423,20 @@ function composerSessionFromRecord(
     return null;
   }
 
+  const cwd =
+    sessionRecord.activeCwd ??
+    visibleRecord?.cwd ??
+    visibleNative?.cwd ??
+    sessionRecord.sourceCwd;
+  const displayCwd = sessionRecord.displayCwd ?? sessionRecord.sourceCwd;
+
+  if (
+    (visibleProvider ?? visibleRecord?.provider ?? visibleNative?.provider) === "codex" &&
+    (isCodexChatSessionCwd(cwd) || isCodexChatSessionCwd(displayCwd))
+  ) {
+    return null;
+  }
+
   return finishSession({
     id: sessionRecord.id,
     provider: visibleProvider ?? visibleRecord?.provider ?? visibleNative?.provider ?? "meta",
@@ -440,8 +454,8 @@ function composerSessionFromRecord(
     lastProvider: sessionRecord.lastProvider ?? visibleProvider,
     title: sessionRecord.title ?? visibleNative?.title ?? titleFromCwd(sessionRecord.sourceCwd) ?? "Composer session",
     updatedAt: latestSessionUpdatedAt(sessionRecord, nativeMatches),
-    cwd: sessionRecord.activeCwd ?? visibleRecord?.cwd ?? visibleNative?.cwd ?? sessionRecord.sourceCwd,
-    displayCwd: sessionRecord.displayCwd ?? sessionRecord.sourceCwd,
+    cwd,
+    displayCwd,
     model: visibleNative?.model,
     items: options.includeItems ? visibleNative?.items ?? [] : []
   });
@@ -909,7 +923,7 @@ function parseCodexSession(
   }
 
   const indexed = index.get(id);
-  if (isBackgroundBranchNamePrompt(firstRawUserText)) {
+  if (isBackgroundBranchNamePrompt(firstRawUserText) || isCodexChatSessionCwd(cwd)) {
     return null;
   }
 
@@ -1601,6 +1615,29 @@ function displayWorkspaceCwd(cwd?: string) {
   }
 
   return normalized;
+}
+
+function isCodexChatSessionCwd(cwd?: string) {
+  if (!cwd) {
+    return false;
+  }
+
+  const relative = path.relative(
+    path.join(os.homedir(), "Documents", "Codex"),
+    path.resolve(cwd)
+  );
+
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    return false;
+  }
+
+  const [dateSegment, slugSegment, ...rest] = relative.split(path.sep);
+
+  return Boolean(
+    dateSegment?.match(/^\d{4}-\d{2}-\d{2}$/) &&
+      slugSegment &&
+      rest.length === 0
+  );
 }
 
 function compareSessionsByUpdatedAt(a: SessionContent, b: SessionContent) {
