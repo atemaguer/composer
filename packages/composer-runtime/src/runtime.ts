@@ -1180,10 +1180,14 @@ function requiresParallelAdoption(session: SessionContent) {
   return (
     session.provider === "meta" &&
     session.renderMode === "hybrid" &&
-    session.model === "Codex + Claude parallel" &&
+    isCompareAgentsModel(session.model) &&
     Boolean(parallelProviderSessionId(session, "codex")) &&
     Boolean(parallelProviderSessionId(session, "claude"))
   );
+}
+
+function isCompareAgentsModel(model?: string) {
+  return model === "Compare agents" || model === "Codex + Claude parallel";
 }
 
 function adoptWorktreeForProviderRun(

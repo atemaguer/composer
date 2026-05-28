@@ -1522,7 +1522,7 @@ test("runtime detects and refreshes local subagent sessions during a parent run"
         settings: {
           permissionMode: "Full access",
           intelligence: "Medium",
-          model: "gpt-5.4-codex"
+          model: "gpt-5.5"
         }
       },
       () => {}

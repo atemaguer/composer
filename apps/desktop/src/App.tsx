@@ -195,8 +195,14 @@ export default function App() {
   );
   const clearComposer = useComposerStore((state) => state.clearComposer);
   const setActiveModel = useComposerStore((state) => state.setActiveModel);
+  const setModelForProvider = useComposerStore(
+    (state) => state.setModelForProvider
+  );
   const setActiveIntelligence = useComposerStore(
     (state) => state.setActiveIntelligence
+  );
+  const setIntelligenceForProvider = useComposerStore(
+    (state) => state.setIntelligenceForProvider
   );
 
   const workspaceOptions = useWorkspaceStore((state) => state.workspaceOptions);
@@ -865,6 +871,19 @@ export default function App() {
         permissionMode: permission,
         intelligence: activeIntelligence,
         model: activeModel,
+        composeAgents:
+          requestProvider === "meta"
+            ? {
+                codex: {
+                  model: modelByProvider.codex,
+                  intelligence: intelligenceByProvider.codex
+                },
+                claude: {
+                  model: modelByProvider.claude,
+                  intelligence: intelligenceByProvider.claude
+                }
+              }
+            : undefined,
         imageAttachments: imageAttachments.map((attachment) => ({
           name: attachment.name,
           mediaType: attachment.mediaType,
@@ -1610,8 +1629,18 @@ export default function App() {
     setPermission,
     model: activeModel,
     setModel: setActiveModel,
+    composeAgentModels: {
+      codex: modelByProvider.codex,
+      claude: modelByProvider.claude
+    },
+    setComposeAgentModel: setModelForProvider,
     intelligence: activeIntelligence,
     setIntelligence: setActiveIntelligence,
+    composeAgentIntelligence: {
+      codex: intelligenceByProvider.codex,
+      claude: intelligenceByProvider.claude
+    },
+    setComposeAgentIntelligence: setIntelligenceForProvider,
     permissionOpen,
     setPermissionOpen,
     intelligenceOpen,
@@ -2299,11 +2328,15 @@ function needsParallelAdoption(session: SessionContent) {
   return (
     session.provider === "meta" &&
     session.renderMode === "hybrid" &&
-    session.model === "Codex + Claude parallel" &&
+    isCompareAgentsModel(session.model) &&
     Boolean(session.providerSessions?.codex?.sessionId) &&
     Boolean(session.providerSessions?.claude?.sessionId) &&
     !session.parallelAdoptedProvider
   );
+}
+
+function isCompareAgentsModel(model?: string) {
+  return model === "Compare agents" || model === "Codex + Claude parallel";
 }
 
 function sessionWorkspaceCwd(session: SessionContent) {

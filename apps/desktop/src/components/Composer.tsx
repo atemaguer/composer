@@ -42,6 +42,7 @@ import type {
   AgentModel,
   ComposerImageAttachment,
   ComposerReviewCommentAttachment,
+  DelegateSessionProvider,
   IntelligenceMode,
   PendingConversationItem,
   PermissionMode,
@@ -73,7 +74,6 @@ import {
   primaryIconButton,
   primaryButton,
   secondaryButton,
-  subtleCardSurface,
   subtleIconButton,
   warningFocusRing
 } from "./style-tokens";
@@ -86,8 +86,18 @@ export type ComposerProps = {
   setPermission: (value: PermissionMode) => void;
   model: AgentModel;
   setModel: (value: AgentModel) => void;
+  composeAgentModels: Record<DelegateSessionProvider, AgentModel>;
+  setComposeAgentModel: (
+    provider: DelegateSessionProvider,
+    value: AgentModel
+  ) => void;
   intelligence: IntelligenceMode;
   setIntelligence: (value: IntelligenceMode) => void;
+  composeAgentIntelligence: Record<DelegateSessionProvider, IntelligenceMode>;
+  setComposeAgentIntelligence: (
+    provider: DelegateSessionProvider,
+    value: IntelligenceMode
+  ) => void;
   permissionOpen: boolean;
   setPermissionOpen: (value: boolean) => void;
   intelligenceOpen: boolean;
@@ -213,8 +223,12 @@ export function PromptComposer({
   setPermission,
   model,
   setModel,
+  composeAgentModels,
+  setComposeAgentModel,
   intelligence,
   setIntelligence,
+  composeAgentIntelligence,
+  setComposeAgentIntelligence,
   permissionOpen,
   setPermissionOpen,
   intelligenceOpen,
@@ -379,11 +393,15 @@ export function PromptComposer({
               setIntelligence(defaultEffort(nextModel));
             }
           }}
+          composeAgentModels={composeAgentModels}
+          setComposeAgentModel={setComposeAgentModel}
           intelligence={intelligence}
           setIntelligence={(value) => {
             setIntelligence(value);
             setIntelligenceOpen(false);
           }}
+          composeAgentIntelligence={composeAgentIntelligence}
+          setComposeAgentIntelligence={setComposeAgentIntelligence}
         />
       )}
 
@@ -1625,97 +1643,208 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
   provider: ComposerProvider;
   model: AgentModel;
   setModel: (value: AgentModel) => void;
+  composeAgentModels: Record<DelegateSessionProvider, AgentModel>;
+  setComposeAgentModel: (
+    provider: DelegateSessionProvider,
+    value: AgentModel
+  ) => void;
   intelligence: IntelligenceMode;
   setIntelligence: (value: IntelligenceMode) => void;
+  composeAgentIntelligence: Record<DelegateSessionProvider, IntelligenceMode>;
+  setComposeAgentIntelligence: (
+    provider: DelegateSessionProvider,
+    value: IntelligenceMode
+  ) => void;
 }>(function ModelSettingsMenu({
   id,
   provider,
   model,
   setModel,
+  composeAgentModels,
+  setComposeAgentModel,
   intelligence,
-  setIntelligence
+  setIntelligence,
+  composeAgentIntelligence,
+  setComposeAgentIntelligence
 }, ref) {
+  const [activeComposeAgent, setActiveComposeAgent] =
+    useState<DelegateSessionProvider | null>(null);
   const models = providerModelOptions(provider);
   const selectedModel = modelOption(provider, model);
   const efforts = selectedModel.efforts;
   const label = providerLabel(provider);
   const effortLabel =
     provider === "meta"
-      ? "Planner and executor"
+      ? "Agent threads"
       : provider === "codex"
         ? "Reasoning effort"
         : "Thinking effort";
-  const metaExecutionDetails =
-    selectedModel.value === "meta-parallel-initial"
-      ? [
-          ["Codex", "Starts a GPT-5.4 thread immediately"],
-          ["Claude", "Starts a Claude Sonnet 4.6 thread immediately"]
-        ]
-      : [
-          ["Claude Opus 4.7", "Planning with Extra High thinking"],
-          ["GPT-5.4 Mini", "Execution with Low reasoning"]
-        ];
+  const activeComposeModel = activeComposeAgent
+    ? modelOption(activeComposeAgent, composeAgentModels[activeComposeAgent])
+    : null;
+  const activeComposeEffort = activeComposeAgent
+    ? composeAgentIntelligence[activeComposeAgent]
+    : null;
+  const activeComposeEffortLabel =
+    activeComposeAgent === "claude" ? "Thinking effort" : "Reasoning effort";
+  const composeAgents: DelegateSessionProvider[] = ["codex", "claude"];
 
   return (
     <ComposerMenuSurface
       ref={ref}
       id={id}
-      className="absolute -right-2 bottom-[64px] z-20 grid w-max max-w-[calc(100vw-48px)] gap-1"
+      className={cn(
+        "absolute -right-2 bottom-[64px] z-20 grid w-max max-w-[calc(100vw-48px)] gap-1 overflow-visible",
+        provider === "meta" && "w-[340px]"
+      )}
       role="menu"
       aria-label={`${label} model settings`}
     >
-      <div className="px-2 text-[14px] text-app-muted">
-        {label} model
-      </div>
-      {models.map((option) => (
-        <ComposerMenuButton
-          key={option.value}
-          className="grid min-h-11 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
-          selected={selectedModel.value === option.value}
-          onClick={() => setModel(option.value)}
-          role="menuitemradio"
-          aria-checked={selectedModel.value === option.value}
-          tooltip={`Select ${option.label}`}
-        >
-          <span className="grid min-w-0">
-            <span className="truncate">{option.label}</span>
-            <span className="max-w-[calc(100vw-140px)] truncate text-[12px] text-app-dim">
-              {option.detail}
-            </span>
-          </span>
-          {selectedModel.value === option.value && <Check size={14} />}
-        </ComposerMenuButton>
-      ))}
-      <ComposerMenuDivider />
-      <div className="px-2 text-[14px] text-app-muted">
-        {effortLabel}
-      </div>
-      {provider === "meta" ? (
-        <div className="grid gap-1 px-2 pb-1 text-[13px] text-app-text">
-          {metaExecutionDetails.map(([title, detail]) => (
-            <div key={title} className={cn("px-2.5 py-2", subtleCardSurface)}>
-              <div className="text-app-text">{title}</div>
-              <div className="text-[12px] text-app-dim">
-                {detail}
-              </div>
-            </div>
-          ))}
+      <div className="grid gap-1">
+        <div className="px-2 text-[14px] text-app-muted">
+          {label} model
         </div>
-      ) : (
-        efforts.map((label) => (
+        {models.map((option) => (
           <ComposerMenuButton
-            key={label}
-            className="grid min-h-9 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
-            selected={intelligence === label}
-            onClick={() => setIntelligence(label)}
+            key={option.value}
+            className="grid min-h-11 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
+            selected={selectedModel.value === option.value}
+            onClick={() => setModel(option.value)}
             role="menuitemradio"
-            aria-checked={intelligence === label}
-            tooltip={`Set ${effortLabel}: ${label}`}
+            aria-checked={selectedModel.value === option.value}
+            tooltip={`Select ${option.label}`}
           >
-            <span>{label}</span>
-            {intelligence === label && <Check size={14} />}
+            <span className="grid min-w-0">
+              <span className="truncate">{option.label}</span>
+              <span className="max-w-[calc(100vw-140px)] truncate text-[12px] text-app-dim">
+                {option.detail}
+              </span>
+            </span>
+            {selectedModel.value === option.value && <Check size={14} />}
           </ComposerMenuButton>
-        ))
+        ))}
+        <ComposerMenuDivider />
+        <div className="px-2 text-[14px] text-app-muted">
+          {effortLabel}
+        </div>
+        {provider === "meta" ? (
+          <div className="grid gap-1">
+            {composeAgents.map((agent) => {
+              const agentModel = modelOption(agent, composeAgentModels[agent]);
+              const agentEffort = composeAgentIntelligence[agent];
+
+              return (
+                <ComposerMenuButton
+                  key={agent}
+                  className="grid min-h-12 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
+                  selected={activeComposeAgent === agent}
+                  onClick={() => setActiveComposeAgent(agent)}
+                  onFocus={() => setActiveComposeAgent(agent)}
+                  onMouseEnter={() => setActiveComposeAgent(agent)}
+                  onPointerEnter={() => setActiveComposeAgent(agent)}
+                  role="menuitem"
+                  tooltip={`Configure ${providerLabel(agent)}`}
+                >
+                  <ProviderLogo provider={agent} className="h-[15px] w-[15px]" />
+                  <span className="grid min-w-0">
+                    <span className="truncate">{providerLabel(agent)}</span>
+                    <span className="truncate text-[12px] text-app-dim">
+                      {agentModel.label} · {agentEffort}
+                    </span>
+                  </span>
+                  <ChevronRight size={14} />
+                </ComposerMenuButton>
+              );
+            })}
+          </div>
+        ) : (
+          efforts.map((label) => (
+            <ComposerMenuButton
+              key={label}
+              className="grid min-h-9 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
+              selected={intelligence === label}
+              onClick={() => setIntelligence(label)}
+              role="menuitemradio"
+              aria-checked={intelligence === label}
+              tooltip={`Set ${effortLabel}: ${label}`}
+            >
+              <span>{label}</span>
+              {intelligence === label && <Check size={14} />}
+            </ComposerMenuButton>
+          ))
+        )}
+      </div>
+      {provider === "meta" &&
+        activeComposeAgent &&
+        activeComposeModel &&
+        activeComposeEffort && (
+        <ComposerMenuSurface
+          className="absolute bottom-0 right-[calc(100%+8px)] z-10 grid w-[300px] max-w-[calc(100vw-48px)] gap-1"
+          role="menu"
+          aria-label={`${providerLabel(activeComposeAgent)} settings`}
+          onMouseEnter={() => setActiveComposeAgent(activeComposeAgent)}
+        >
+          <div className="grid grid-cols-[20px_minmax(0,1fr)] items-center gap-2 px-2 text-[14px] text-app-text">
+            <ProviderLogo
+              provider={activeComposeAgent}
+              className="h-[15px] w-[15px]"
+            />
+            <span className="truncate">
+              {providerLabel(activeComposeAgent)}
+            </span>
+          </div>
+          <div className="px-2 text-[12px] text-app-dim">
+            Model
+          </div>
+          {providerModelOptions(activeComposeAgent).map((option) => (
+            <ComposerMenuButton
+              key={option.value}
+              className="grid min-h-10 grid-cols-[minmax(0,1fr)_18px] items-center text-[14px] text-app-text"
+              selected={activeComposeModel.value === option.value}
+              onClick={() => {
+                setComposeAgentModel(activeComposeAgent, option.value);
+
+                if (!option.efforts.includes(activeComposeEffort)) {
+                  setComposeAgentIntelligence(
+                    activeComposeAgent,
+                    defaultEffort(option)
+                  );
+                }
+              }}
+              role="menuitemradio"
+              aria-checked={activeComposeModel.value === option.value}
+              tooltip={`Set ${providerLabel(activeComposeAgent)} model: ${option.label}`}
+            >
+              <span className="grid min-w-0">
+                <span className="truncate">{option.label}</span>
+                <span className="truncate text-[12px] text-app-dim">
+                  {option.detail}
+                </span>
+              </span>
+              {activeComposeModel.value === option.value && <Check size={14} />}
+            </ComposerMenuButton>
+          ))}
+          <ComposerMenuDivider />
+          <div className="px-2 text-[12px] text-app-dim">
+            {activeComposeEffortLabel}
+          </div>
+          {activeComposeModel.efforts.map((label) => (
+            <ComposerMenuButton
+              key={label}
+              className="grid min-h-9 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
+              selected={activeComposeEffort === label}
+              onClick={() =>
+                setComposeAgentIntelligence(activeComposeAgent, label)
+              }
+              role="menuitemradio"
+              aria-checked={activeComposeEffort === label}
+              tooltip={`Set ${providerLabel(activeComposeAgent)} ${activeComposeEffortLabel}: ${label}`}
+            >
+              <span>{label}</span>
+              {activeComposeEffort === label && <Check size={14} />}
+            </ComposerMenuButton>
+          ))}
+        </ComposerMenuSurface>
       )}
     </ComposerMenuSurface>
   );
@@ -1731,15 +1860,15 @@ function compactModelOptionLabel(option: ProviderModelOption) {
   }
 
   if (option.value.includes("sonnet")) {
-    return "Sonnet";
+    return option.label.replace(/^Claude /, "");
   }
 
   if (option.value.includes("opus")) {
-    return "Opus";
+    return option.label.replace(/^Claude /, "");
   }
 
   if (option.value.startsWith("meta-")) {
-    return "Plan -> Execute";
+    return option.label;
   }
 
   return option.label;

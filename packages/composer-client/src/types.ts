@@ -358,6 +358,15 @@ export type AgentSettings = {
   permissionMode: PermissionMode;
   intelligence: IntelligenceMode;
   model?: AgentModel;
+  composeAgents?: Partial<
+    Record<
+      DelegateSessionProvider,
+      {
+        model?: AgentModel;
+        intelligence?: IntelligenceMode;
+      }
+    >
+  >;
 };
 
 export type LiveAgentEvent =

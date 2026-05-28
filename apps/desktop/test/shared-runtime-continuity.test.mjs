@@ -26,7 +26,7 @@ test("shared runtime store lets one interface continue another interface session
       settings: {
         permissionMode: "Full access",
         intelligence: "Medium",
-        model: "gpt-5.4"
+        model: "gpt-5.5"
       }
     }, () => {});
 
@@ -69,7 +69,7 @@ test("shared runtime store lets one interface continue another interface session
       settings: {
         permissionMode: "Full access",
         intelligence: "Medium",
-        model: "gpt-5.4"
+        model: "gpt-5.5"
       }
     }, () => {});
 

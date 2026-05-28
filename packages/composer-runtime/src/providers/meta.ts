@@ -51,14 +51,14 @@ const META_PLANNER = {
 
 const META_EXECUTOR = {
   provider: "codex" as const,
-  model: "gpt-5.4-mini",
-  intelligence: "Low" as const
+  model: "gpt-5.5",
+  intelligence: "Medium" as const
 };
 
 const PARALLEL_DELEGATES = {
   codex: {
     provider: "codex" as const,
-    model: "gpt-5.4",
+    model: "gpt-5.5",
     intelligence: "Medium" as const
   },
   claude: {
@@ -129,6 +129,16 @@ export class MetaProvider implements AgentProvider {
     try {
       if (strategy === "parallel-initial") {
         const layoutGroupId = `${request.sessionId}-${turnId}-parallel`;
+        const codexSettings = composeDelegateSettings(
+          request.settings,
+          "codex",
+          PARALLEL_DELEGATES.codex
+        );
+        const claudeSettings = composeDelegateSettings(
+          request.settings,
+          "claude",
+          PARALLEL_DELEGATES.claude
+        );
         const results = await Promise.allSettled([
           this.runDelegate(request, {
             provider: PARALLEL_DELEGATES.codex.provider,
@@ -140,8 +150,8 @@ export class MetaProvider implements AgentProvider {
             layoutGroupId,
             settings: {
               ...request.settings,
-              intelligence: PARALLEL_DELEGATES.codex.intelligence,
-              model: PARALLEL_DELEGATES.codex.model
+              intelligence: codexSettings.intelligence,
+              model: codexSettings.model
             }
           }),
           this.runDelegate(request, {
@@ -154,8 +164,8 @@ export class MetaProvider implements AgentProvider {
             layoutGroupId,
             settings: {
               ...request.settings,
-              intelligence: PARALLEL_DELEGATES.claude.intelligence,
-              model: PARALLEL_DELEGATES.claude.model
+              intelligence: claudeSettings.intelligence,
+              model: claudeSettings.model
             }
           })
         ]);
@@ -686,17 +696,35 @@ function claudeWorktreeName(sessionId: string) {
 }
 
 function metaStrategy(model?: string): MetaStrategy {
-  return model === "meta-parallel-initial"
-    ? "parallel-initial"
-    : "planner-review";
+  if (
+    model === "meta-planner-review" &&
+    runtimeFeatureEnabled("COMPOSER_ENABLE_META_PLANNER_REVIEW")
+  ) {
+    return "planner-review";
+  }
+
+  return "parallel-initial";
 }
 
 function strategyDescription(strategy: MetaStrategy) {
   if (strategy === "parallel-initial") {
-    return "Starting Codex GPT-5.4 and Claude Sonnet 4.6 in parallel with the initial message, each in its own provider thread.";
+    return "Starting Codex GPT-5.4 and Claude Sonnet 4.6 side by side so you can compare agents and choose one to continue.";
   }
 
   return "Planning with Claude Opus 4.7 at Extra High thinking, then executing the approved plan with Codex GPT-5.4 Mini at Low reasoning.";
+}
+
+function composeDelegateSettings(
+  settings: AgentSettings,
+  provider: DelegateProvider,
+  defaults: { model: string; intelligence: AgentSettings["intelligence"] }
+) {
+  const configured = settings.composeAgents?.[provider];
+
+  return {
+    model: configured?.model ?? defaults.model,
+    intelligence: configured?.intelligence ?? defaults.intelligence
+  };
 }
 
 function writeComposerDelegateMetadata(
@@ -732,4 +760,10 @@ function writeComposerDelegateMetadata(
   }
 
   persistence.upsertProviderSessions(records);
+}
+
+function runtimeFeatureEnabled(name: string) {
+  const value = process.env[name];
+
+  return value === "1" || value === "true";
 }

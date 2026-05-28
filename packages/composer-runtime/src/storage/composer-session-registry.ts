@@ -213,7 +213,7 @@ export function upsertComposerSessionFromRuntime(
         currentProvider: session.provider ?? existing?.currentProvider,
         lastProvider: session.lastProvider ?? existing?.lastProvider,
         renderMode: session.renderMode ?? existing?.renderMode,
-        hybridMode: session.model === "Codex + Claude parallel"
+        hybridMode: isCompareAgentsModel(session.model)
           ? "parallel-initial"
           : existing?.hybridMode,
         parallelAdoptedProvider:
@@ -259,6 +259,10 @@ export function upsertComposerSessionFromRuntime(
   } finally {
     db.close();
   }
+}
+
+function isCompareAgentsModel(model?: string) {
+  return model === "Compare agents" || model === "Codex + Claude parallel";
 }
 
 export function upsertComposerProviderSessions(

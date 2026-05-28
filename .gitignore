@@ -35,6 +35,7 @@ lerna-debug.log*
 
 # Tooling caches
 .cache/
+.claude/
 .vite/
 .turbo/
 .eslintcache

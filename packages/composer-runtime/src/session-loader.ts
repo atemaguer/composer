@@ -900,7 +900,7 @@ function composerParallelSessionFromRecord(
     updatedAt: latestSessionUpdatedAt(sessionRecord, nativeMatches),
     cwd: sessionRecord.activeCwd ?? sessionRecord.sourceCwd,
     displayCwd: sessionRecord.displayCwd ?? sessionRecord.sourceCwd,
-    model: "Codex + Claude parallel",
+    model: "Compare agents",
     items: options.includeItems ? items : []
   });
 }

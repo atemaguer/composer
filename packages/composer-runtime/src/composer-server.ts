@@ -228,7 +228,8 @@ export function createComposerServer({
         body.intelligence === "Extra High"
           ? body.intelligence
           : "High",
-      model: parseModel(body.model, provider)
+      model: parseModel(body.model, provider),
+      composeAgents: parseComposeAgents(body.composeAgents)
     };
     const imageAttachments = extractImageAttachments(body);
     const requestId = typeof body.requestId === "string" ? body.requestId : undefined;
@@ -553,6 +554,42 @@ function parseProvider(value: unknown): SessionProvider {
 
 function parseModel(value: unknown, provider: SessionProvider) {
   return parseProviderModel(value, provider);
+}
+
+function parseComposeAgents(value: unknown): AgentSettings["composeAgents"] {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return undefined;
+  }
+
+  const record = value as Record<string, unknown>;
+  const agents: AgentSettings["composeAgents"] = {};
+
+  for (const provider of ["codex", "claude"] as const) {
+    const raw = record[provider];
+
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      continue;
+    }
+
+    const agent = raw as Record<string, unknown>;
+    const model = parseProviderModel(agent.model, provider);
+    const intelligence = parseIntelligence(agent.intelligence);
+
+    if (model || intelligence) {
+      agents[provider] = { model, intelligence };
+    }
+  }
+
+  return Object.keys(agents).length > 0 ? agents : undefined;
+}
+
+function parseIntelligence(value: unknown) {
+  return value === "Low" ||
+    value === "Medium" ||
+    value === "High" ||
+    value === "Extra High"
+    ? value
+    : undefined;
 }
 
 function parseCwd(value: unknown) {

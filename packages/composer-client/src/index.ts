@@ -89,12 +89,30 @@ export type RuntimeProviderDefinition = {
   canDelegate: boolean;
 };
 
+const metaPlannerReviewEnabled = runtimeFeatureEnabled(
+  "COMPOSER_ENABLE_META_PLANNER_REVIEW"
+) || runtimeFeatureEnabled("VITE_COMPOSER_ENABLE_META_PLANNER_REVIEW");
+
+const metaPlannerReviewOption = {
+  value: "meta-planner-review",
+  label: "Planner review",
+  detail: "Claude plans high, Codex executes low",
+  efforts: ["High"]
+} satisfies ProviderModelOption;
+
+const metaParallelInitialOption = {
+  value: "meta-parallel-initial",
+  label: "Compare agents",
+  detail: "Run Codex and Claude side by side, then choose one to continue",
+  efforts: ["High"]
+} satisfies ProviderModelOption;
+
 const providerDefinitions = [
   {
     id: "codex",
     label: "Codex",
     statusLabel: "Codex",
-    defaultModel: "gpt-5.4",
+    defaultModel: "gpt-5.5",
     defaultModelLabel: "Codex",
     defaultIntelligence: "Medium",
     canDelegate: true,
@@ -104,18 +122,6 @@ const providerDefinitions = [
         label: "GPT-5.5",
         detail: "Frontier coding model",
         efforts: ["Low", "Medium", "High", "Extra High"]
-      },
-      {
-        value: "gpt-5.4",
-        label: "GPT-5.4",
-        detail: "Balanced coding model",
-        efforts: ["Low", "Medium", "High", "Extra High"]
-      },
-      {
-        value: "gpt-5.4-mini",
-        label: "GPT-5.4 Mini",
-        detail: "Fast lightweight model",
-        efforts: ["Low", "Medium", "High"]
       }
     ]
   },
@@ -146,23 +152,13 @@ const providerDefinitions = [
     id: "meta",
     label: "Compose",
     statusLabel: "Compose agent",
-    defaultModel: "meta-planner-review",
+    defaultModel: "meta-parallel-initial",
     defaultModelLabel: "Compose supervisor",
     defaultIntelligence: "High",
     canDelegate: false,
     modelOptions: [
-      {
-        value: "meta-planner-review",
-        label: "Planner review",
-        detail: "Claude plans high, Codex executes low",
-        efforts: ["High"]
-      },
-      {
-        value: "meta-parallel-initial",
-        label: "Parallel initial",
-        detail: "Codex and Claude start together",
-        efforts: ["High"]
-      }
+      ...(metaPlannerReviewEnabled ? [metaPlannerReviewOption] : []),
+      metaParallelInitialOption
     ]
   }
 ] satisfies RuntimeProviderDefinition[];
@@ -229,18 +225,31 @@ export function providerModelDisplayLabel(
 ) {
   if (provider === "meta") {
     if (
-      model === "meta-claude-opus-codex-mini" ||
-      model === "meta-planner-review"
+      metaPlannerReviewEnabled &&
+      (model === "meta-claude-opus-codex-mini" ||
+        model === "meta-planner-review")
     ) {
-      return "Opus plan -> GPT-5.4 Mini";
+      return "Opus plan -> GPT-5.5";
     }
 
-    if (model === "meta-parallel-initial") {
-      return "Codex + Claude parallel";
+    if (model === "meta-parallel-initial" || model === "meta-planner-review") {
+      return "Compare agents";
     }
   }
 
   return model ?? providerDefinition(provider).defaultModelLabel;
+}
+
+function runtimeFeatureEnabled(name: string) {
+  const processEnv = (globalThis as {
+    process?: { env?: Record<string, string | undefined> };
+  }).process?.env;
+  const viteEnv = (import.meta as {
+    env?: Record<string, string | undefined>;
+  }).env;
+  const value = processEnv?.[name] ?? viteEnv?.[name];
+
+  return value === "1" || value === "true";
 }
 
 export function canDelegateProvider(
@@ -291,6 +300,15 @@ export type ComposerChatRequest = {
   permissionMode: PermissionMode;
   intelligence: IntelligenceMode;
   model?: AgentModel;
+  composeAgents?: Partial<
+    Record<
+      DelegateSessionProvider,
+      {
+        model?: AgentModel;
+        intelligence?: IntelligenceMode;
+      }
+    >
+  >;
   imageAttachments?: AgentImageAttachment[];
   signal?: AbortSignal;
 };
