@@ -640,6 +640,24 @@ test("registered handoff sessions reload interleaved provider transcripts", asyn
           providerSessionId: "claude-session",
           timestamp: "2026-05-23T00:00:03.000Z",
           data: { mode: "handoff", role: "handoff", lifecycle: "handoff" }
+        },
+        {
+          id: "attach-codex-repeat",
+          composerSessionId: "meta-live-test",
+          type: "provider_session_attached",
+          provider: "codex",
+          providerSessionId: "codex-session",
+          timestamp: "2026-05-23T00:00:03.100Z",
+          data: { mode: "handoff", role: "handoff", lifecycle: "handoff" }
+        },
+        {
+          id: "attach-claude-repeat",
+          composerSessionId: "meta-live-test",
+          type: "provider_session_attached",
+          provider: "claude",
+          providerSessionId: "claude-session",
+          timestamp: "2026-05-23T00:00:03.200Z",
+          data: { mode: "handoff", role: "handoff", lifecycle: "handoff" }
         }
       ]
     });
@@ -660,6 +678,14 @@ test("registered handoff sessions reload interleaved provider transcripts", asyn
         "what did codex do?",
         "Claude continued from Codex"
       ]
+    );
+    assert.equal(
+      session.items.filter(
+        (item) =>
+          item.type === "tool_group" &&
+          item.summary.startsWith("Preparing handoff context")
+      ).length,
+      1
     );
   });
 });

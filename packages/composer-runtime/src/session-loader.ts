@@ -610,13 +610,13 @@ function interleavedHandoffItems(
     item: handoffMarkerItem(sessionRecord.id, index, event)
   }));
 
-  return [...events, ...handoffMarkers]
+  return compactAdjacentHandoffMarkers([...events, ...handoffMarkers]
     .sort((a, b) =>
       Date.parse(a.timestamp) - Date.parse(b.timestamp) ||
       a.order - b.order ||
       a.id.localeCompare(b.id)
     )
-    .map((entry) => entry.item);
+    .map((entry) => entry.item));
 }
 
 function handoffTimelineEvents(
@@ -648,20 +648,9 @@ function handoffTimelineEvents(
     }))
     .sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp));
   const events = attachEvents.filter((event, index) => {
-    let previous:
-      | { provider?: SessionProvider }
-      | undefined;
+    const previous = index > 0 ? attachEvents[index - 1] : undefined;
 
-    for (let previousIndex = index - 1; previousIndex >= 0; previousIndex -= 1) {
-      const candidate = attachEvents[previousIndex];
-
-      if (candidate.provider !== event.provider) {
-        previous = candidate;
-        break;
-      }
-    }
-
-    return event.handoff && Boolean(previous);
+    return event.handoff && Boolean(previous) && previous?.provider !== event.provider;
   });
 
   if (events.length > 0) {
@@ -722,6 +711,34 @@ function handoffMarkerItem(
     defaultOpen: false,
     status: "completed"
   };
+}
+
+function compactAdjacentHandoffMarkers(items: ConversationItem[]) {
+  const compacted: ConversationItem[] = [];
+
+  for (const item of items) {
+    const previous = compacted[compacted.length - 1];
+
+    if (isHandoffMarkerItem(previous) && isHandoffMarkerItem(item)) {
+      compacted[compacted.length - 1] = item;
+      continue;
+    }
+
+    compacted.push(item);
+  }
+
+  return compacted;
+}
+
+function isHandoffMarkerItem(item: ConversationItem | undefined) {
+  return (
+    item?.type === "tool_group" &&
+    item.details.some((detail) =>
+      /\bpreparing handoff context\b/i.test(
+        [item.summary, detail.label, detail.toolName].filter(Boolean).join(" ")
+      )
+    )
+  );
 }
 
 function stampProviderOnItem(
