@@ -834,6 +834,161 @@ test("registered Codex subagent sessions keep native subagent metadata", async (
   });
 });
 
+test("runtime detects and refreshes local subagent sessions during a parent run", async () => {
+  const { AgentRuntime } = await import("../dist-server/server/runtime.js");
+  const parentSession = {
+    id: "composer-parent",
+    provider: "codex",
+    providerSessionId: "codex-parent",
+    providerSessions: {
+      codex: {
+        sessionId: "codex-parent",
+        cwd: "/tmp/source"
+      }
+    },
+    renderMode: "single",
+    contentLoaded: true,
+    runtimeStatus: "idle",
+    title: "Inspect project",
+    cwd: "/tmp/source",
+    model: "GPT-5.4 Medium",
+    updatedAt: "2026-05-23T00:00:00.000Z",
+    items: [],
+    pendingItems: []
+  };
+  let exposeChild = false;
+  let childBody = "Initial child answer";
+  const childMetadata = {
+    id: "codex-codex-child",
+    provider: "codex",
+    providerSessionId: "codex-child",
+    renderMode: "single",
+    parentSessionId: "codex-codex-parent",
+    subagent: {
+      nickname: "Newton",
+      role: "worker"
+    },
+    contentLoaded: false,
+    runtimeStatus: "idle",
+    title: "Newton subagent",
+    cwd: "/tmp/source",
+    updatedAt: "2026-05-23T00:00:01.000Z",
+    items: [],
+    pendingItems: []
+  };
+  const childSession = () => ({
+    ...childMetadata,
+    contentLoaded: true,
+    runtimeStatus: "running",
+    updatedAt:
+      childBody === "Updated child answer"
+        ? "2026-05-23T00:00:03.000Z"
+        : "2026-05-23T00:00:02.000Z",
+    items: [
+      {
+        id: "child-assistant",
+        type: "assistant_message",
+        body: childBody
+      }
+    ],
+    pendingItems: []
+  });
+  const runtime = new AgentRuntime(
+    {
+      sessions: {
+        "composer-parent": parentSession
+      },
+      projects: []
+    },
+    {
+      localSessionPollIntervalMs: 5,
+      loadSessionList: () => ({
+        sessions: exposeChild
+          ? {
+              [childMetadata.id]: childMetadata
+            }
+          : {},
+        projects: []
+      }),
+      loadSessionContent: (sessionId) =>
+        sessionId === childMetadata.id ? childSession() : undefined,
+      providers: {
+        codex: {
+          async run(request) {
+            exposeChild = true;
+            await waitFor(() =>
+              Boolean(runtime.snapshot().sessions[childMetadata.id])
+            );
+            childBody = "Updated child answer";
+            await waitFor(() =>
+              runtime.snapshot().sessions[childMetadata.id]?.items[0]?.type ===
+                "assistant_message" &&
+              runtime.snapshot().sessions[childMetadata.id]?.items[0]?.body ===
+                "Updated child answer"
+            );
+            request.emit({
+              id: "complete",
+              type: "turn.completed",
+              sessionId: request.sessionId,
+              status: "idle"
+            });
+          },
+          async compact() {
+            return undefined;
+          },
+          async interrupt() {},
+          dispose() {}
+        }
+      }
+    }
+  );
+
+  const seenChildUpdates = [];
+  const unsubscribe = runtime.onBroadcast((event) => {
+    if (
+      event.type === "session.updated" &&
+      event.session.id === childMetadata.id
+    ) {
+      seenChildUpdates.push(event.session);
+    }
+  });
+
+  try {
+    runtime.sendMessage(
+      {
+        sessionId: "composer-parent",
+        provider: "codex",
+        prompt: "Run subagent",
+        settings: {
+          permissionMode: "Full access",
+          intelligence: "Medium",
+          model: "gpt-5.4-codex"
+        }
+      },
+      () => {}
+    );
+
+    await waitFor(() =>
+      seenChildUpdates.some(
+        (session) =>
+          session.parentSessionId === "composer-parent" &&
+          session.runtimeStatus === "running" &&
+          session.items[0]?.type === "assistant_message" &&
+          session.items[0]?.body === "Updated child answer"
+      )
+    );
+
+    const child = runtime.snapshot().sessions[childMetadata.id];
+
+    assert.equal(child.parentSessionId, "composer-parent");
+    assert.equal(child.subagent.nickname, "Newton");
+    assert.equal(child.items[0].body, "Updated child answer");
+  } finally {
+    unsubscribe();
+    await runtime.dispose();
+  }
+});
+
 test("local session list defers transcript content until selected", async () => {
   await withTempHome(async ({ home }) => {
     writeCodexSession(home, {
@@ -1024,6 +1179,20 @@ async function writeRegistry(registry) {
     "../dist-server/electron/composer-session-registry.js"
   );
   writeComposerSessionRegistry(registry);
+}
+
+async function waitFor(predicate, timeoutMs = 1_000) {
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    if (predicate()) {
+      return;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  throw new Error("Timed out waiting for condition");
 }
 
 function run(command, args, cwd) {

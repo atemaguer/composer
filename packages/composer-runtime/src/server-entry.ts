@@ -16,6 +16,7 @@ export async function startComposerRuntimeServer(
 ) {
   const runtime = new AgentRuntime(loadLocalSessionList(), {
     loadSessionContent: loadLocalSessionContent,
+    loadSessionList: loadLocalSessionList,
     persistence: localRuntimePersistence
   });
   const composerServer = createComposerServer({ runtime });

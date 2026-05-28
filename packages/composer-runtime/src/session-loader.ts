@@ -249,11 +249,13 @@ function loadLocalSessionSnapshot(options: { includeItems: boolean }): SessionSn
     nativeSessions,
     options
   );
+  const composerSessionByProviderSession = composerSessionByProviderSessionMap(registry);
   const localSessions = nativeSessions
     .filter((session) =>
       !session.providerSessionId ||
       !delegateKeys.has(delegateSessionKey(session.provider, session.providerSessionId))
-    );
+    )
+    .map((session) => remapSessionParentToComposer(session, composerSessionByProviderSession));
   const allSessions = uniqueSessionsById([...composerSessions, ...localSessions]);
   const sessions = Object.fromEntries(
     allSessions.map((session) => [
@@ -293,6 +295,21 @@ function composerSessionByProviderSessionMap(registry: ComposerSessionRegistry) 
       record.composerSessionId
     ])
   );
+}
+
+function remapSessionParentToComposer(
+  session: SessionContent,
+  composerSessionByProviderSession: Map<string, string>
+) {
+  const parentSessionId = remapNativeParentSessionId(
+    session.parentSessionId,
+    session.provider,
+    composerSessionByProviderSession
+  );
+
+  return parentSessionId === session.parentSessionId
+    ? session
+    : { ...session, parentSessionId };
 }
 
 function delegateSessionKey(provider: SessionProvider, providerSessionId: string) {

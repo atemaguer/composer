@@ -90,6 +90,8 @@ export type AgentRuntimeOptions = {
   persistence?: RuntimePersistence;
   providers?: Partial<Record<RuntimeSessionProvider, AgentProvider>>;
   loadSessionContent?: (sessionId: string) => SessionContent | undefined;
+  loadSessionList?: () => SessionSnapshot;
+  localSessionPollIntervalMs?: number;
 };
 
 type RestoredRuntimeSessions = {
@@ -153,6 +155,8 @@ export class AgentRuntime {
   private readonly loadSessionContentFromStore?: (
     sessionId: string
   ) => SessionContent | undefined;
+  private readonly loadSessionListFromStore?: () => SessionSnapshot;
+  private readonly localSessionPollIntervalMs: number;
   private broadcastListeners = new Set<EventSink>();
   private approvals = new Map<string, ApprovalResolver>();
   private providers: Record<RuntimeSessionProvider, AgentProvider>;
@@ -161,6 +165,10 @@ export class AgentRuntime {
   private requestSessions = new Map<string, string>();
   private interruptedRequestIds = new Set<string>();
   private interruptedSessions = new Set<string>();
+  private localSessionMonitor?: ReturnType<typeof setInterval>;
+  private localSessionMonitorRunning = false;
+  private monitoredParentSessionIds = new Set<string>();
+  private localSessionFingerprints = new Map<string, string>();
   private persistence: RuntimePersistence;
 
   constructor(snapshot: SessionSnapshot, options: AgentRuntimeOptions = {}) {
@@ -169,6 +177,8 @@ export class AgentRuntime {
     this.sessions = restored.sessions;
     this.persistence = options.persistence ?? noopRuntimePersistence;
     this.loadSessionContentFromStore = options.loadSessionContent;
+    this.loadSessionListFromStore = options.loadSessionList;
+    this.localSessionPollIntervalMs = options.localSessionPollIntervalMs ?? 1_000;
     this.providers = createRuntimeProviders({ persistence: this.persistence });
     Object.assign(this.providers, options.providers);
 
@@ -453,6 +463,10 @@ export class AgentRuntime {
   }
 
   async dispose() {
+    if (this.localSessionMonitor) {
+      clearInterval(this.localSessionMonitor);
+      this.localSessionMonitor = undefined;
+    }
     await Promise.all(Object.values(this.providers).map((provider) => provider.dispose()));
   }
 
@@ -464,6 +478,7 @@ export class AgentRuntime {
     const previousProvider = parentSession.lastProvider;
     this.interruptedSessions.delete(request.sessionId);
     this.activeRunProviders.set(request.sessionId, provider);
+    this.startLocalSessionMonitor(request.sessionId);
 
     const run = (async () => {
       const contextPrompt = await this.compactPreviousProviderForHandoff(
@@ -523,6 +538,7 @@ export class AgentRuntime {
           this.activeRuns.delete(request.sessionId);
         }
         this.interruptedSessions.delete(request.sessionId);
+        this.stopLocalSessionMonitorIfIdle();
       });
 
     this.activeRuns.set(request.sessionId, run);
@@ -689,6 +705,124 @@ export class AgentRuntime {
     this.broadcast(event);
   }
 
+  private startLocalSessionMonitor(parentSessionId: string) {
+    if (!this.loadSessionListFromStore || !this.loadSessionContentFromStore) {
+      return;
+    }
+
+    this.monitoredParentSessionIds.add(parentSessionId);
+    this.refreshLocalSubagentSessions();
+
+    if (this.localSessionMonitor) {
+      return;
+    }
+
+    this.localSessionMonitor = setInterval(() => {
+      this.refreshLocalSubagentSessions();
+    }, this.localSessionPollIntervalMs);
+  }
+
+  private stopLocalSessionMonitorIfIdle() {
+    if (this.activeRuns.size > 0) {
+      return;
+    }
+
+    this.refreshLocalSubagentSessions({ markIdle: true });
+
+    if (this.localSessionMonitor) {
+      clearInterval(this.localSessionMonitor);
+      this.localSessionMonitor = undefined;
+    }
+
+    this.monitoredParentSessionIds.clear();
+  }
+
+  private refreshLocalSubagentSessions(options: { markIdle?: boolean } = {}) {
+    if (
+      this.localSessionMonitorRunning ||
+      !this.loadSessionListFromStore ||
+      !this.loadSessionContentFromStore ||
+      this.monitoredParentSessionIds.size === 0
+    ) {
+      return;
+    }
+
+    this.localSessionMonitorRunning = true;
+
+    try {
+      const snapshot = this.loadSessionListFromStore();
+
+      for (const metadata of Object.values(snapshot.sessions)) {
+        if (!metadata.subagent || !metadata.parentSessionId) {
+          continue;
+        }
+
+        const parentSessionId = this.resolveMonitoredParentSessionId(
+          metadata.parentSessionId
+        );
+
+        if (!parentSessionId) {
+          continue;
+        }
+
+        const current = this.sessions[metadata.id];
+        const loaded =
+          !current || current.contentLoaded
+            ? this.loadSessionContentFromStore(metadata.id)
+            : undefined;
+        const source = loaded ?? metadata;
+        const session = normalizeLocalSubagentSession(
+          source,
+          parentSessionId,
+          options.markIdle === true
+        );
+        const fingerprint = localSessionFingerprint(session);
+
+        if (this.localSessionFingerprints.get(session.id) === fingerprint) {
+          continue;
+        }
+
+        this.localSessionFingerprints.set(session.id, fingerprint);
+        this.sessions[session.id] = session;
+        this.broadcast({
+          id: randomUUID(),
+          type: "session.updated",
+          session
+        });
+      }
+    } catch (error) {
+      console.warn("Could not refresh local subagent sessions", error);
+    } finally {
+      this.localSessionMonitorRunning = false;
+    }
+  }
+
+  private resolveMonitoredParentSessionId(candidateParentId: string) {
+    if (this.monitoredParentSessionIds.has(candidateParentId)) {
+      return candidateParentId;
+    }
+
+    for (const parentSessionId of this.monitoredParentSessionIds) {
+      const parent = this.sessions[parentSessionId];
+
+      if (!parent) {
+        continue;
+      }
+
+      for (const provider of ["codex", "claude"] as const) {
+        const providerSessionId =
+          parent.providerSessions?.[provider]?.sessionId ??
+          (parent.provider === provider ? parent.providerSessionId : undefined);
+
+        if (providerSessionId && candidateParentId === `${provider}-${providerSessionId}`) {
+          return parentSessionId;
+        }
+      }
+    }
+
+    return undefined;
+  }
+
   private broadcast(event: LiveAgentEvent) {
     for (const listener of this.broadcastListeners) {
       listener(event);
@@ -698,6 +832,63 @@ export class AgentRuntime {
 
 function shouldPersistRuntimeEvent(event: LiveAgentEvent) {
   return event.type !== "message.delta" && event.type !== "tool.delta";
+}
+
+function normalizeLocalSubagentSession(
+  session: SessionContent,
+  parentSessionId: string,
+  idle: boolean
+): SessionContent {
+  return {
+    ...session,
+    parentSessionId,
+    items: session.items ?? [],
+    providerSessions: session.providerSessions ?? {},
+    pendingItems: idle
+      ? []
+      : session.pendingItems?.length
+        ? session.pendingItems
+        : [
+            {
+              id: `${session.id}-local-subagent-running`,
+              type: "running_tool",
+              label: `${subagentRuntimeLabel(session)} is running`,
+              status: "running"
+            }
+          ],
+    runtimeStatus: idle ? "idle" : "running",
+    contentLoaded: session.contentLoaded ?? true
+  };
+}
+
+function subagentRuntimeLabel(session: SessionContent) {
+  const label =
+    session.subagent?.nickname ??
+    session.subagent?.type ??
+    session.subagent?.role;
+
+  return label ? `${formatToolName(label)} subagent` : "Subagent";
+}
+
+function formatToolName(name: string) {
+  return name
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function localSessionFingerprint(session: SessionContent) {
+  const lastItem = session.items[session.items.length - 1];
+  const lastPending = session.pendingItems[session.pendingItems.length - 1];
+
+  return JSON.stringify({
+    updatedAt: session.updatedAt,
+    runtimeStatus: session.runtimeStatus,
+    contentLoaded: session.contentLoaded,
+    itemCount: session.items.length,
+    pendingCount: session.pendingItems.length,
+    lastItem,
+    lastPending
+  });
 }
 
 function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
