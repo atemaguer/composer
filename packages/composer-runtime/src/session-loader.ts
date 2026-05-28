@@ -146,6 +146,11 @@ type Project = {
   threads: ProjectThread[];
 };
 
+type SessionThreadNode = {
+  session: SessionContent;
+  children: SessionThreadNode[];
+};
+
 type SessionContent = {
   id: string;
   provider: SessionProvider;
@@ -177,7 +182,6 @@ type JsonRecord = Record<string, unknown>;
 export type LocalSessionAction = "archive";
 
 const MAX_SESSIONS_PER_PROVIDER = 50;
-const MAX_ITEMS_PER_SESSION = 140;
 const MAX_TEXT_LENGTH = 4_000;
 const MAX_DETAIL_LENGTH = 520;
 
@@ -692,7 +696,7 @@ function parseCodexSession(
   let id = codexIdFromPath(filePath);
   let cwd: string | undefined;
   let model: string | undefined;
-  let updatedAt = includeItems ? latestTimestamp(rows) ?? isoFromMtime(filePath) : isoFromMtime(filePath);
+  let updatedAt = latestTimestamp(rows) ?? isoFromMtime(filePath);
   let title = "";
   const items: ConversationItem[] = [];
   const toolGroupsByCallId = new Map<
@@ -710,7 +714,7 @@ function parseCodexSession(
     const payload = asRecord(row.payload);
     const timestamp = asString(row.timestamp);
 
-    if (includeItems && timestamp) {
+    if (timestamp) {
       updatedAt = timestamp;
     }
 
@@ -1163,19 +1167,12 @@ function parseClaudeSession(
 }
 
 function finishSession(session: Omit<SessionContent, "pendingItems">) {
-  const cappedItems = session.items.slice(0, MAX_ITEMS_PER_SESSION);
-
-  if (session.items.length > cappedItems.length) {
-    cappedItems.push({
-      id: `${session.id}-truncated`,
-      type: "notice",
-      label: `${session.items.length - cappedItems.length} more transcript events hidden for this UI preview`
-    });
-  }
+  const hasSelfParent = session.parentSessionId === session.id;
 
   return {
     ...session,
-    items: cappedItems,
+    parentSessionId: hasSelfParent ? undefined : session.parentSessionId,
+    subagent: hasSelfParent ? undefined : session.subagent,
     pendingItems: [],
     contentLoaded: session.contentLoaded ?? true
   } satisfies SessionContent;
@@ -1499,14 +1496,13 @@ function sessionToThread(
 
 function sessionsToThreadTree(sessions: SessionContent[]): ProjectThread[] {
   const sortedSessions = [...sessions].sort(compareSessionsByUpdatedAt);
-  type ThreadNode = { session: SessionContent; children: ThreadNode[] };
-  const nodes = new Map<string, ThreadNode>();
+  const nodes = new Map<string, SessionThreadNode>();
 
   for (const session of sortedSessions) {
     nodes.set(session.id, { session, children: [] });
   }
 
-  const roots: ThreadNode[] = [];
+  const roots: SessionThreadNode[] = [];
 
   for (const session of sortedSessions) {
     const node = nodes.get(session.id);
@@ -1515,19 +1511,24 @@ function sessionsToThreadTree(sessions: SessionContent[]): ProjectThread[] {
       continue;
     }
 
-    const parent = session.parentSessionId
-      ? nodes.get(session.parentSessionId)
+    const parentSessionId = session.parentSessionId === session.id
+      ? undefined
+      : session.parentSessionId;
+    const parent = parentSessionId
+      ? nodes.get(parentSessionId)
       : undefined;
 
-    if (parent) {
+    if (parent && parent !== node) {
       parent.children.push(node);
     } else {
       roots.push(node);
     }
   }
 
-  const nodeToThread = (node: ThreadNode): ProjectThread =>
+  const nodeToThread = (node: SessionThreadNode): ProjectThread =>
     sessionToThread(node.session, node.children.map(nodeToThread));
+
+  sortThreadNodesByNewestActivity(roots);
 
   return roots.map(nodeToThread);
 }
@@ -1538,10 +1539,13 @@ function selectSessionTree(sessions: SessionContent[], maxRootSessions: number) 
   const selectedRootIds = new Set<string>();
 
   for (const session of sortedSessions) {
+    const parentSessionId = session.parentSessionId === session.id
+      ? undefined
+      : session.parentSessionId;
     const rootId =
-      session.parentSessionId && byId.has(session.parentSessionId)
-        ? session.parentSessionId
-        : session.parentSessionId
+      parentSessionId && byId.has(parentSessionId)
+        ? parentSessionId
+        : parentSessionId
           ? undefined
           : session.id;
 
@@ -1559,7 +1563,25 @@ function selectSessionTree(sessions: SessionContent[], maxRootSessions: number) 
   return sortedSessions.filter(
     (session) =>
       selectedRootIds.has(session.id) ||
-      (session.parentSessionId && selectedRootIds.has(session.parentSessionId))
+      (session.parentSessionId &&
+        session.parentSessionId !== session.id &&
+        selectedRootIds.has(session.parentSessionId))
+  );
+}
+
+function sortThreadNodesByNewestActivity(nodes: SessionThreadNode[]) {
+  nodes.sort((a, b) => threadNodeTimestamp(b) - threadNodeTimestamp(a));
+
+  for (const node of nodes) {
+    sortThreadNodesByNewestActivity(node.children);
+  }
+}
+
+function threadNodeTimestamp(node: SessionThreadNode): number {
+  return Math.max(
+    sessionTimestamp(node.session),
+    0,
+    ...node.children.map(threadNodeTimestamp)
   );
 }
 

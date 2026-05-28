@@ -626,6 +626,74 @@ test("Codex subagent sessions render under their parent thread", async () => {
   });
 });
 
+test("self-parented Codex sessions render as root sessions", async () => {
+  await withTempHome(async ({ home }) => {
+    const cwd = "/tmp/source";
+    writeCodexSubagentSession(home, {
+      sessionId: "codex-self-parent",
+      parentSessionId: "codex-self-parent",
+      cwd,
+      nickname: "Kant",
+      role: "worker",
+      user: "Coordinate this project",
+      assistant: "Done"
+    });
+
+    const { loadLocalSessionList } = await import(
+      "../dist-server/electron/session-loader.js"
+    );
+    const snapshot = loadLocalSessionList();
+    const session = snapshot.sessions["codex-codex-self-parent"];
+    const projectThread = snapshot.projects[0]?.threads.find(
+      (thread) => thread.id === "codex-codex-self-parent"
+    );
+
+    assert.equal(session.parentSessionId, undefined);
+    assert.equal(session.subagent, undefined);
+    assert.equal(projectThread?.id, "codex-codex-self-parent");
+  });
+});
+
+test("Codex parent threads sort by newest child activity", async () => {
+  await withTempHome(async ({ home }) => {
+    const cwd = "/tmp/source";
+    writeCodexSession(home, {
+      sessionId: "codex-parent",
+      cwd,
+      user: "Parent task",
+      assistant: "Parent answer",
+      startSecond: 0
+    });
+    writeCodexSession(home, {
+      sessionId: "codex-other",
+      cwd,
+      user: "Other task",
+      assistant: "Other answer",
+      startSecond: 5
+    });
+    writeCodexSubagentSession(home, {
+      sessionId: "codex-child",
+      parentSessionId: "codex-parent",
+      cwd,
+      nickname: "Newton",
+      role: "worker",
+      user: "Child task",
+      assistant: "Child answer",
+      startSecond: 10
+    });
+
+    const { loadLocalSessionList } = await import(
+      "../dist-server/electron/session-loader.js"
+    );
+    const snapshot = loadLocalSessionList();
+    const project = snapshot.projects.find((candidate) => candidate.id === cwd);
+
+    assert.equal(project?.threads[0]?.id, "codex-codex-parent");
+    assert.equal(project?.threads[0]?.children?.[0]?.id, "codex-codex-child");
+    assert.equal(project?.threads[1]?.id, "codex-codex-other");
+  });
+});
+
 test("Codex standalone chat sessions do not render as project sessions", async () => {
   await withTempHome(async ({ home }) => {
     const chatCwd = path.join(
@@ -1094,6 +1162,34 @@ test("local session list defers transcript content until selected", async () => 
   });
 });
 
+test("selected local session content is not truncated", async () => {
+  await withTempHome(async ({ home }) => {
+    writeCodexSession(home, {
+      sessionId: "codex-long",
+      cwd: "/tmp/source",
+      user: "Summarize the project",
+      assistant: "Initial answer",
+      assistantMessageCount: 145
+    });
+
+    const { loadLocalSessionContent } = await import(
+      "../dist-server/electron/session-loader.js"
+    );
+    const loaded = loadLocalSessionContent("codex-codex-long");
+
+    assert.equal(loaded.items.length, 146);
+    assert.equal(
+      loaded.items.some((item) =>
+        item.type === "notice" &&
+        item.label.includes("more transcript events hidden")
+      ),
+      false
+    );
+    assert.equal(loaded.items.at(-1)?.type, "assistant_message");
+    assert.equal(loaded.items.at(-1)?.body, "Assistant answer 145");
+  });
+});
+
 async function withTempHome(callback) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "composer-home-"));
   const home = path.join(root, "home");
@@ -1109,47 +1205,83 @@ async function withTempHome(callback) {
   }
 }
 
-function writeCodexSession(home, { sessionId, cwd, user, assistant }) {
+function writeCodexSession(
+  home,
+  {
+    sessionId,
+    cwd,
+    user,
+    assistant,
+    startSecond = 0,
+    assistantMessageCount = 1
+  }
+) {
   const dir = path.join(home, ".codex", "sessions", "2026", "05", "23");
   fs.mkdirSync(dir, { recursive: true });
+  const timestamp = (offset) =>
+    new Date(Date.UTC(2026, 4, 23, 0, 0, startSecond + offset)).toISOString();
+
   fs.writeFileSync(
-    path.join(dir, `rollout-2026-05-23T00-00-00-${sessionId}.jsonl`),
+    path.join(
+      dir,
+      `rollout-2026-05-23T00-00-${String(startSecond).padStart(2, "0")}-${sessionId}.jsonl`
+    ),
     [
       {
         type: "session_meta",
-        timestamp: "2026-05-23T00:00:00.000Z",
+        timestamp: timestamp(0),
         payload: { id: sessionId, cwd }
       },
       {
         type: "event_msg",
-        timestamp: "2026-05-23T00:00:01.000Z",
+        timestamp: timestamp(1),
         payload: { type: "user_message", message: user }
       },
-      {
+      ...Array.from({ length: assistantMessageCount }, (_, index) => ({
         type: "response_item",
-        timestamp: "2026-05-23T00:00:02.000Z",
+        timestamp: timestamp(2 + index),
         payload: {
           type: "message",
           role: "assistant",
-          content: [{ type: "output_text", text: assistant }]
+          content: [
+            {
+              type: "output_text",
+              text: index === 0 ? assistant : `Assistant answer ${index + 1}`
+            }
+          ]
         }
-      }
+      }))
     ].map((row) => JSON.stringify(row)).join("\n") + "\n"
   );
 }
 
 function writeCodexSubagentSession(
   home,
-  { sessionId, parentSessionId, cwd, nickname, role, user, assistant }
+  {
+    sessionId,
+    parentSessionId,
+    cwd,
+    nickname,
+    role,
+    user,
+    assistant,
+    startSecond = 3
+  }
 ) {
   const dir = path.join(home, ".codex", "sessions", "2026", "05", "23");
   fs.mkdirSync(dir, { recursive: true });
+  const timestamp = (offset) =>
+    new Date(Date.UTC(2026, 4, 23, 0, 0, startSecond + offset)).toISOString();
+
   fs.writeFileSync(
-    path.join(dir, `rollout-2026-05-23T00-00-03-${sessionId}.jsonl`),
+    path.join(
+      dir,
+      `rollout-2026-05-23T00-00-${String(startSecond).padStart(2, "0")}-${sessionId}.jsonl`
+    ),
     [
       {
         type: "session_meta",
-        timestamp: "2026-05-23T00:00:03.000Z",
+        timestamp: timestamp(0),
         payload: {
           id: sessionId,
           cwd,
@@ -1170,12 +1302,12 @@ function writeCodexSubagentSession(
       },
       {
         type: "event_msg",
-        timestamp: "2026-05-23T00:00:04.000Z",
+        timestamp: timestamp(1),
         payload: { type: "user_message", message: user }
       },
       {
         type: "response_item",
-        timestamp: "2026-05-23T00:00:05.000Z",
+        timestamp: timestamp(2),
         payload: {
           type: "message",
           role: "assistant",
