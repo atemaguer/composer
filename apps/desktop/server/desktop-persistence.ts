@@ -1,14 +1,4 @@
-import {
-  adoptComposerParallelProvider,
-  upsertComposerProviderSessions,
-  upsertComposerSessionFromRuntime
-} from "../electron/composer-session-registry.js";
-import { updateLocalSessionVisibility } from "../electron/session-loader.js";
-import type { RuntimePersistence } from "./runtime-persistence.js";
+import { localRuntimePersistence } from "@composer/runtime";
+import type { RuntimePersistence } from "@composer/runtime";
 
-export const desktopRuntimePersistence: RuntimePersistence = {
-  upsertSession: upsertComposerSessionFromRuntime,
-  updateSessionVisibility: updateLocalSessionVisibility,
-  adoptParallelProvider: adoptComposerParallelProvider,
-  upsertProviderSessions: upsertComposerProviderSessions
-};
+export const desktopRuntimePersistence: RuntimePersistence = localRuntimePersistence;

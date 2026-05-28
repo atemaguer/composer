@@ -1,18 +1,39 @@
 {
   "name": "@composer/cli",
   "version": "0.1.0",
-  "private": true,
   "description": "Composer non-interactive CLI",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "dist-server",
+    "README.md"
+  ],
   "bin": {
     "composer": "./dist/index.js"
   },
+  "bundleDependencies": [
+    "@composer/client",
+    "@composer/runtime"
+  ],
   "dependencies": {
-    "@composer/client": "file:../../packages/composer-client"
+    "@anthropic-ai/claude-agent-sdk": "^0.2.128",
+    "@composer/client": "0.1.0",
+    "@composer/runtime": "0.1.0",
+    "ai": "^6.0.174",
+    "ws": "^8.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
   },
   "scripts": {
-    "build": "npm --workspace @composer/client run build && tsc -p tsconfig.json",
-    "typecheck": "npm --workspace @composer/client run build && tsc -p tsconfig.json --noEmit",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "build:bin": "npm --workspace @composer/client run build && tsc -p tsconfig.json",
+    "build": "npm --workspace @composer/runtime run build && npm run build:bin && tsc -p tsconfig.server.json",
+    "prepack": "npm run build && node scripts/prepare-package.mjs",
+    "postpack": "node scripts/prepare-package.mjs --clean",
+    "typecheck": "npm --workspace @composer/runtime run build && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "test": "npm run build:bin && node --test test/*.test.mjs"
   }
 }
