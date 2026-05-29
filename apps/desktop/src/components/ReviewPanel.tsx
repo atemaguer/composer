@@ -1306,7 +1306,7 @@ function ReviewDiffPreview({
   onRefresh?: () => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
-    () => new Set(selectedPath ? [selectedPath] : [])
+    () => reviewFilePathSet(review?.files)
   );
 
   useEffect(() => {
@@ -1315,12 +1315,7 @@ function ReviewDiffPreview({
       return;
     }
 
-    const nextExpandedPath =
-      selectedPath && review.files.some((file) => file.path === selectedPath)
-        ? selectedPath
-        : null;
-
-    setExpandedPaths(new Set(nextExpandedPath ? [nextExpandedPath] : []));
+    setExpandedPaths(reviewFilePathSet(review.files));
   }, [review?.generatedAt, reviewScope, selectedPath]);
 
   if (loading) {
@@ -1444,6 +1439,10 @@ function orderReviewFiles(files: ReviewDiffFile[], selectedPath?: string | null)
   }
 
   return [selectedFile, ...files.filter((file) => file.path !== selectedPath)];
+}
+
+function reviewFilePathSet(files: readonly ReviewDiffFile[] | undefined) {
+  return new Set(files?.map((file) => file.path) ?? []);
 }
 
 function DiffFileSection({
