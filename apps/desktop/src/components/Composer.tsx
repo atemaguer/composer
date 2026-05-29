@@ -33,7 +33,8 @@ import {
   ShieldAlert,
   ShieldCheck,
   Square,
-  TerminalSquare
+  TerminalSquare,
+  X
 } from "lucide-react";
 
 import type {
@@ -413,7 +414,7 @@ export function PromptComposer({
         onDrop={handleDrop}
       >
         {showAttachmentPill && (imageAttachments.length > 0 || reviewCommentAttachments.length > 0) && (
-          <div className="mb-1 flex max-w-full flex-wrap gap-1.5">
+          <div className="mb-2 flex max-w-full flex-wrap items-end gap-2">
             {imageAttachments.map((attachment) => (
               <ImageAttachmentPill
                 key={attachment.id}
@@ -421,13 +422,12 @@ export function PromptComposer({
                 onRemove={() => onRemoveImageAttachment?.(attachment.id)}
               />
             ))}
-            {reviewCommentAttachments.map((attachment) => (
-              <ReviewCommentAttachmentPill
-                key={attachment.id}
-                attachment={attachment}
-                onRemove={() => onRemoveReviewCommentAttachment?.(attachment.id)}
+            {reviewCommentAttachments.length > 0 && (
+              <ReviewCommentAttachmentGroup
+                attachments={reviewCommentAttachments}
+                onRemove={(id) => onRemoveReviewCommentAttachment?.(id)}
               />
-            ))}
+            )}
           </div>
         )}
         <textarea
@@ -607,7 +607,57 @@ function ImageAttachmentPill({
   );
 }
 
-function ReviewCommentAttachmentPill({
+function ReviewCommentAttachmentGroup({
+  attachments,
+  onRemove
+}: {
+  attachments: ComposerReviewCommentAttachment[];
+  onRemove: (id: string) => void;
+}) {
+  const hiddenCount = Math.max(0, attachments.length - 3);
+
+  return (
+    <div className="group/comment relative inline-flex">
+      <div className="pointer-events-none absolute bottom-[calc(100%+8px)] left-0 z-20 w-[min(760px,calc(100vw-64px))] translate-y-1 opacity-0 transition duration-150 group-hover/comment:pointer-events-auto group-hover/comment:translate-y-0 group-hover/comment:opacity-100 group-focus-within/comment:pointer-events-auto group-focus-within/comment:translate-y-0 group-focus-within/comment:opacity-100">
+        <div className="grid gap-2">
+          {attachments.slice(0, 3).map((attachment) => (
+            <ReviewCommentAttachmentPreview
+              key={attachment.id}
+              attachment={attachment}
+              onRemove={() => onRemove(attachment.id)}
+            />
+          ))}
+          {hiddenCount > 0 && (
+            <div className={cn("rounded-2xl px-5 py-3 text-[13px] text-app-muted", cardSurface)}>
+              {hiddenCount} more comment{hiddenCount === 1 ? "" : "s"}
+            </div>
+          )}
+        </div>
+      </div>
+      <div className={cn("inline-flex h-8 items-center gap-2 py-0.5 pl-3 pr-1 text-[14px] font-medium text-app-text", pillButton)}>
+        <MessageSquare className="shrink-0 text-app-muted" size={15} />
+        <span>
+          {attachments.length} comment{attachments.length === 1 ? "" : "s"}
+        </span>
+        <TooltipButton
+          className={cn(subtleIconButton, "ml-0.5 h-6 w-6")}
+          aria-label="Remove review comments"
+          onClick={() => {
+            for (const attachment of attachments) {
+              onRemove(attachment.id);
+            }
+          }}
+          tooltip="Remove review comments"
+          type="button"
+        >
+          <X size={15} />
+        </TooltipButton>
+      </div>
+    </div>
+  );
+}
+
+function ReviewCommentAttachmentPreview({
   attachment,
   onRemove
 }: {
@@ -615,29 +665,32 @@ function ReviewCommentAttachmentPill({
   onRemove: () => void;
 }) {
   return (
-    <div className={cn("grid max-w-[360px] grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-2 py-1.5 pl-2 pr-1.5 text-[13px] text-app-text", pillButton)}>
-      <MessageSquare className="mt-0.5 shrink-0 text-app-muted" size={15} />
+    <div className={cn("grid grid-cols-[minmax(0,1fr)_auto] gap-3 rounded-2xl px-7 py-5 text-app-text shadow-2xl shadow-black/25", cardSurface)}>
       <div className="min-w-0">
-        <div className="flex min-w-0 items-center gap-2 text-[12px] text-app-muted">
-          <span className="min-w-0 truncate font-medium text-app-text">
+        <div className="flex min-w-0 items-center gap-3 text-[15px]">
+          <MessageSquare className="shrink-0 text-app-muted" size={17} />
+          <span className="min-w-0 truncate font-medium text-app-accent">
             {attachment.filePath}
           </span>
-          <span className="shrink-0">
-            {attachment.side} {attachment.lineNumber}
+          <span className="shrink-0 text-app-text">
+            {attachment.side}
+          </span>
+          <span className="shrink-0 text-app-muted">
+            {attachment.lineNumber}
           </span>
         </div>
-        <div className="truncate text-[12.5px] leading-5 text-app-text">
+        <div className="mt-4 whitespace-pre-wrap text-[16px] leading-6">
           {attachment.body}
         </div>
       </div>
       <TooltipButton
-        className={cn(subtleIconButton, "ml-0.5")}
+        className={cn(subtleIconButton, "mt-0.5 h-8 w-8")}
         aria-label={`Remove comment on ${attachment.filePath}`}
         onClick={onRemove}
         tooltip={`Remove comment on ${attachment.filePath}`}
         type="button"
       >
-        ×
+        <X size={17} />
       </TooltipButton>
     </div>
   );

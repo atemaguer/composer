@@ -1,7 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
-import { parseDiffFromFile, type FileDiffMetadata } from "@pierre/diffs";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  parseDiffFromFile,
+  type FileDiffMetadata,
+  type SelectedLineRange
+} from "@pierre/diffs";
 import { FileDiff, PatchDiff } from "@pierre/diffs/react";
-import { MessageSquarePlus } from "lucide-react";
+import { Check, MessageSquare, MessageSquarePlus, X } from "lucide-react";
 
 import { cn } from "../lib/cn";
 import type {
@@ -38,6 +42,8 @@ type DiffLineAnnotation = {
 
 const DIFF_OPTIONS = {
   diffStyle: "unified",
+  enableGutterUtility: true,
+  lineHoverHighlight: "line",
   overflow: "wrap",
   theme: "pierre-dark",
   // The surrounding section already renders the file header.
@@ -154,24 +160,47 @@ export function DiffView({
     setDraft(null);
   }
 
+  const selectedLines = useMemo<SelectedLineRange | null>(() => {
+    if (!draft) {
+      return null;
+    }
+
+    const side = reviewSideToAnnotationSide(draft.side);
+
+    return {
+      start: draft.lineNumber,
+      end: draft.lineNumber,
+      side,
+      endSide: side
+    };
+  }, [draft]);
+
   const diffProps = {
     disableWorkerPool: true,
     options: DIFF_OPTIONS,
     lineAnnotations,
+    selectedLines,
     renderAnnotation: (annotation: DiffLineAnnotation) =>
       annotation.metadata.draft ? (
         <DiffCommentForm
+          lineNumber={annotation.lineNumber}
+          side={annotationSideToReviewSide(annotation.side)}
           onSubmit={submitDraft}
           onCancel={() => setDraft(null)}
         />
       ) : annotation.metadata.comment ? (
-        <DiffCommentDisplay comment={annotation.metadata.comment} />
+        <DiffCommentDisplay
+          comment={annotation.metadata.comment}
+          lineNumber={annotation.lineNumber}
+          side={annotationSideToReviewSide(annotation.side)}
+        />
       ) : null,
     renderGutterUtility: (getHoveredLine: () => DiffHoveredLine | undefined) => (
       <button
         type="button"
+        data-utility-button=""
         aria-label="Comment on line"
-        className="grid h-4 w-4 place-items-center rounded text-app-dim opacity-60 transition-opacity hover:text-app-text hover:opacity-100"
+        className="grid h-7 w-7 place-items-center rounded-md bg-app-text text-app-bg opacity-90 shadow-sm transition hover:opacity-100"
         onClick={() => {
           const hovered = getHoveredLine();
 
@@ -231,28 +260,38 @@ function findReviewLine(file: ReviewDiffFile, draft: DraftComment) {
 }
 
 function DiffCommentDisplay({
-  comment
+  comment,
+  lineNumber,
+  side
 }: {
   comment: ComposerReviewCommentAttachment;
+  lineNumber: number;
+  side: "L" | "R";
 }) {
   return (
-    <div className="mx-2 my-1.5 rounded-md border border-app-line bg-app-panel/70 px-3 py-2 text-[13px] leading-5 text-app-text">
-      {comment.body}
-    </div>
+    <CommentCard lineNumber={lineNumber} side={side}>
+      <div className="whitespace-pre-wrap px-6 py-5 text-[14px] leading-6 text-app-text">
+        {comment.body}
+      </div>
+    </CommentCard>
   );
 }
 
 function DiffCommentForm({
+  lineNumber,
+  side,
   onSubmit,
   onCancel
 }: {
+  lineNumber: number;
+  side: "L" | "R";
   onSubmit: (body: string) => void;
   onCancel: () => void;
 }) {
   const [value, setValue] = useState("");
 
   return (
-    <div className="mx-2 my-1.5 grid gap-2 rounded-md border border-app-line bg-app-panel/70 p-2">
+    <CommentCard lineNumber={lineNumber} side={side}>
       <textarea
         autoFocus
         value={value}
@@ -268,31 +307,62 @@ function DiffCommentForm({
             onSubmit(value);
           }
         }}
-        rows={2}
-        placeholder="Add a review comment…"
-        className="w-full resize-none rounded bg-app-shell/60 px-2 py-1.5 text-[13px] text-app-text outline-none placeholder:text-app-dim"
+        rows={3}
+        placeholder="Request change"
+        className="min-h-[96px] w-full resize-none bg-transparent px-6 py-5 text-[15px] leading-6 text-app-text outline-none placeholder:text-app-dim"
       />
-      <div className="flex items-center justify-end gap-2 text-[12px]">
+      <div className="flex items-center justify-end gap-3 px-6 pb-4 text-[14px]">
         <button
           type="button"
           onClick={onCancel}
-          className="rounded px-2 py-1 text-app-muted hover:text-app-text"
+          className="inline-flex h-9 items-center gap-1.5 rounded-md px-3 text-app-muted transition hover:bg-app-text/[0.06] hover:text-app-text"
         >
+          <X size={15} />
           Cancel
         </button>
         <button
           type="button"
           onClick={() => onSubmit(value)}
+          disabled={!value.trim()}
           className={cn(
-            "rounded px-2 py-1 font-medium",
+            "inline-flex h-9 items-center gap-1.5 rounded-md px-4 font-medium transition",
             value.trim()
-              ? "bg-app-text/[0.1] text-app-text hover:bg-app-text/[0.16]"
-              : "text-app-dim"
+              ? "bg-app-text text-app-bg hover:bg-app-text/90"
+              : "cursor-not-allowed bg-app-text/[0.08] text-app-dim"
           )}
         >
+          <Check size={15} />
           Comment
         </button>
       </div>
+    </CommentCard>
+  );
+}
+
+function CommentCard({
+  lineNumber,
+  side,
+  children
+}: {
+  lineNumber: number;
+  side: "L" | "R";
+  children: ReactNode;
+}) {
+  return (
+    <div className="mx-4 my-3 overflow-hidden rounded-[18px] border border-app-line bg-app-panel font-sans shadow-2xl shadow-black/25">
+      <div className="flex min-h-16 items-center justify-between gap-4 border-b border-app-line px-6 text-[15px]">
+        <div className="inline-flex min-w-0 items-center gap-3 font-semibold text-app-text">
+          <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-app-bg text-app-text shadow-sm">
+            <MessageSquare size={16} />
+          </span>
+          <span className="truncate">Local comment</span>
+        </div>
+        <span className="shrink-0 text-app-muted">
+          Comment on line {side}
+          {lineNumber}
+        </span>
+      </div>
+      {children}
     </div>
   );
 }
