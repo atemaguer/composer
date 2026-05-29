@@ -13,6 +13,10 @@ import {
   desktopCliEnvironment,
   resolveDesktopExecutable
 } from "../cli-env.js";
+import {
+  patchReviewLabel,
+  reviewFilesFromToolCall
+} from "../patch-review.js";
 import type { AgentProvider } from "../runtime.js";
 import { defaultCwd, providerSessionId } from "../runtime.js";
 import type {
@@ -715,17 +719,36 @@ export function applyClaudeNativeWorktreeOption(
 
 function toolDetail(id: string, toolName: string, input: JsonRecord): ToolDetail {
   const command = typeof input.command === "string" ? input.command : undefined;
+  const reviewFiles = reviewFilesFromToolCall(toolName, input);
+  const hasReviewFiles = reviewFiles.length > 0;
+  const isEditTool =
+    toolName === "Edit" || toolName === "Write" || toolName === "MultiEdit";
 
   return {
     id,
-    label: command ? `Run ${command}` : `Use ${toolName}`,
+    label: hasReviewFiles
+      ? patchReviewLabel(reviewFiles)
+      : command
+        ? `Run ${command}`
+        : `Use ${toolName}`,
     toolName,
     kind: "call",
-    tone: command ? "command" : "default",
-    action: command ? "command" : "other",
-    command,
-    args: stringifyDetails(input)
+    tone: command && !hasReviewFiles ? "command" : "default",
+    action: hasReviewFiles || isEditTool ? "edit" : command ? "command" : "other",
+    command: hasReviewFiles ? undefined : command,
+    args: stringifyDetails(input),
+    path: reviewFiles[0]?.path ?? toolPath(input),
+    reviewFiles: hasReviewFiles ? reviewFiles : undefined
   };
+}
+
+function toolPath(input: JsonRecord) {
+  return (
+    asString(input.file_path) ??
+    asString(input.path) ??
+    asString(input.abs_path) ??
+    asString(input.filename)
+  );
 }
 
 function stringifyDetails(record: JsonRecord) {
@@ -744,4 +767,8 @@ function asRecord(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonRecord)
     : {};
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
 }

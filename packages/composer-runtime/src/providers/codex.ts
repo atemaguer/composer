@@ -2,9 +2,8 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 import { randomUUID } from "node:crypto";
 
 import {
-  extractPatchReviewFiles,
   patchReviewLabel,
-  reviewFileFromCodexChange
+  reviewFilesFromToolCall
 } from "../patch-review.js";
 import {
   desktopCliEnvironment,
@@ -1102,48 +1101,10 @@ function writeStdinSessionId(input: JsonRecord) {
 }
 
 function reviewFilesFromItem(item: JsonRecord) {
-  const type = asString(item.type);
-  const rawPatch =
-    asString(item.input) ??
-    asString(item.patch) ??
-    asString(item.command) ??
-    asString(item.arguments);
-  const patchFiles = extractPatchReviewFiles(rawPatch);
-
-  if (patchFiles.length > 0) {
-    return patchFiles;
-  }
-
-  if (type !== "file_change" || !Array.isArray(item.changes)) {
-    return [];
-  }
-
-  return item.changes
-    .map((change) => asRecord(change))
-    .map((change) => {
-      const diff = asString(change.diff);
-      const files = extractPatchReviewFiles(diff);
-
-      if (files.length > 0) {
-        return files[0];
-      }
-
-      const filePath = asString(change.path) ?? asString(change.file_path);
-
-      if (!filePath) {
-        return null;
-      }
-
-      return reviewFileFromCodexChange(filePath, {
-        type: asString(change.type),
-        kind: asString(change.kind),
-        unified_diff: asString(change.unified_diff),
-        diff,
-        content: asString(change.content),
-        move_path: asString(change.move_path)
-      });
-    })
-    .filter((file): file is NonNullable<typeof file> => Boolean(file));
+  return reviewFilesFromToolCall(
+    asString(item.tool) ?? asString(item.name) ?? asString(item.type),
+    item
+  );
 }
 
 function stringifyDetails(record: JsonRecord) {

@@ -84,6 +84,7 @@ export {
   extractPatchReviewFiles,
   patchReviewLabel,
   reviewFileFromCodexChange,
+  reviewFilesFromToolCall,
   type PatchReviewFile
 } from "./patch-review.js";
 export {

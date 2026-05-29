@@ -13,9 +13,9 @@ async function pathExists(p: string): Promise<boolean> {
 }
 
 import {
-  extractPatchReviewFiles,
   patchReviewLabel,
   reviewFileFromCodexChange,
+  reviewFilesFromToolCall,
   type PatchReviewFile
 } from "./patch-review.js";
 import {
@@ -2168,7 +2168,9 @@ function createToolCallDetail(
 ): ToolDetail {
   const action = forcedAction ?? inferToolAction(toolName, input);
   const toolInputText = extractToolCommand(input) ?? asString(input.input);
-  const reviewFiles = action === "edit" ? extractPatchReviewFiles(toolInputText) : [];
+  const reviewFiles = action === "edit"
+    ? reviewFilesFromToolCall(toolName, input, toolInputText)
+    : [];
   const command = action === "edit" && reviewFiles.length > 0
     ? undefined
     : extractToolCommand(input);

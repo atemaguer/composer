@@ -205,6 +205,36 @@ export function reviewFileFromCodexChange(
   };
 }
 
+export function reviewFilesFromToolCall(
+  toolName: string | undefined,
+  input: Record<string, unknown> = {},
+  rawInput?: string
+): PatchReviewFile[] {
+  const patchFiles = extractPatchReviewFilesFromToolInput(input, rawInput);
+
+  if (patchFiles.length > 0) {
+    return patchFiles;
+  }
+
+  const parsedInput = parseNestedToolInput(input);
+
+  if (parsedInput) {
+    const parsedFiles = reviewFilesFromToolCall(toolName, parsedInput);
+
+    if (parsedFiles.length > 0) {
+      return parsedFiles;
+    }
+  }
+
+  const codexFiles = reviewFilesFromCodexFileChange(input);
+
+  if (codexFiles.length > 0) {
+    return codexFiles;
+  }
+
+  return reviewFilesFromClaudeEditTool(toolName, input);
+}
+
 export function patchReviewLabel(files: PatchReviewFile[]) {
   if (files.length === 0) {
     return "Edited file";
@@ -215,6 +245,194 @@ export function patchReviewLabel(files: PatchReviewFile[]) {
   }
 
   return `Edited ${files.length} files`;
+}
+
+function extractPatchReviewFilesFromToolInput(
+  input: Record<string, unknown>,
+  rawInput?: string
+) {
+  const candidates = [
+    rawInput,
+    asString(input.input),
+    asString(input.patch),
+    asString(input.command),
+    asString(input.arguments)
+  ];
+
+  for (const candidate of candidates) {
+    const files = extractPatchReviewFiles(candidate);
+
+    if (files.length > 0) {
+      return files;
+    }
+  }
+
+  return [];
+}
+
+function parseNestedToolInput(input: Record<string, unknown>) {
+  const raw = asString(input.arguments) ?? asString(input.input);
+
+  if (!raw?.trim().startsWith("{")) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+      ? parsed as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function reviewFilesFromCodexFileChange(input: Record<string, unknown>) {
+  const type = asString(input.type);
+
+  if (type !== "file_change" || !Array.isArray(input.changes)) {
+    return [];
+  }
+
+  return input.changes
+    .map((change) => asRecord(change))
+    .map((change) => {
+      const diff = asString(change.diff);
+      const files = extractPatchReviewFiles(diff);
+
+      if (files.length > 0) {
+        return files[0];
+      }
+
+      const filePath = asString(change.path) ?? asString(change.file_path);
+
+      if (!filePath) {
+        return null;
+      }
+
+      return reviewFileFromCodexChange(filePath, {
+        type: asString(change.type),
+        kind: asString(change.kind),
+        unified_diff: asString(change.unified_diff),
+        diff,
+        content: asString(change.content),
+        move_path: asString(change.move_path)
+      });
+    })
+    .filter((file): file is NonNullable<typeof file> => Boolean(file));
+}
+
+function reviewFilesFromClaudeEditTool(
+  toolName: string | undefined,
+  input: Record<string, unknown>
+) {
+  const normalized = normalizeToolName(toolName ?? "");
+  const filePath = toolFilePath(input);
+
+  if (!filePath) {
+    return [];
+  }
+
+  if (normalized === "write" || normalized.endsWith("_write")) {
+    const content = asString(input.content);
+
+    return content === undefined
+      ? []
+      : [reviewFileFromAddedContent(filePath, content)];
+  }
+
+  if (normalized === "multi_edit" || normalized.endsWith("_multi_edit")) {
+    const edits = Array.isArray(input.edits)
+      ? input.edits
+          .map((edit) => {
+            const record = asRecord(edit);
+            const oldString = asString(record.old_string);
+            const newString = asString(record.new_string);
+
+            return oldString === undefined || newString === undefined
+              ? null
+              : { oldString, newString };
+          })
+          .filter((edit): edit is { oldString: string; newString: string } =>
+            Boolean(edit)
+          )
+      : [];
+
+    return edits.length > 0
+      ? [reviewFileFromStringEdits(filePath, edits)]
+      : [];
+  }
+
+  if (normalized === "edit" || normalized.endsWith("_edit")) {
+    const oldString = asString(input.old_string);
+    const newString = asString(input.new_string);
+
+    return oldString === undefined || newString === undefined
+      ? []
+      : [reviewFileFromStringEdits(filePath, [{ oldString, newString }])];
+  }
+
+  return [];
+}
+
+function reviewFileFromStringEdits(
+  filePath: string,
+  edits: { oldString: string; newString: string }[]
+): PatchReviewFile {
+  const file: PatchReviewFile = {
+    path: filePath,
+    status: "modified",
+    additions: 0,
+    deletions: 0,
+    hunks: []
+  };
+  let oldStart = 1;
+  let newStart = 1;
+
+  for (const edit of edits) {
+    const oldLines = contentLines(edit.oldString);
+    const newLines = contentLines(edit.newString);
+
+    if (oldLines.length === 0 && newLines.length === 0) {
+      continue;
+    }
+
+    const hunk: ReviewDiffHunk = {
+      header: "",
+      oldStart,
+      oldLines: oldLines.length,
+      newStart,
+      newLines: newLines.length,
+      lines: []
+    };
+
+    oldLines.forEach((line, index) => {
+      hunk.lines.push({
+        kind: "delete",
+        oldLine: oldStart + index,
+        newLine: null,
+        content: line
+      });
+    });
+
+    newLines.forEach((line, index) => {
+      hunk.lines.push({
+        kind: "add",
+        oldLine: null,
+        newLine: newStart + index,
+        content: line
+      });
+    });
+
+    file.additions += newLines.length;
+    file.deletions += oldLines.length;
+    file.hunks.push(hunk);
+    oldStart += Math.max(oldLines.length, 1);
+    newStart += Math.max(newLines.length, 1);
+  }
+
+  return file;
 }
 
 function reviewFileFromUnifiedDiff(
@@ -337,6 +555,16 @@ function reviewFileFromAddedContent(
   };
 }
 
+function contentLines(content: string) {
+  const lines = content.split(/\r?\n/);
+
+  if (lines.at(-1) === "") {
+    lines.pop();
+  }
+
+  return lines;
+}
+
 function statusFromCodexChange(value?: string): PatchReviewFileStatus {
   if (value === "add" || value === "added") {
     return "added";
@@ -372,4 +600,33 @@ function mergePatchReviewFiles(files: PatchReviewFile[]) {
   }
 
   return [...merged.values()];
+}
+
+function toolFilePath(input: Record<string, unknown>) {
+  return (
+    asString(input.file_path) ??
+    asString(input.path) ??
+    asString(input.abs_path) ??
+    asString(input.filename)
+  );
+}
+
+function normalizeToolName(toolName: string) {
+  return toolName
+    .trim()
+    .replace(/([a-z])([A-Z])/g, "$1_$2")
+    .replace(/^_+/, "")
+    .replace(/[^a-zA-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toLowerCase();
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
 }
