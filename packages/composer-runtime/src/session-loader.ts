@@ -26,6 +26,8 @@ import {
   readComposerProviderSessionFile,
   readComposerSessionRegistry,
   upsertComposerProviderSessionFile,
+  upsertComposerProviderSessionFiles,
+  type ComposerProviderSessionFileInput,
   type ComposerProviderSessionRecord,
   type ComposerSessionEvent,
   type ComposerSessionRegistry,
@@ -977,15 +979,24 @@ async function loadCodexSessions(options: { includeItems: boolean }): Promise<Se
     .filter((file) => !file.fullPath.endsWith("session_index.jsonl"))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
   const sessions: SessionContent[] = [];
+  const fileRecords: ComposerProviderSessionFileInput[] = [];
 
   for (const file of files) {
     const parsed = await parseCodexSession(file.fullPath, index, options);
 
     if (parsed && (!options.includeItems || parsed.items.length > 0)) {
-      await cacheSessionFilePath(parsed, file.fullPath);
+      cacheSessionFilePath(parsed, file.fullPath);
+      const fileRecord = providerSessionFileInput(parsed, file.fullPath, file.mtimeMs);
+
+      if (fileRecord) {
+        fileRecords.push(fileRecord);
+      }
+
       sessions.push(parsed);
     }
   }
+
+  persistProviderSessionFileInputs(fileRecords);
 
   return selectSessionTree(sessions, MAX_SESSIONS_PER_PROVIDER);
 }
@@ -1320,15 +1331,24 @@ async function loadClaudeSessions(options: { includeItems: boolean }): Promise<S
     (a, b) => b.mtimeMs - a.mtimeMs
   );
   const sessions: SessionContent[] = [];
+  const fileRecords: ComposerProviderSessionFileInput[] = [];
 
   for (const file of files) {
     const parsed = await parseClaudeSession(file.fullPath, options);
 
     if (parsed && (!options.includeItems || parsed.items.length > 0)) {
-      await cacheSessionFilePath(parsed, file.fullPath);
+      cacheSessionFilePath(parsed, file.fullPath);
+      const fileRecord = providerSessionFileInput(parsed, file.fullPath, file.mtimeMs);
+
+      if (fileRecord) {
+        fileRecords.push(fileRecord);
+      }
+
       sessions.push(parsed);
     }
   }
+
+  persistProviderSessionFileInputs(fileRecords);
 
   return selectSessionTree(sessions, MAX_SESSIONS_PER_PROVIDER);
 }
@@ -1845,7 +1865,17 @@ async function findSessionFile(
   }
 
   if (filePath) {
-    await cacheSessionFilePath(session, filePath);
+    cacheSessionFilePath(session, filePath);
+    const fileRecord = providerSessionFileInput(session, filePath);
+
+    if (fileRecord) {
+      try {
+        upsertComposerProviderSessionFile(fileRecord);
+      } catch {
+        // Persistent metadata is only a fast path; transcript loading still works
+        // through provider directory scans when metadata writes fail.
+      }
+    }
   }
 
   return filePath;
@@ -1897,7 +1927,7 @@ async function cachedSessionFilePath(
   return undefined;
 }
 
-async function cacheSessionFilePath(
+function cacheSessionFilePath(
   session: Pick<SessionContent, "id" | "provider" | "providerSessionId"> &
     Partial<Pick<SessionContent, "cwd" | "title">>,
   filePath: string
@@ -1907,25 +1937,39 @@ async function cacheSessionFilePath(
   if (cacheKey) {
     providerSessionFilePathCache.set(cacheKey, filePath);
   }
+}
 
+function providerSessionFileInput(
+  session: Pick<SessionContent, "id" | "provider" | "providerSessionId"> &
+    Partial<Pick<SessionContent, "cwd" | "title">>,
+  filePath: string,
+  fileMtimeMs?: number
+): ComposerProviderSessionFileInput | null {
   const providerId = providerIdForSession(session);
 
   if (!providerId || (session.provider !== "codex" && session.provider !== "claude")) {
+    return null;
+  }
+
+  return {
+    provider: session.provider,
+    providerSessionId: providerId,
+    filePath,
+    fileMtimeMs,
+    cwd: session.cwd,
+    title: session.title
+  };
+}
+
+function persistProviderSessionFileInputs(
+  records: ComposerProviderSessionFileInput[]
+) {
+  if (records.length === 0) {
     return;
   }
 
   try {
-    const stats = await fs.stat(filePath);
-
-    upsertComposerProviderSessionFile({
-      provider: session.provider,
-      providerSessionId: providerId,
-      filePath,
-      fileMtimeMs: stats.mtimeMs,
-      fileSizeBytes: stats.size,
-      cwd: session.cwd,
-      title: session.title
-    });
+    upsertComposerProviderSessionFiles(records);
   } catch {
     // Persistent metadata is only a fast path; transcript loading still works
     // through provider directory scans when metadata writes fail.

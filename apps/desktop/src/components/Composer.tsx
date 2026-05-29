@@ -1435,13 +1435,13 @@ function ComposerFooterButton({
               </label>
 
               <div className="min-h-0 flex-1 overflow-y-auto">
-                {loading && (
+                {loading && filteredOptions.length === 0 && (
                   <div className="grid min-h-10 items-center px-2 text-[13px] text-app-dim">
                     Loading...
                   </div>
                 )}
 
-                {!loading && filteredOptions.map((option) => {
+                {filteredOptions.map((option) => {
                   const selected = option.id === selectedOptionId;
 
                   return (
