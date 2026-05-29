@@ -21,7 +21,7 @@ import {
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 
 import { AppChrome } from "./components/AppChrome";
-import { AppToasts } from "./components/AppToasts";
+import { AppToaster } from "./components/AppToaster";
 import {
   Composer,
   type PromptComposerFooterItem,
@@ -46,7 +46,7 @@ import {
   resolveSelectedBranchRef
 } from "./state/branch-refs-cache";
 import { useComposerStore } from "./state/composer-store";
-import { pushActionError, pushAppError } from "./state/toast-store";
+import { pushActionError, pushAppError } from "./components/AppToaster";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { useRuntimeStore } from "./state/runtime-store";
 import { isSessionRunning, useSessionStore } from "./state/session-store";
@@ -1893,7 +1893,7 @@ export default function App() {
         } as CSSProperties
       }
     >
-      <AppToasts />
+      <AppToaster />
       <Sidebar
         open={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
