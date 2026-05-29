@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Info, X, XCircle } from "lucide-react";
 import toast, { Toaster, useToasterStore } from "react-hot-toast";
 
@@ -12,7 +13,7 @@ const TOASTER_CONTAINER_STYLE = {
   top: 18,
   left: 16,
   right: 16,
-  zIndex: 80
+  zIndex: 9999
 } as const;
 const TOASTER_OPTIONS = {
   duration: 4000,
@@ -22,13 +23,19 @@ const TOASTER_OPTIONS = {
 export function AppToaster() {
   useToastLimit();
 
-  return (
+  if (typeof document === "undefined") {
+    return null;
+  }
+
+  return createPortal(
     <Toaster
       position="top-center"
       gutter={10}
+      containerClassName="app-no-drag"
       containerStyle={TOASTER_CONTAINER_STYLE}
       toastOptions={TOASTER_OPTIONS}
-    />
+    />,
+    document.body
   );
 }
 

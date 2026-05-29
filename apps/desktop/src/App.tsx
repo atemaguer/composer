@@ -21,7 +21,6 @@ import {
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 
 import { AppChrome } from "./components/AppChrome";
-import { AppToaster } from "./components/AppToaster";
 import {
   Composer,
   type PromptComposerFooterItem,
@@ -1893,7 +1892,6 @@ export default function App() {
         } as CSSProperties
       }
     >
-      <AppToaster />
       <Sidebar
         open={sidebarOpen}
         setSidebarOpen={setSidebarOpen}

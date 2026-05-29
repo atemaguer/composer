@@ -2,6 +2,7 @@ import React from "react";
 import { createRoot } from "react-dom/client";
 import { HashRouter } from "react-router-dom";
 import App from "./App";
+import { AppToaster } from "./components/AppToaster";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { ComposerPostHogProvider } from "./lib/posthog";
 import { WindowFrameProvider } from "./components/WindowFrameProvider";
@@ -17,6 +18,7 @@ createRoot(document.getElementById("root")!).render(
             <HashRouter>
               <App />
             </HashRouter>
+            <AppToaster />
           </TooltipProvider>
         </WindowFrameProvider>
       </AppearanceProvider>
