@@ -122,6 +122,9 @@ export function Sidebar({
   const [expandedWorkspaces, setExpandedWorkspaces] = useState(
     () => new Set(projects.map(projectKey))
   );
+  const [expandedThreads, setExpandedThreads] = useState<Set<string>>(
+    () => new Set()
+  );
   const [visibleThreadCounts, setVisibleThreadCounts] = useState<
     Record<string, number>
   >({});
@@ -189,6 +192,27 @@ export function Sidebar({
   }, [filteredProjects, selectedThread]);
 
   useEffect(() => {
+    setExpandedThreads((current) => {
+      const next = new Set(current);
+      let changed = false;
+
+      for (const project of filteredProjects) {
+        for (const ancestorId of ancestorThreadIds(
+          project.threads,
+          selectedThread
+        )) {
+          if (!next.has(ancestorId)) {
+            next.add(ancestorId);
+            changed = true;
+          }
+        }
+      }
+
+      return changed ? next : current;
+    });
+  }, [filteredProjects, selectedThread]);
+
+  useEffect(() => {
     setVisibleWorkspaceCount((current) => {
       const selectedWorkspaceIndex = filteredProjects.findIndex((project) =>
         flattenThreads(project.threads).some(
@@ -236,6 +260,20 @@ export function Sidebar({
     );
   }
 
+  function toggleThread(threadId: string) {
+    setExpandedThreads((current) => {
+      const next = new Set(current);
+
+      if (next.has(threadId)) {
+        next.delete(threadId);
+      } else {
+        next.add(threadId);
+      }
+
+      return next;
+    });
+  }
+
   async function openDiscordInvite() {
     try {
       if (window.composer?.openExternalUrl) {
@@ -262,57 +300,107 @@ export function Sidebar({
     autoUpdateState?.status === "install-error";
   const updateInstalling = autoUpdateState?.status === "installing";
   const updateInstallError = autoUpdateState?.status === "install-error";
-  const renderThread = (thread: ProjectThread, depth = 0): ReactNode => (
-    <div key={thread.id} className="grid gap-1">
-      <div
-        className={cn(
-          "group/thread grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md py-1 pr-1 text-[13px] text-app-muted/70 transition-colors",
-          appHoverSurfaceSubtle,
-          selectedThread === thread.id && `${appActiveSurface} text-app-text`
+  const renderThread = (thread: ProjectThread, depth = 0): ReactNode => {
+    const children = thread.children ?? [];
+    const hasChildren = children.length > 0;
+    const expanded = expandedThreads.has(thread.id);
+    const childrenId = `thread-children-${thread.id.replace(/[^A-Za-z0-9_-]/g, "-")}`;
+
+    return (
+      <div key={thread.id} className="grid gap-1">
+        <div
+          className={cn(
+            "group/thread grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md py-1 pr-1 text-[13px] text-app-muted/70 transition-colors",
+            appHoverSurfaceSubtle,
+            selectedThread === thread.id && `${appActiveSurface} text-app-text`
+          )}
+          style={{ paddingLeft: 36 + depth * 18 }}
+        >
+          <TooltipButton
+            className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-left"
+            aria-expanded={hasChildren ? expanded : undefined}
+            aria-controls={hasChildren ? childrenId : undefined}
+            tooltip={
+              thread.subagent
+                ? `${thread.name} (${thread.subagent.type ?? thread.subagent.role ?? "subagent"})`
+                : thread.name
+            }
+            onClick={() => {
+              if (selectedThread === thread.id && hasChildren) {
+                toggleThread(thread.id);
+                return;
+              }
+
+              setSelectedThread(thread.id);
+              onThreadSelect?.(thread.id);
+
+              if (hasChildren) {
+                setExpandedThreads((current) => {
+                  if (current.has(thread.id)) {
+                    return current;
+                  }
+
+                  return new Set(current).add(thread.id);
+                });
+              }
+            }}
+          >
+            <ProviderLogo
+              provider={thread.provider}
+              className={cn(
+                thread.provider === "claude" && appWarningText,
+                thread.provider === "codex" && appAccentText,
+                thread.provider === "meta" && appSuccessText
+              )}
+            />
+            <span className="flex min-w-0 items-center gap-1.5">
+              <span className="truncate">{thread.name}</span>
+              {thread.subagent && (
+                <span className="shrink-0 rounded-sm border border-app-border/70 px-1 text-[10px] uppercase tracking-[0.04em] text-app-dim">
+                  Subagent
+                </span>
+              )}
+              {runningSessionIds.has(thread.id) && <ThreadActivityIndicator />}
+            </span>
+            <em className="text-[12px] not-italic text-app-dim">{thread.age}</em>
+          </TooltipButton>
+          {hasChildren && (
+            <TooltipButton
+              aria-label={
+                expanded ? `Collapse ${thread.name}` : `Expand ${thread.name}`
+              }
+              className={cn(nestedIconButton, "text-app-muted")}
+              aria-expanded={expanded}
+              aria-controls={childrenId}
+              tooltip={
+                expanded ? `Collapse ${thread.name}` : `Expand ${thread.name}`
+              }
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleThread(thread.id);
+              }}
+            >
+              <ArrowRight
+                className={cn("transition-transform", expanded && "rotate-90")}
+                size={13}
+              />
+            </TooltipButton>
+          )}
+          <ThreadActionButton
+            label={`Archive ${thread.name}`}
+            onClick={() => onThreadArchive?.(thread.id)}
+          >
+            <Archive size={12} />
+          </ThreadActionButton>
+        </div>
+        {hasChildren && expanded && (
+          <div id={childrenId} className="grid gap-1">
+            {children.map((child) => renderThread(child, depth + 1))}
+          </div>
         )}
-        style={{ paddingLeft: 36 + depth * 18 }}
-      >
-        <TooltipButton
-          className="grid min-w-0 grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 text-left"
-          tooltip={
-            thread.subagent
-              ? `${thread.name} (${thread.subagent.type ?? thread.subagent.role ?? "subagent"})`
-              : thread.name
-          }
-          onClick={() => {
-            setSelectedThread(thread.id);
-            onThreadSelect?.(thread.id);
-          }}
-        >
-          <ProviderLogo
-            provider={thread.provider}
-            className={cn(
-              thread.provider === "claude" && appWarningText,
-              thread.provider === "codex" && appAccentText,
-              thread.provider === "meta" && appSuccessText
-            )}
-          />
-          <span className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate">{thread.name}</span>
-            {thread.subagent && (
-              <span className="shrink-0 rounded-sm border border-app-border/70 px-1 text-[10px] uppercase tracking-[0.04em] text-app-dim">
-                Subagent
-              </span>
-            )}
-            {runningSessionIds.has(thread.id) && <ThreadActivityIndicator />}
-          </span>
-          <em className="text-[12px] not-italic text-app-dim">{thread.age}</em>
-        </TooltipButton>
-        <ThreadActionButton
-          label={`Archive ${thread.name}`}
-          onClick={() => onThreadArchive?.(thread.id)}
-        >
-          <Archive size={12} />
-        </ThreadActionButton>
       </div>
-      {thread.children?.map((child) => renderThread(child, depth + 1))}
-    </div>
-  );
+    );
+  };
 
   return (
     <aside
@@ -727,6 +815,33 @@ function flattenThreads(threads: ProjectThread[]): ProjectThread[] {
     thread,
     ...flattenThreads(thread.children ?? [])
   ]);
+}
+
+function ancestorThreadIds(
+  threads: ProjectThread[],
+  threadId: string
+): string[] {
+  if (!threadId) {
+    return [];
+  }
+
+  for (const thread of threads) {
+    if (thread.id === threadId) {
+      return [];
+    }
+
+    const childAncestors = ancestorThreadIds(thread.children ?? [], threadId);
+
+    if (childAncestors.length > 0) {
+      return [thread.id, ...childAncestors];
+    }
+
+    if ((thread.children ?? []).some((child) => child.id === threadId)) {
+      return [thread.id];
+    }
+  }
+
+  return [];
 }
 
 function SidebarButton({
