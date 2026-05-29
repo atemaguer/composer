@@ -46,6 +46,7 @@ import type {
 } from "../types";
 import { providerLabel } from "../provider-registry";
 import { Composer, type ComposerProps } from "./Composer";
+import { DiffView } from "./DiffView";
 import { ProviderLogo } from "./ProviderLogo";
 import {
   appAccentHoverText,
@@ -1877,6 +1878,7 @@ function ToolDetailRow({
       <ToolReviewDetail
         detail={detail}
         files={reviewFiles}
+        cwd={cwd}
         defaultOpen={defaultOpen}
         active={active}
         onReviewChanges={onReviewChanges}
@@ -1949,12 +1951,14 @@ function ToolDetailRow({
 
 function ToolReviewDetail({
   files,
+  cwd,
   defaultOpen,
   active = false,
   onReviewChanges
 }: {
   detail: ToolDetail;
   files: ReviewDiffFile[];
+  cwd?: string;
   defaultOpen: boolean;
   active?: boolean;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
@@ -2014,6 +2018,7 @@ function ToolReviewDetail({
             <ToolReviewFileCard
               key={file.path}
               file={file}
+              cwd={cwd}
               allFiles={files}
               onReviewChanges={onReviewChanges}
             />
@@ -2037,15 +2042,15 @@ function reviewFilesSummary(files: ReviewDiffFile[]) {
 
 function ToolReviewFileCard({
   file,
+  cwd,
   allFiles,
   onReviewChanges
 }: {
   file: ReviewDiffFile;
+  cwd?: string;
   allFiles: ReviewDiffFile[];
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
-  const previewLines = file.hunks.flatMap((hunk) => hunk.lines).slice(0, 16);
-
   return (
     <div className={cn("overflow-hidden", cardSurface)}>
       <div className="grid min-h-[34px] grid-cols-[minmax(0,1fr)_auto] items-center gap-3 border-b border-app-line px-3 text-[13px]">
@@ -2066,40 +2071,9 @@ function ToolReviewFileCard({
           <span className={appDangerText}>-{file.deletions}</span>
         </span>
       </div>
-      {previewLines.length > 0 && (
-        <div className="thin-scrollbar max-h-[220px] overflow-auto font-mono text-[12px] leading-5">
-          {previewLines.map((line, index) => (
-            <div
-              key={`${file.path}-${index}-${line.content}`}
-              className={cn(
-                "grid min-w-max grid-cols-[48px_18px_minmax(0,1fr)] border-l-4 px-2",
-                line.kind === "add"
-                  ? "border-app-green bg-app-green/15"
-                  : line.kind === "delete"
-                    ? "border-destructive bg-destructive/14"
-                    : "border-transparent"
-              )}
-            >
-              <span
-                className={cn(
-                  "select-none text-right",
-                  line.kind === "add"
-                    ? "text-app-green"
-                    : line.kind === "delete"
-                      ? "text-destructive"
-                      : "text-app-dim"
-                )}
-              >
-                {line.newLine ?? line.oldLine ?? ""}
-              </span>
-              <span className="select-none text-app-dim">
-                {line.kind === "add" ? "+" : line.kind === "delete" ? "-" : " "}
-              </span>
-              <code className="whitespace-pre pr-4 text-app-muted">
-                {line.content}
-              </code>
-            </div>
-          ))}
+      {cwd && file.hunks.length > 0 && (
+        <div className="thin-scrollbar max-h-[260px] overflow-auto text-[12px] leading-5">
+          <DiffView cwd={cwd} file={file} />
         </div>
       )}
     </div>
