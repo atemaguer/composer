@@ -11,6 +11,8 @@
     "dev": "turbo dev",
     "dev:desktop": "turbo dev --filter=composer",
     "dev:web": "turbo dev --filter=web",
+    "docs:dev": "cd docs && npx --yes mint dev",
+    "docs:validate": "cd docs && npx --yes mint validate",
     "build": "turbo build",
     "build:web": "turbo build --filter=web",
     "typecheck": "turbo typecheck",

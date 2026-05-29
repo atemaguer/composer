@@ -1,0 +1,32 @@
+---
+title: "Agent handoffs"
+description: "How Composer keeps work moving across Claude and Codex."
+icon: "repeat-2"
+---
+
+Agent handoffs are the central Composer workflow. Instead of copying summaries between separate terminal sessions, you continue the same work through a shared Composer thread.
+
+## Common patterns
+
+### Plan, then review
+
+Use one agent to propose an approach, then switch to another agent to critique edge cases, risks, and missing tests before implementation starts.
+
+### Plan, then execute
+
+Use one agent for architecture or sequencing, then switch to another agent to make the code changes and verify them.
+
+### Start both, pick one
+
+Send the same prompt to multiple agents, compare their first pass, and continue from the thread that best fits the task.
+
+### Switch on the next turn
+
+Choose the agent that fits the next prompt without abandoning the surrounding conversation or workspace state.
+
+## What carries forward
+
+- The user goal and conversation context.
+- The active project workspace.
+- Local file and branch state.
+- The latest implementation and verification notes.

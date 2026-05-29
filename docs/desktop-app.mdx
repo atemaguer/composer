@@ -1,0 +1,27 @@
+---
+title: "Desktop app"
+description: "The Composer desktop application surface."
+icon: "monitor"
+---
+
+The desktop app is the primary Composer workspace. It provides the thread UI, runtime controls, provider selection, file previews, and project-aware agent sessions.
+
+## Development entry point
+
+Run the desktop workflow from the repository root:
+
+```bash
+npm run dev:desktop
+```
+
+## Source layout
+
+- `apps/desktop/src` contains the React application.
+- `apps/desktop/electron` contains the Electron main process code.
+- `apps/desktop/server` contains the desktop-local server runtime.
+- `packages/composer-runtime` contains runtime code shared by the CLI and desktop app.
+
+## Related pages
+
+- [Quickstart](/quickstart)
+- [Agent handoffs](/concepts/handoffs)

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "Composer",
+  "colors": {
+    "primary": "#172033"
+  },
+  "seo": {
+    "metatags": {
+      "canonical": "https://getcomposer.dev/docs"
+    }
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Get started",
+        "pages": ["index", "quickstart"]
+      },
+      {
+        "group": "Concepts",
+        "pages": ["concepts/handoffs"]
+      },
+      {
+        "group": "Reference",
+        "pages": ["desktop-app", "web"]
+      }
+    ]
+  }
+}

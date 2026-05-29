@@ -1,0 +1,28 @@
+---
+title: "Website"
+description: "The Composer website and documentation path."
+icon: "globe"
+---
+
+The public website lives in `apps/web` and is built with Next.js. Mintlify documentation lives separately in the root `docs` folder so it can be deployed by Mintlify while still sharing the same repository.
+
+## Website development
+
+Run the website from the repository root:
+
+```bash
+npm run dev:web
+```
+
+## Documentation development
+
+Run the Mintlify preview from the documentation directory:
+
+```bash
+cd docs
+mint dev
+```
+
+## `/docs` routing
+
+Mintlify should serve these docs at the `/docs` subpath of the main website. In Mintlify's monorepo settings, use `/docs` as the docs directory path.

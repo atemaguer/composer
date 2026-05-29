@@ -1,0 +1,48 @@
+---
+title: "Quickstart"
+description: "Install dependencies and run Composer locally."
+icon: "play"
+---
+
+## Prerequisites
+
+- Node.js compatible with the repository toolchain.
+- npm, using the package manager version declared in the root `package.json`.
+- Access to the agent providers you plan to use.
+
+## Install dependencies
+
+From the repository root:
+
+```bash
+npm install
+```
+
+## Start development
+
+Run the desktop app development workflow:
+
+```bash
+npm run dev:desktop
+```
+
+Run the web landing page:
+
+```bash
+npm run dev:web
+```
+
+## Preview these docs
+
+Mintlify's CLI runs from the documentation directory:
+
+```bash
+cd docs
+mint dev
+```
+
+The local preview opens at `http://localhost:3000` by default.
+
+## Deploy with Mintlify
+
+In the Mintlify dashboard, configure this repository as a monorepo and set the documentation path to `/docs`. Do not include a trailing slash.
