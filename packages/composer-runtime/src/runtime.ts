@@ -89,8 +89,10 @@ type RuntimeSessionProvider = SessionProvider;
 export type AgentRuntimeOptions = {
   persistence?: RuntimePersistence;
   providers?: Partial<Record<RuntimeSessionProvider, AgentProvider>>;
-  loadSessionContent?: (sessionId: string) => SessionContent | undefined;
-  loadSessionList?: () => SessionSnapshot;
+  loadSessionContent?: (
+    sessionId: string
+  ) => SessionContent | undefined | Promise<SessionContent | undefined>;
+  loadSessionList?: () => SessionSnapshot | Promise<SessionSnapshot>;
   localSessionPollIntervalMs?: number;
 };
 
@@ -154,8 +156,10 @@ export class AgentRuntime {
   private sessions: Record<string, SessionContent>;
   private readonly loadSessionContentFromStore?: (
     sessionId: string
-  ) => SessionContent | undefined;
-  private readonly loadSessionListFromStore?: () => SessionSnapshot;
+  ) => SessionContent | undefined | Promise<SessionContent | undefined>;
+  private readonly loadSessionListFromStore?: () =>
+    | SessionSnapshot
+    | Promise<SessionSnapshot>;
   private readonly localSessionPollIntervalMs: number;
   private broadcastListeners = new Set<EventSink>();
   private approvals = new Map<string, ApprovalResolver>();
@@ -199,14 +203,14 @@ export class AgentRuntime {
     };
   }
 
-  loadSessionContent(sessionId: string) {
+  async loadSessionContent(sessionId: string) {
     const current = this.sessions[sessionId];
 
     if (current?.contentLoaded) {
       return current;
     }
 
-    const loaded = this.loadSessionContentFromStore?.(sessionId);
+    const loaded = await this.loadSessionContentFromStore?.(sessionId);
 
     if (!loaded) {
       return current;
@@ -230,13 +234,12 @@ export class AgentRuntime {
     return () => this.broadcastListeners.delete(listener);
   }
 
-  createSession(request: CreateRequest, sink: EventSink) {
+  async createSession(request: CreateRequest, sink: EventSink) {
     if (!isRuntimeProvider(request.provider)) {
       throw new Error(`Unsupported live provider: ${request.provider}`);
     }
 
     const id = `${request.provider}-live-${randomUUID()}`;
-    const workspace = prepareSessionWorkspace(request.cwd, id, request.workTarget);
     const displayCwd = displayWorkspaceCwd(request.cwd);
     const session: SessionContent = {
       id,
@@ -246,13 +249,8 @@ export class AgentRuntime {
       contextVersion: 0,
       runtimeStatus: "running",
       title: titleFromPrompt(request.prompt),
-      cwd: workspace.cwd,
+      cwd: request.cwd,
       displayCwd,
-      worktreePath: workspace.worktree?.cwd,
-      worktreeBranch: workspace.worktree?.branch,
-      originalCwd: workspace.worktree?.originalCwd,
-      originalBranch: workspace.worktree?.originalBranch,
-      originalHead: workspace.worktree?.originalHead,
       model: providerModel(request.provider, request.settings.model),
       updatedAt: new Date().toISOString(),
       items: [
@@ -280,6 +278,38 @@ export class AgentRuntime {
       this.requestSessions.set(request.requestId, id);
     }
     this.emitToSink(sink, { id: randomUUID(), type: "session.started", session });
+
+    let workspace: Awaited<ReturnType<typeof prepareSessionWorkspace>>;
+
+    try {
+      workspace = await prepareSessionWorkspace(request.cwd, id, request.workTarget);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      this.emitToSink(sink, {
+        id: randomUUID(),
+        type: "error",
+        sessionId: id,
+        requestId: request.requestId,
+        message
+      });
+      this.emitToSink(sink, {
+        id: randomUUID(),
+        type: "turn.completed",
+        sessionId: id,
+        status: "error"
+      });
+      return;
+    }
+
+    session.cwd = workspace.cwd;
+    session.worktreePath = workspace.worktree?.cwd;
+    session.worktreeBranch = workspace.worktree?.branch;
+    session.originalCwd = workspace.worktree?.originalCwd;
+    session.originalBranch = workspace.worktree?.originalBranch;
+    session.originalHead = workspace.worktree?.originalHead;
+    session.updatedAt = new Date().toISOString();
+    this.emitToSink(sink, { id: randomUUID(), type: "session.updated", session });
+
     this.startProviderRun(request.provider, {
       sessionId: id,
       session,
@@ -292,8 +322,8 @@ export class AgentRuntime {
     this.applyPendingRequestInterrupt(request.requestId, id);
   }
 
-  sendMessage(request: RunRequest, sink: EventSink) {
-    const session = this.loadSessionContent(request.sessionId);
+  async sendMessage(request: RunRequest, sink: EventSink) {
+    const session = await this.loadSessionContent(request.sessionId);
 
     if (!session) {
       throw new Error(`Unknown session ${request.sessionId}`);
@@ -389,7 +419,7 @@ export class AgentRuntime {
       throw new Error(`Unknown session ${sessionId}`);
     }
 
-    this.persistence.updateSessionVisibility(session, action);
+    void this.persistence.updateSessionVisibility(session, action);
     delete this.sessions[sessionId];
 
     const snapshot = this.snapshot();
@@ -402,14 +432,24 @@ export class AgentRuntime {
     return snapshot;
   }
 
-  adoptParallelThread(sessionId: string, provider: DelegateSessionProvider) {
-    const session = this.loadSessionContent(sessionId) ?? this.sessions[sessionId];
+  async adoptParallelThread(sessionId: string, provider: DelegateSessionProvider) {
+    // The live in-memory session is authoritative for an active run: it carries
+    // both delegates' providerSessions from writeParallelProviderSessions. Capture
+    // its id before loadSessionContent rebuilds the session from persistence (which
+    // can lose the parallel provider ids), and use it as a fallback.
+    const liveSession = this.sessions[sessionId];
+    const liveProviderSessionId = liveSession
+      ? parallelProviderSessionId(liveSession, provider)
+      : undefined;
+
+    const session = (await this.loadSessionContent(sessionId)) ?? liveSession;
 
     if (!session) {
       throw new Error(`Unknown session ${sessionId}`);
     }
 
-    const providerSessionId = parallelProviderSessionId(session, provider);
+    const providerSessionId =
+      parallelProviderSessionId(session, provider) ?? liveProviderSessionId;
 
     if (!providerSessionId) {
       throw new Error(`${providerLabel(provider)} is not available to adopt for this session.`);
@@ -712,14 +752,14 @@ export class AgentRuntime {
     }
 
     this.monitoredParentSessionIds.add(parentSessionId);
-    this.refreshLocalSubagentSessions();
+    void this.refreshLocalSubagentSessions();
 
     if (this.localSessionMonitor) {
       return;
     }
 
     this.localSessionMonitor = setInterval(() => {
-      this.refreshLocalSubagentSessions();
+      void this.refreshLocalSubagentSessions();
     }, this.localSessionPollIntervalMs);
   }
 
@@ -728,7 +768,7 @@ export class AgentRuntime {
       return;
     }
 
-    this.refreshLocalSubagentSessions({ markIdle: true });
+    void this.refreshLocalSubagentSessions({ markIdle: true });
 
     if (this.localSessionMonitor) {
       clearInterval(this.localSessionMonitor);
@@ -739,7 +779,7 @@ export class AgentRuntime {
     this.localSubagentSourceFingerprints.clear();
   }
 
-  private refreshLocalSubagentSessions(options: { markIdle?: boolean } = {}) {
+  private async refreshLocalSubagentSessions(options: { markIdle?: boolean } = {}) {
     if (
       this.localSessionMonitorRunning ||
       !this.loadSessionListFromStore ||
@@ -752,7 +792,7 @@ export class AgentRuntime {
     this.localSessionMonitorRunning = true;
 
     try {
-      const snapshot = this.loadSessionListFromStore();
+      const snapshot = await this.loadSessionListFromStore();
 
       for (const metadata of Object.values(snapshot.sessions)) {
         if (!metadata.subagent || !metadata.parentSessionId) {
@@ -770,7 +810,7 @@ export class AgentRuntime {
         const current = this.sessions[metadata.id];
         const loaded =
           !current || current.contentLoaded
-            ? this.loadSessionContentFromStore(metadata.id)
+            ? await this.loadSessionContentFromStore(metadata.id)
             : undefined;
         const source = loaded ?? metadata;
         const sourceFingerprint = localSessionSourceFingerprint(source);
@@ -1057,6 +1097,7 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
   if (event.type === "error") {
     session.runtimeStatus = "error";
     session.pendingItems = [];
+    settleRunningToolGroups(session.items);
     appendErrorNotice(session, event.message);
     return;
   }
@@ -1064,6 +1105,23 @@ function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
   if (event.type === "turn.completed") {
     session.runtimeStatus = event.status;
     session.pendingItems = [];
+    settleRunningToolGroups(session.items);
+  }
+}
+
+// Once a turn ends, nothing is running. Some providers (notably Claude) don't
+// always emit a tool.completed for every tool.started, which would otherwise
+// leave the tool group's status stuck at "running" and shimmering forever.
+function settleRunningToolGroups(items: ConversationItem[]) {
+  for (const item of items) {
+    if (item.type !== "tool_group" || item.status !== "running") {
+      continue;
+    }
+
+    item.status = "completed";
+    item.details = item.details.map((detail) =>
+      detail.status === "running" ? { ...detail, status: "completed" } : detail
+    );
   }
 }
 
@@ -1115,13 +1173,13 @@ function formatErrorMessage(message: string) {
   return trimmed;
 }
 
-function prepareSessionWorkspace(
+async function prepareSessionWorkspace(
   cwd: string,
   sessionId: string,
   workTarget?: CreateRequest["workTarget"]
 ) {
   if (workTarget?.mode === "worktree") {
-    const worktree = createSessionWorktree({
+    const worktree = await createSessionWorktree({
       baseCwd: cwd,
       baseBranch: workTarget.branch,
       sessionId
@@ -1133,7 +1191,7 @@ function prepareSessionWorkspace(
     };
   }
 
-  checkoutSessionBranch(cwd, workTarget?.branch);
+  await checkoutSessionBranch(cwd, workTarget?.branch);
 
   return {
     cwd,

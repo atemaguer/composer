@@ -1,8 +1,11 @@
-import { execFileSync } from "node:child_process";
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 type DelegateProvider = "codex";
 
@@ -13,7 +16,7 @@ export type ParallelDelegateWorktree = {
   cwd: string;
 };
 
-export function createCodexParallelWorktree({
+export async function createCodexParallelWorktree({
   baseCwd,
   parentSessionId,
   existing
@@ -21,9 +24,9 @@ export function createCodexParallelWorktree({
   baseCwd: string;
   parentSessionId: string;
   existing?: ExistingWorktrees;
-}): ParallelDelegateWorktree {
-  const gitRoot = ensureGitRepository(baseCwd);
-  git(gitRoot, ["rev-parse", "--verify", "HEAD"]);
+}): Promise<ParallelDelegateWorktree> {
+  const gitRoot = await ensureGitRepository(baseCwd);
+  await git(gitRoot, ["rev-parse", "--verify", "HEAD"]);
 
   const rootKey = `${path.basename(gitRoot)}-${hashText(gitRoot).slice(0, 10)}`;
   const sessionKey = safePathSegment(parentSessionId);
@@ -32,92 +35,92 @@ export function createCodexParallelWorktree({
   return ensureDelegateWorktree(gitRoot, root, "codex", existing?.codex);
 }
 
-function ensureDelegateWorktree(
+async function ensureDelegateWorktree(
   gitRoot: string,
   root: string,
   provider: DelegateProvider,
   existingCwd?: string
-): ParallelDelegateWorktree {
-  if (existingCwd && isGitWorktree(existingCwd)) {
+): Promise<ParallelDelegateWorktree> {
+  if (existingCwd && (await isGitWorktree(existingCwd))) {
     return { provider, cwd: existingCwd };
   }
 
-  fs.mkdirSync(root, { recursive: true });
-  const cwd = uniqueWorktreePath(path.join(root, provider));
-  const baseBranch = currentBranch(gitRoot) ?? "HEAD";
-  const worktreeBranch = uniqueBranchName(
+  await fs.mkdir(root, { recursive: true });
+  const cwd = await uniqueWorktreePath(path.join(root, provider));
+  const baseBranch = (await currentBranch(gitRoot)) ?? "HEAD";
+  const worktreeBranch = await uniqueBranchName(
     gitRoot,
     `composer/parallel-${provider}-${safePathSegment(path.basename(root)).slice(0, 48)}`
   );
-  git(gitRoot, ["worktree", "add", "-b", worktreeBranch, cwd, baseBranch]);
+  await git(gitRoot, ["worktree", "add", "-b", worktreeBranch, cwd, baseBranch]);
 
   return { provider, cwd };
 }
 
-function ensureGitRepository(baseCwd: string) {
-  const existingRoot = gitOptional(baseCwd, ["rev-parse", "--show-toplevel"]);
+async function ensureGitRepository(baseCwd: string) {
+  const existingRoot = await gitOptional(baseCwd, ["rev-parse", "--show-toplevel"]);
 
   if (existingRoot) {
-    if (!hasGitHead(existingRoot)) {
-      ensureMainBranch(existingRoot);
-      createBaselineCommit(existingRoot);
+    if (!(await hasGitHead(existingRoot))) {
+      await ensureMainBranch(existingRoot);
+      await createBaselineCommit(existingRoot);
     }
 
     return existingRoot;
   }
 
-  if (!fs.existsSync(baseCwd)) {
+  if (!(await pathExists(baseCwd))) {
     throw new Error(`Could not create isolated parallel worktree: ${baseCwd} does not exist.`);
   }
 
-  git(baseCwd, ["init"]);
-  const gitRoot = git(baseCwd, ["rev-parse", "--show-toplevel"]);
-  ensureMainBranch(gitRoot);
-  createBaselineCommit(gitRoot);
+  await git(baseCwd, ["init"]);
+  const gitRoot = await git(baseCwd, ["rev-parse", "--show-toplevel"]);
+  await ensureMainBranch(gitRoot);
+  await createBaselineCommit(gitRoot);
 
   return gitRoot;
 }
 
-function hasGitHead(gitRoot: string) {
-  return Boolean(gitOptional(gitRoot, ["rev-parse", "--verify", "HEAD"]));
+async function hasGitHead(gitRoot: string) {
+  return Boolean(await gitOptional(gitRoot, ["rev-parse", "--verify", "HEAD"]));
 }
 
-function createBaselineCommit(gitRoot: string) {
-  ensureGitIdentity(gitRoot);
-  ensureInfoExclude(gitRoot);
-  git(gitRoot, ["add", "-A"]);
+async function createBaselineCommit(gitRoot: string) {
+  await ensureGitIdentity(gitRoot);
+  await ensureInfoExclude(gitRoot);
+  await git(gitRoot, ["add", "-A"]);
 
-  const status = git(gitRoot, ["status", "--porcelain"]);
+  const status = await git(gitRoot, ["status", "--porcelain"]);
 
   if (status) {
-    git(gitRoot, ["commit", "-m", "Initialize Composer workspace"]);
+    await git(gitRoot, ["commit", "-m", "Initialize Composer workspace"]);
   } else {
-    git(gitRoot, ["commit", "--allow-empty", "-m", "Initialize Composer workspace"]);
+    await git(gitRoot, ["commit", "--allow-empty", "-m", "Initialize Composer workspace"]);
   }
 }
 
-function ensureMainBranch(gitRoot: string) {
-  git(gitRoot, ["checkout", "-B", "main"]);
+async function ensureMainBranch(gitRoot: string) {
+  await git(gitRoot, ["checkout", "-B", "main"]);
 }
 
-function currentBranch(gitRoot: string) {
+async function currentBranch(gitRoot: string) {
   return gitOptional(gitRoot, ["branch", "--show-current"]);
 }
 
-function ensureGitIdentity(gitRoot: string) {
-  if (!gitOptional(gitRoot, ["config", "user.email"])) {
-    git(gitRoot, ["config", "user.email", "composer@example.local"]);
+async function ensureGitIdentity(gitRoot: string) {
+  if (!(await gitOptional(gitRoot, ["config", "user.email"]))) {
+    await git(gitRoot, ["config", "user.email", "composer@example.local"]);
   }
 
-  if (!gitOptional(gitRoot, ["config", "user.name"])) {
-    git(gitRoot, ["config", "user.name", "Composer"]);
+  if (!(await gitOptional(gitRoot, ["config", "user.name"]))) {
+    await git(gitRoot, ["config", "user.name", "Composer"]);
   }
 }
 
-function ensureInfoExclude(gitRoot: string) {
+async function ensureInfoExclude(gitRoot: string) {
   const excludePath = path.join(gitRoot, ".git", "info", "exclude");
-  const existing = fs.existsSync(excludePath)
-    ? fs.readFileSync(excludePath, "utf8")
+  const existing = (await pathExists(excludePath))
+    ? await fs.readFile(excludePath, "utf8")
     : "";
   const patterns = [
     "node_modules/",
@@ -132,22 +135,22 @@ function ensureInfoExclude(gitRoot: string) {
   const missing = patterns.filter((pattern) => !existing.split(/\r?\n/).includes(pattern));
 
   if (missing.length > 0) {
-    fs.appendFileSync(
+    await fs.appendFile(
       excludePath,
       `${existing.endsWith("\n") || existing.length === 0 ? "" : "\n"}${missing.join("\n")}\n`
     );
   }
 }
 
-function uniqueWorktreePath(basePath: string) {
-  if (!fs.existsSync(basePath)) {
+async function uniqueWorktreePath(basePath: string) {
+  if (!(await pathExists(basePath))) {
     return basePath;
   }
 
   for (let index = 1; index < 100; index += 1) {
     const candidate = `${basePath}-${index}`;
 
-    if (!fs.existsSync(candidate)) {
+    if (!(await pathExists(candidate))) {
       return candidate;
     }
   }
@@ -155,15 +158,15 @@ function uniqueWorktreePath(basePath: string) {
   return `${basePath}-${Date.now()}`;
 }
 
-function uniqueBranchName(gitRoot: string, baseName: string) {
-  if (!branchExists(gitRoot, baseName)) {
+async function uniqueBranchName(gitRoot: string, baseName: string) {
+  if (!(await branchExists(gitRoot, baseName))) {
     return baseName;
   }
 
   for (let index = 1; index < 100; index += 1) {
     const candidate = `${baseName}-${index}`;
 
-    if (!branchExists(gitRoot, candidate)) {
+    if (!(await branchExists(gitRoot, candidate))) {
       return candidate;
     }
   }
@@ -171,37 +174,46 @@ function uniqueBranchName(gitRoot: string, baseName: string) {
   return `${baseName}-${Date.now()}`;
 }
 
-function branchExists(gitRoot: string, branch: string) {
-  return Boolean(gitOptional(gitRoot, ["show-ref", "--verify", `refs/heads/${branch}`]));
+async function branchExists(gitRoot: string, branch: string) {
+  return Boolean(await gitOptional(gitRoot, ["show-ref", "--verify", `refs/heads/${branch}`]));
 }
 
-function isGitWorktree(cwd: string) {
+async function isGitWorktree(cwd: string) {
   try {
-    return git(cwd, ["rev-parse", "--is-inside-work-tree"]) === "true";
+    return (await git(cwd, ["rev-parse", "--is-inside-work-tree"])) === "true";
   } catch {
     return false;
   }
 }
 
-function gitOptional(cwd: string, args: string[]) {
+async function pathExists(target: string) {
   try {
-    return execFileSync("git", args, {
+    await fs.access(target);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function gitOptional(cwd: string, args: string[]) {
+  try {
+    const { stdout } = await execFileAsync("git", args, {
       cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"]
-    }).trim();
+      encoding: "utf8"
+    });
+    return stdout.trim();
   } catch {
     return undefined;
   }
 }
 
-function git(cwd: string, args: string[]) {
+async function git(cwd: string, args: string[]) {
   try {
-    return execFileSync("git", args, {
+    const { stdout } = await execFileAsync("git", args, {
       cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"]
-    }).trim();
+      encoding: "utf8"
+    });
+    return stdout.trim();
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     throw new Error(`Could not create isolated parallel worktree: git ${args.join(" ")} failed. ${message}`);

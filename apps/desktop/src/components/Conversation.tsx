@@ -431,7 +431,19 @@ function groupParallelThreadActivity(
     }
 
     const parallelGroup = parallelThreadGroup(layoutGroupId, batch, lastUserPrompt);
-    grouped.push(parallelGroup ?? batch[0]);
+
+    if (parallelGroup) {
+      grouped.push(parallelGroup);
+    } else {
+      // Columns only form once two providers are present. Until then (or if only
+      // one delegate ever produces output), keep every real item but drop the
+      // internal delegate scaffolding so the markers never render raw.
+      for (const batchItem of batch) {
+        if (!isParallelDelegateWrapper(batchItem)) {
+          grouped.push(batchItem);
+        }
+      }
+    }
   }
 
   return grouped;

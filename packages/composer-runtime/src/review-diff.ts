@@ -56,7 +56,7 @@ export async function loadReviewBranches(cwd: string): Promise<ReviewBranchList>
     };
   }
 
-  const [currentRef, defaultBaseRef, refsOutput] = await Promise.all([
+  const [currentRef, defaultBaseRef, refsOutput, statusOutput] = await Promise.all([
     gitOptional(cwd, ["branch", "--show-current"]),
     resolveBranchBase(cwd),
     git(cwd, [
@@ -64,8 +64,12 @@ export async function loadReviewBranches(cwd: string): Promise<ReviewBranchList>
       "--format=%(refname:short)\t%(refname)",
       "refs/heads",
       "refs/remotes"
-    ])
+    ]),
+    gitOptional(cwd, ["status", "--porcelain"])
   ]);
+  const uncommittedCount = statusOutput
+    ? statusOutput.split(/\r?\n/).filter((line) => line.trim().length > 0).length
+    : 0;
   const seen = new Set<string>();
   const branches = refsOutput
     .split(/\r?\n/)
@@ -103,7 +107,8 @@ export async function loadReviewBranches(cwd: string): Promise<ReviewBranchList>
     currentRef: currentRef ?? "HEAD",
     defaultBaseRef,
     branches,
-    gitAvailable: true
+    gitAvailable: true,
+    uncommittedCount
   };
 }
 

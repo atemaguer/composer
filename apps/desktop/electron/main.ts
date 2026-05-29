@@ -55,12 +55,12 @@ type TerminalSession = {
 
 ipcMain.handle("composer:get-telemetry-identity", () => telemetryIdentity());
 ipcMain.handle("composer:list-local-sessions", () => loadLocalSessionList());
-ipcMain.handle("composer:load-local-session", (_event, requestedSessionId: unknown) => {
+ipcMain.handle("composer:load-local-session", async (_event, requestedSessionId: unknown) => {
   if (typeof requestedSessionId !== "string" || !requestedSessionId) {
     throw new Error("Expected a session id");
   }
 
-  return loadLocalSessionContent(requestedSessionId) ?? null;
+  return (await loadLocalSessionContent(requestedSessionId)) ?? null;
 });
 ipcMain.handle("composer:open-external-url", (_event, requestedUrl: unknown) => {
   if (typeof requestedUrl !== "string") {
@@ -75,7 +75,7 @@ ipcMain.handle("composer:open-external-url", (_event, requestedUrl: unknown) => 
 
   return shell.openExternal(url.toString());
 });
-ipcMain.handle("composer:update-session-visibility", (_event, request: unknown) => {
+ipcMain.handle("composer:update-session-visibility", async (_event, request: unknown) => {
   const value = isRecord(request) ? request : {};
   const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
   const action = value.action === "archive" ? value.action : null;
@@ -84,15 +84,15 @@ ipcMain.handle("composer:update-session-visibility", (_event, request: unknown) 
     throw new Error("Expected sessionId and action");
   }
 
-  const snapshot = loadLocalSessions();
+  const snapshot = await loadLocalSessions();
   const session = snapshot.sessions[sessionId];
 
   if (!session) {
     throw new Error(`Unknown session ${sessionId}`);
   }
 
-  updateLocalSessionVisibility(session, action);
-  return loadLocalSessionList();
+  await updateLocalSessionVisibility(session, action);
+  return await loadLocalSessionList();
 });
 ipcMain.handle("composer:get-agent-server", async () => {
   const port = await ensureAgentServer();

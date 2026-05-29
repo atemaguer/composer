@@ -51,6 +51,7 @@ import type {
   WorkspaceFileEntry
 } from "../types";
 import { CodeEditor } from "./CodeEditor";
+import { DiffView } from "./DiffView";
 import {
   cardSurface,
   nestedIconButton,
@@ -73,6 +74,7 @@ type ReviewPanelProps = {
   branchRefsLoading?: boolean;
   branchRefsError?: string | null;
   branchComparison?: ReviewBranchComparison | null;
+  reviewComments?: ReadonlyArray<ComposerReviewCommentAttachment>;
   selectedReviewPath?: string | null;
   filePreviewTabOpen?: boolean;
   filePreviewPath?: string | null;
@@ -151,6 +153,7 @@ export function ReviewPanel({
   branchRefsLoading = false,
   branchRefsError,
   branchComparison,
+  reviewComments = [],
   selectedReviewPath,
   filePreviewTabOpen = false,
   filePreviewPath,
@@ -547,6 +550,7 @@ export function ReviewPanel({
             <ReviewDiffPreview
               review={review}
               reviewScope={reviewScope}
+              comments={reviewComments}
               selectedPath={selectedReviewPath}
               loading={Boolean(reviewLoading)}
               error={reviewError}
@@ -1285,6 +1289,7 @@ function ReviewScopeMenu({
 function ReviewDiffPreview({
   review,
   reviewScope,
+  comments,
   selectedPath,
   loading,
   error,
@@ -1293,6 +1298,7 @@ function ReviewDiffPreview({
 }: {
   review?: ReviewDiff | null;
   reviewScope: ReviewDiffScope;
+  comments?: ReadonlyArray<ComposerReviewCommentAttachment>;
   selectedPath?: string | null;
   loading: boolean;
   error?: string | null;
@@ -1373,6 +1379,7 @@ function ReviewDiffPreview({
           key={file.path}
           cwd={review.cwd}
           file={file}
+          comments={comments}
           expanded={expandedPaths.has(file.path)}
           onToggle={() => {
             setExpandedPaths((current) => {
@@ -1442,12 +1449,14 @@ function orderReviewFiles(files: ReviewDiffFile[], selectedPath?: string | null)
 function DiffFileSection({
   cwd,
   file,
+  comments,
   expanded,
   onToggle,
   onAddReviewComment
 }: {
   cwd: string;
   file: ReviewDiffFile;
+  comments?: ReadonlyArray<ComposerReviewCommentAttachment>;
   expanded: boolean;
   onToggle: () => void;
   onAddReviewComment?: (attachment: Omit<ComposerReviewCommentAttachment, "id">) => void;
@@ -1478,6 +1487,7 @@ function DiffFileSection({
         <DiffFileView
           cwd={cwd}
           file={file}
+          comments={comments}
           onAddReviewComment={onAddReviewComment}
         />
       )}
@@ -1882,125 +1892,22 @@ function FilePreviewEditor({ file }: { file: FilePreview }) {
 function DiffFileView({
   cwd,
   file,
+  comments,
   onAddReviewComment
 }: {
   cwd: string;
   file: ReviewDiffFile;
+  comments?: ReadonlyArray<ComposerReviewCommentAttachment>;
   onAddReviewComment?: (attachment: Omit<ComposerReviewCommentAttachment, "id">) => void;
 }) {
-  const [draftKey, setDraftKey] = useState<string | null>(null);
-  const [draftValue, setDraftValue] = useState("");
-
-  if (file.isBinary) {
-    return (
-      <div className="grid min-h-[160px] place-items-center p-6 text-center text-[13px] text-app-dim">
-        Binary file changed.
-      </div>
-    );
-  }
-
-  if (file.hunks.length === 0) {
-    return (
-      <div className="grid min-h-[160px] place-items-center p-6 text-center text-[13px] text-app-dim">
-        No text diff available for this file.
-      </div>
-    );
-  }
-
-  let previousOldEnd = 0;
-  let previousNewEnd = 0;
-  const absoluteFilePath = resolveReviewFilePath(cwd, file.path);
-
-  function renderLine(line: ReviewDiffLine, lineKey: string) {
-    const lineNumber = line.newLine ?? line.oldLine;
-    const side = line.newLine === null ? "L" : "R";
-
-    return (
-      <div key={lineKey}>
-        <DiffLineRow
-          line={line}
-          onAddComment={
-            lineNumber && onAddReviewComment
-              ? () => {
-                  setDraftKey(lineKey);
-                  setDraftValue("");
-                }
-              : undefined
-          }
-        />
-        {draftKey === lineKey && lineNumber && (
-          <ReviewCommentForm
-            filePath={file.path}
-            lineNumber={lineNumber}
-            side={side}
-            value={draftValue}
-            onChange={setDraftValue}
-            onCancel={() => {
-              setDraftKey(null);
-              setDraftValue("");
-            }}
-            onSubmit={() => {
-              const body = draftValue.trim();
-
-              if (!body) {
-                return;
-              }
-
-              onAddReviewComment?.({
-                filePath: file.path,
-                lineNumber,
-                side,
-                body,
-                lineContent: line.content,
-                lineKind: line.kind
-              });
-              setDraftKey(null);
-              setDraftValue("");
-            }}
-          />
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className="min-h-0 w-full max-w-full overflow-x-hidden font-mono text-[12px] leading-5">
-      {file.hunks.map((hunk, hunkIndex) => {
-        const hiddenOldStart = previousOldEnd + 1;
-        const hiddenNewStart = previousNewEnd + 1;
-        const unchangedBefore = Math.max(
-          Math.min(
-            hunk.oldStart - hiddenOldStart,
-            hunk.newStart - hiddenNewStart
-          ),
-          0
-        );
-        previousOldEnd = hunk.oldStart + hunk.oldLines - 1;
-        previousNewEnd = hunk.newStart + hunk.newLines - 1;
-
-        return (
-          <div key={`${hunk.oldStart}-${hunk.newStart}-${hunkIndex}`}>
-            {unchangedBefore > 0 && (
-              <CollapsedDiffLines
-                count={unchangedBefore}
-                filePath={absoluteFilePath}
-                oldStart={hiddenOldStart}
-                newStart={hiddenNewStart}
-                renderLine={(line, lineIndex) =>
-                  renderLine(
-                    line,
-                    `hidden-${hunkIndex}-${lineIndex}-${line.oldLine ?? "x"}-${line.newLine ?? "x"}`
-                  )
-                }
-              />
-            )}
-            {hunk.lines.map((line, lineIndex) => {
-              const lineKey = `${hunkIndex}-${lineIndex}-${line.oldLine ?? "x"}-${line.newLine ?? "x"}`;
-              return renderLine(line, lineKey);
-            })}
-          </div>
-        );
-      })}
+    <div className="min-h-0 w-full max-w-full overflow-x-hidden">
+      <DiffView
+        cwd={cwd}
+        file={file}
+        comments={comments}
+        onAddReviewComment={onAddReviewComment}
+      />
     </div>
   );
 }

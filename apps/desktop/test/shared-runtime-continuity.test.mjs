@@ -14,7 +14,7 @@ test("shared runtime store lets one interface continue another interface session
     } = await import("@composer/runtime");
 
     const firstProvider = createFakeProvider("first-provider-session");
-    const firstRuntime = new AgentRuntime(loadLocalSessions(), {
+    const firstRuntime = new AgentRuntime(await loadLocalSessions(), {
       persistence: localRuntimePersistence,
       providers: { codex: firstProvider.provider }
     });
@@ -52,7 +52,7 @@ test("shared runtime store lets one interface continue another interface session
       true
     );
 
-    const loaded = loadLocalSessions();
+    const loaded = await loadLocalSessions();
     assert.ok(loaded.sessions[sessionId], "second interface can load the shared session");
 
     const secondProvider = createFakeProvider("second-provider-session");

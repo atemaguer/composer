@@ -51,7 +51,10 @@ export interface RuntimePersistence {
   updateSessionVisibility(
     session: Pick<SessionContent, "id" | "provider" | "providerSessionId">,
     action: RuntimeSessionVisibilityAction
-  ): RuntimeSessionVisibilityResult | void;
+  ):
+    | RuntimeSessionVisibilityResult
+    | void
+    | Promise<RuntimeSessionVisibilityResult | void>;
   adoptParallelProvider(adoption: RuntimeParallelProviderAdoption): void;
   upsertProviderSessions(records: RuntimeProviderSessionRecord[]): void;
 }

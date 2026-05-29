@@ -1,6 +1,16 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+
+async function pathExists(p: string): Promise<boolean> {
+  try {
+    await fs.access(p);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 import {
   extractPatchReviewFiles,
@@ -192,15 +202,15 @@ const MAX_SESSIONS_PER_PROVIDER = 50;
 const MAX_TEXT_LENGTH = 4_000;
 const MAX_DETAIL_LENGTH = 520;
 
-export function loadLocalSessions(): SessionSnapshot {
+export function loadLocalSessions(): Promise<SessionSnapshot> {
   return loadLocalSessionSnapshot({ includeItems: true });
 }
 
-export function loadLocalSessionList(): SessionSnapshot {
+export async function loadLocalSessionList(): Promise<SessionSnapshot> {
   return loadLocalSessionSnapshot({ includeItems: false });
 }
 
-export function loadLocalSessionContent(sessionId: string) {
+export async function loadLocalSessionContent(sessionId: string): Promise<SessionContent | undefined> {
   const registry = readComposerSessionRegistry();
   const sessionRecord = registry.sessions.find((session) => session.id === sessionId);
 
@@ -212,15 +222,17 @@ export function loadLocalSessionContent(sessionId: string) {
       )
     );
     const nativeSessions = uniqueSessionsById(
-      providerRecords
-        .map((record) =>
-          loadNativeProviderSession(
-            record.provider,
-            record.providerSessionId,
-            { includeItems: true }
+      (
+        await Promise.all(
+          providerRecords.map((record) =>
+            loadNativeProviderSession(
+              record.provider,
+              record.providerSessionId,
+              { includeItems: true }
+            )
           )
         )
-        .filter((session): session is SessionContent => Boolean(session))
+      ).filter((session): session is SessionContent => Boolean(session))
     );
     const nativeByProviderSession = nativeSessionMap(nativeSessions);
     const composerSessionByProviderSession = composerSessionByProviderSessionMap(registry);
@@ -236,25 +248,25 @@ export function loadLocalSessionContent(sessionId: string) {
   }
 
   if (sessionId.startsWith("codex-")) {
-    return loadNativeProviderSession("codex", sessionId.slice("codex-".length), {
+    return (await loadNativeProviderSession("codex", sessionId.slice("codex-".length), {
       includeItems: true
-    });
+    })) ?? undefined;
   }
 
   if (sessionId.startsWith("claude-")) {
-    return loadNativeProviderSession("claude", sessionId.slice("claude-".length), {
+    return (await loadNativeProviderSession("claude", sessionId.slice("claude-".length), {
       includeItems: true
-    });
+    })) ?? undefined;
   }
 
   return undefined;
 }
 
-function loadLocalSessionSnapshot(options: { includeItems: boolean }): SessionSnapshot {
+async function loadLocalSessionSnapshot(options: { includeItems: boolean }): Promise<SessionSnapshot> {
   const registry = readComposerSessionRegistry();
   const delegateKeys = composerDelegateProviderSessionKeys(registry);
-  const claudeSessions = loadClaudeSessions(options);
-  const codexSessions = loadCodexSessions(options);
+  const claudeSessions = await loadClaudeSessions(options);
+  const codexSessions = await loadCodexSessions(options);
   const nativeSessions = uniqueSessionsById([...claudeSessions, ...codexSessions]);
   const composerSessions = composerSessionsFromRegistry(
     registry,
@@ -954,16 +966,16 @@ function agentOutputItems(items: ConversationItem[]) {
   );
 }
 
-function loadCodexSessions(options: { includeItems: boolean }): SessionContent[] {
+async function loadCodexSessions(options: { includeItems: boolean }): Promise<SessionContent[]> {
   const codexRoot = path.join(os.homedir(), ".codex");
-  const index = readCodexIndex(codexRoot);
-  const files = findJsonl(path.join(codexRoot, "sessions"))
+  const index = await readCodexIndex(codexRoot);
+  const files = (await findJsonl(path.join(codexRoot, "sessions")))
     .filter((file) => !file.fullPath.endsWith("session_index.jsonl"))
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
   const sessions: SessionContent[] = [];
 
   for (const file of files) {
-    const parsed = parseCodexSession(file.fullPath, index, options);
+    const parsed = await parseCodexSession(file.fullPath, index, options);
 
     if (parsed && (!options.includeItems || parsed.items.length > 0)) {
       sessions.push(parsed);
@@ -973,12 +985,12 @@ function loadCodexSessions(options: { includeItems: boolean }): SessionContent[]
   return selectSessionTree(sessions, MAX_SESSIONS_PER_PROVIDER);
 }
 
-function loadNativeProviderSession(
+async function loadNativeProviderSession(
   provider: "codex" | "claude",
   providerSessionId: string,
   options: { includeItems: boolean }
 ) {
-  const filePath = findSessionFile({
+  const filePath = await findSessionFile({
     id: `${provider}-${providerSessionId}`,
     provider,
     providerSessionId
@@ -989,24 +1001,24 @@ function loadNativeProviderSession(
   }
 
   if (provider === "codex") {
-    return parseCodexSession(
+    return (await parseCodexSession(
       filePath,
-      readCodexIndex(path.join(os.homedir(), ".codex")),
+      await readCodexIndex(path.join(os.homedir(), ".codex")),
       options
-    ) ?? undefined;
+    )) ?? undefined;
   }
 
-  return parseClaudeSession(filePath, options) ?? undefined;
+  return (await parseClaudeSession(filePath, options)) ?? undefined;
 }
 
-export function updateLocalSessionVisibility(
+export async function updateLocalSessionVisibility(
   session: Pick<SessionContent, "id" | "provider" | "providerSessionId">,
   action: LocalSessionAction
 ) {
   const archivedComposerSession = action === "archive"
     ? archiveComposerSession(session.id)
     : false;
-  const filePath = findSessionFile(session);
+  const filePath = await findSessionFile(session);
 
   if (!filePath) {
     return {
@@ -1017,23 +1029,23 @@ export function updateLocalSessionVisibility(
   }
 
   const archivePath = archivePathForSessionFile(filePath, session.provider);
-  fs.mkdirSync(path.dirname(archivePath), { recursive: true });
-  fs.renameSync(filePath, uniqueFilePath(archivePath));
+  await fs.mkdir(path.dirname(archivePath), { recursive: true });
+  await fs.rename(filePath, await uniqueFilePath(archivePath));
 
   return { ok: true, changed: true, filePath };
 }
 
-function parseCodexSession(
+async function parseCodexSession(
   filePath: string,
   index: Map<string, { title: string; updatedAt?: string }>,
   options: { includeItems: boolean } = { includeItems: true }
-): SessionContent | null {
+): Promise<SessionContent | null> {
   const includeItems = options.includeItems;
-  const rows = includeItems ? readJsonl(filePath) : readJsonlPreview(filePath);
+  const rows = includeItems ? await readJsonl(filePath) : await readJsonlPreview(filePath);
   let id = codexIdFromPath(filePath);
   let cwd: string | undefined;
   let model: string | undefined;
-  let updatedAt = latestTimestamp(rows) ?? isoFromMtime(filePath);
+  let updatedAt = latestTimestamp(rows) ?? await isoFromMtime(filePath);
   let title = "";
   const items: ConversationItem[] = [];
   const toolGroupsByCallId = new Map<
@@ -1087,7 +1099,7 @@ function parseCodexSession(
           const parsedMessage = parseCodexUserMessage(
             rawBody,
             `${id}-user-${items.length}`,
-            imageUrlsFromPayload(payload)
+            await imageUrlsFromPayload(payload)
           );
 
           if (includeItems && parsedMessage.attachments.length > 0) {
@@ -1297,15 +1309,15 @@ function parseCodexSession(
   });
 }
 
-function loadClaudeSessions(options: { includeItems: boolean }): SessionContent[] {
+async function loadClaudeSessions(options: { includeItems: boolean }): Promise<SessionContent[]> {
   const projectsRoot = path.join(os.homedir(), ".claude", "projects");
-  const files = findClaudeProjectJsonl(projectsRoot).sort(
+  const files = (await findClaudeProjectJsonl(projectsRoot)).sort(
     (a, b) => b.mtimeMs - a.mtimeMs
   );
   const sessions: SessionContent[] = [];
 
   for (const file of files) {
-    const parsed = parseClaudeSession(file.fullPath, options);
+    const parsed = await parseClaudeSession(file.fullPath, options);
 
     if (parsed && (!options.includeItems || parsed.items.length > 0)) {
       sessions.push(parsed);
@@ -1315,12 +1327,12 @@ function loadClaudeSessions(options: { includeItems: boolean }): SessionContent[
   return selectSessionTree(sessions, MAX_SESSIONS_PER_PROVIDER);
 }
 
-function parseClaudeSession(
+async function parseClaudeSession(
   filePath: string,
   options: { includeItems: boolean } = { includeItems: true }
-): SessionContent | null {
+): Promise<SessionContent | null> {
   const includeItems = options.includeItems;
-  const rows = includeItems ? readJsonl(filePath) : readJsonlPreview(filePath);
+  const rows = includeItems ? await readJsonl(filePath) : await readJsonlPreview(filePath);
   const fileSessionId = path.basename(filePath, ".jsonl");
   const pathSubagent = claudeSubagentFromPath(filePath);
   let sessionId = pathSubagent?.metadata.id ?? fileSessionId;
@@ -1330,7 +1342,7 @@ function parseClaudeSession(
   let subagent = pathSubagent?.metadata;
   let cwd: string | undefined = cwdFromClaudeProjectPath(filePath);
   let model: string | undefined;
-  let updatedAt = includeItems ? latestTimestamp(rows) ?? isoFromMtime(filePath) : isoFromMtime(filePath);
+  let updatedAt = includeItems ? latestTimestamp(rows) ?? await isoFromMtime(filePath) : await isoFromMtime(filePath);
   let firstUserText = "";
   const items: ConversationItem[] = [];
   const toolGroupsByCallId = new Map<string, { itemIndex: number }>();
@@ -1573,11 +1585,11 @@ function finishSession(session: Omit<SessionContent, "pendingItems">) {
   } satisfies SessionContent;
 }
 
-function readCodexIndex(codexRoot: string) {
+async function readCodexIndex(codexRoot: string) {
   const index = new Map<string, { title: string; updatedAt?: string }>();
   const indexPath = path.join(codexRoot, "session_index.jsonl");
 
-  for (const row of readJsonl(indexPath)) {
+  for (const row of await readJsonl(indexPath)) {
     const id = asString(row.id);
     const title = asString(row.thread_name);
 
@@ -1662,9 +1674,9 @@ function subagentTitle(subagent?: SubagentMetadata) {
   return "Subagent";
 }
 
-function readJsonl(filePath: string) {
+async function readJsonl(filePath: string) {
   try {
-    const content = fs.readFileSync(filePath, "utf8");
+    const content = await fs.readFile(filePath, "utf8");
 
     return parseJsonlLines(content.split("\n"));
   } catch {
@@ -1672,26 +1684,25 @@ function readJsonl(filePath: string) {
   }
 }
 
-function readJsonlPreview(filePath: string, maxBytes = 256 * 1024) {
+async function readJsonlPreview(filePath: string, maxBytes = 256 * 1024) {
+  let handle: Awaited<ReturnType<typeof fs.open>> | undefined;
+
   try {
-    const fd = fs.openSync(filePath, "r");
+    handle = await fs.open(filePath, "r");
+    const buffer = Buffer.alloc(maxBytes);
+    const { bytesRead } = await handle.read(buffer, 0, maxBytes, 0);
+    const chunk = buffer.subarray(0, bytesRead).toString("utf8");
+    const lines = chunk.split("\n");
 
-    try {
-      const buffer = Buffer.alloc(maxBytes);
-      const bytesRead = fs.readSync(fd, buffer, 0, maxBytes, 0);
-      const chunk = buffer.subarray(0, bytesRead).toString("utf8");
-      const lines = chunk.split("\n");
-
-      if (bytesRead === maxBytes && !chunk.endsWith("\n")) {
-        lines.pop();
-      }
-
-      return parseJsonlLines(lines);
-    } finally {
-      fs.closeSync(fd);
+    if (bytesRead === maxBytes && !chunk.endsWith("\n")) {
+      lines.pop();
     }
+
+    return parseJsonlLines(lines);
   } catch {
     return [];
+  } finally {
+    await handle?.close();
   }
 }
 
@@ -1719,18 +1730,18 @@ function parseJsonlLines(lines: string[]) {
   return rows;
 }
 
-function findJsonl(root: string) {
+async function findJsonl(root: string) {
   const files: Array<{ fullPath: string; mtimeMs: number }> = [];
 
-  function walk(dir: string, depth: number) {
+  async function walk(dir: string, depth: number) {
     if (depth > 8) {
       return;
     }
 
-    let entries: fs.Dirent[];
+    let entries: Dirent[];
 
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
       return;
     }
@@ -1742,27 +1753,27 @@ function findJsonl(root: string) {
         if (entry.name.startsWith(".")) {
           continue;
         }
-        walk(fullPath, depth + 1);
+        await walk(fullPath, depth + 1);
       } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
         files.push({
           fullPath,
-          mtimeMs: safeMtimeMs(fullPath)
+          mtimeMs: await safeMtimeMs(fullPath)
         });
       }
     }
   }
 
-  walk(root, 0);
+  await walk(root, 0);
   return files;
 }
 
-function findClaudeProjectJsonl(projectsRoot: string) {
+async function findClaudeProjectJsonl(projectsRoot: string) {
   const files: Array<{ fullPath: string; mtimeMs: number }> = [];
 
-  let projectDirs: fs.Dirent[];
+  let projectDirs: Dirent[];
 
   try {
-    projectDirs = fs.readdirSync(projectsRoot, { withFileTypes: true });
+    projectDirs = await fs.readdir(projectsRoot, { withFileTypes: true });
   } catch {
     return files;
   }
@@ -1773,10 +1784,10 @@ function findClaudeProjectJsonl(projectsRoot: string) {
     }
 
     const dir = path.join(projectsRoot, projectDir.name);
-    let entries: fs.Dirent[];
+    let entries: Dirent[];
 
     try {
-      entries = fs.readdirSync(dir, { withFileTypes: true });
+      entries = await fs.readdir(dir, { withFileTypes: true });
     } catch {
       continue;
     }
@@ -1787,10 +1798,10 @@ function findClaudeProjectJsonl(projectsRoot: string) {
       if (entry.isFile() && entry.name.endsWith(".jsonl")) {
         files.push({
           fullPath,
-          mtimeMs: safeMtimeMs(fullPath)
+          mtimeMs: await safeMtimeMs(fullPath)
         });
       } else if (entry.isDirectory()) {
-        for (const file of findJsonl(fullPath)) {
+        for (const file of await findJsonl(fullPath)) {
           files.push(file);
         }
       }
@@ -1800,7 +1811,7 @@ function findClaudeProjectJsonl(projectsRoot: string) {
   return files;
 }
 
-function findSessionFile(
+async function findSessionFile(
   session: Pick<SessionContent, "id" | "provider" | "providerSessionId">
 ) {
   const providerId = providerIdForSession(session);
@@ -1810,13 +1821,13 @@ function findSessionFile(
   }
 
   if (session.provider === "codex") {
-    return findJsonl(path.join(os.homedir(), ".codex", "sessions"))
+    return (await findJsonl(path.join(os.homedir(), ".codex", "sessions")))
       .map((file) => file.fullPath)
       .find((filePath) => codexIdFromPath(filePath) === providerId);
   }
 
   if (session.provider === "claude") {
-    return findClaudeProjectJsonl(path.join(os.homedir(), ".claude", "projects"))
+    return (await findClaudeProjectJsonl(path.join(os.homedir(), ".claude", "projects")))
       .map((file) => file.fullPath)
       .find((filePath) => path.basename(filePath, ".jsonl") === providerId);
   }
@@ -1851,8 +1862,8 @@ function archivePathForSessionFile(filePath: string, provider: SessionProvider) 
   return path.join(path.dirname(filePath), ".composer-archive", path.basename(filePath));
 }
 
-function uniqueFilePath(filePath: string) {
-  if (!fs.existsSync(filePath)) {
+async function uniqueFilePath(filePath: string) {
+  if (!(await pathExists(filePath))) {
     return filePath;
   }
 
@@ -1862,7 +1873,7 @@ function uniqueFilePath(filePath: string) {
   for (let index = 2; index < 1_000; index += 1) {
     const candidate = `${base}-${index}${extension}`;
 
-    if (!fs.existsSync(candidate)) {
+    if (!(await pathExists(candidate))) {
       return candidate;
     }
   }
@@ -2516,7 +2527,7 @@ function parseCodexUserMessage(
   };
 }
 
-function imageUrlsFromPayload(payload: JsonRecord) {
+async function imageUrlsFromPayload(payload: JsonRecord) {
   const urls: string[] = [];
 
   for (const image of asArray(payload.images)) {
@@ -2528,7 +2539,7 @@ function imageUrlsFromPayload(payload: JsonRecord) {
   }
 
   for (const image of asArray(payload.local_images)) {
-    const url = localImageToDataUrl(image);
+    const url = await localImageToDataUrl(image);
 
     if (url) {
       urls.push(url);
@@ -2538,7 +2549,7 @@ function imageUrlsFromPayload(payload: JsonRecord) {
   return urls;
 }
 
-function localImageToDataUrl(value: unknown) {
+async function localImageToDataUrl(value: unknown) {
   const filePath =
     typeof value === "string"
       ? value
@@ -2549,7 +2560,7 @@ function localImageToDataUrl(value: unknown) {
   }
 
   try {
-    const bytes = fs.readFileSync(filePath);
+    const bytes = await fs.readFile(filePath);
     return `data:${inferMediaType(filePath)};base64,${bytes.toString("base64")}`;
   } catch {
     return undefined;
@@ -2872,15 +2883,15 @@ function latestTimestamp(rows: JsonRecord[]) {
   return undefined;
 }
 
-function isoFromMtime(filePath: string) {
-  const mtimeMs = safeMtimeMs(filePath);
+async function isoFromMtime(filePath: string) {
+  const mtimeMs = await safeMtimeMs(filePath);
 
   return mtimeMs ? new Date(mtimeMs).toISOString() : undefined;
 }
 
-function safeMtimeMs(filePath: string) {
+async function safeMtimeMs(filePath: string) {
   try {
-    return fs.statSync(filePath).mtimeMs;
+    return (await fs.stat(filePath)).mtimeMs;
   } catch {
     return 0;
   }

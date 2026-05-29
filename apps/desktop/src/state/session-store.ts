@@ -2,6 +2,7 @@ import { create } from "zustand";
 
 import type {
   ApprovalRequest,
+  ConversationItem,
   LiveAgentEvent,
   Project,
   ProjectThread,
@@ -470,6 +471,7 @@ function applyLiveSessionEvent(
   if (event.type === "error") {
     next.runtimeStatus = "error";
     next.pendingItems = [];
+    next.items = settleRunningToolGroups(next.items);
     next.items.push({
       id: `${next.id}-error-${Date.now()}`,
       type: "notice",
@@ -481,9 +483,29 @@ function applyLiveSessionEvent(
   if (event.type === "turn.completed") {
     next.runtimeStatus = event.status;
     next.pendingItems = [];
+    next.items = settleRunningToolGroups(next.items);
   }
 
   return next;
+}
+
+// Once a turn ends, nothing is running. Some providers (notably Claude) don't
+// always emit a tool.completed for every tool.started, which would otherwise
+// leave a tool group's status stuck at "running" and shimmering forever.
+function settleRunningToolGroups(items: ConversationItem[]): ConversationItem[] {
+  return items.map((item) => {
+    if (item.type !== "tool_group" || item.status !== "running") {
+      return item;
+    }
+
+    return {
+      ...item,
+      status: "completed",
+      details: item.details.map((detail) =>
+        detail.status === "running" ? { ...detail, status: "completed" } : detail
+      )
+    };
+  });
 }
 
 function toolDetail(

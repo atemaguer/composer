@@ -84,7 +84,7 @@ export class MetaProvider implements AgentProvider {
     const state = readMetaState(request.session.providerSessionId);
     const strategy = metaStrategy(request.settings.model);
     const codexWorktree = strategy === "parallel-initial"
-      ? createCodexParallelWorktree({
+      ? await createCodexParallelWorktree({
           baseCwd: defaultCwd(request.session),
           parentSessionId: request.session.id,
           existing: {
@@ -323,18 +323,6 @@ export class MetaProvider implements AgentProvider {
           intelligence: delegate.settings.intelligence ?? ""
         }
       }
-    });
-    request.emit({
-      id: randomUUID(),
-      type: "message.delta",
-      sessionId: request.sessionId,
-      messageId: `${request.sessionId}-${delegate.provider}-${delegateTurnId}-header`,
-      delta: `\n\n**${delegate.intro}**\n\n`,
-      provider: delegate.provider,
-      layoutGroupId: delegate.layoutGroupId,
-      layoutTitle: delegate.layoutGroupId
-        ? `${providerLabel(delegate.provider)} thread`
-        : undefined
     });
 
     await new Promise<void>((resolve, reject) => {

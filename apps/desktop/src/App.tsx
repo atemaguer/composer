@@ -21,6 +21,7 @@ import {
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
 
 import { AppChrome } from "./components/AppChrome";
+import { AppToasts } from "./components/AppToasts";
 import {
   Composer,
   type PromptComposerFooterItem,
@@ -36,7 +37,16 @@ import { ThreadTabs, type ThreadTabItem } from "./components/ThreadTabs";
 import { ComposerClient, type ComposerEventSocket } from "@composer/client";
 import { cn } from "./lib/cn";
 import { providerStatusLabel as providerLabel } from "./provider-registry";
+import {
+  BranchRefsCache,
+  blockedBranchSwitchReason,
+  describeUncommitted,
+  resolveBranchComparison,
+  resolveCurrentBranchRef,
+  resolveSelectedBranchRef
+} from "./state/branch-refs-cache";
 import { useComposerStore } from "./state/composer-store";
+import { pushActionError, pushAppError } from "./state/toast-store";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { useRuntimeStore } from "./state/runtime-store";
 import { isSessionRunning, useSessionStore } from "./state/session-store";
@@ -234,6 +244,11 @@ export default function App() {
   const socketRef = useRef<ComposerEventSocket<LiveAgentEvent> | null>(null);
   const processedAgentEventsRef = useRef<Set<string>>(new Set());
   const expectingNewSessionRef = useRef(false);
+  const pendingNewSessionRequestRef = useRef<{
+    requestId: string;
+    prompt: string;
+    provider: SessionProvider;
+  } | null>(null);
   const loadingSessionIdsRef = useRef<Set<string>>(new Set());
   const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(
@@ -255,6 +270,9 @@ export default function App() {
   const [reviewBranchRefsLoading, setReviewBranchRefsLoading] = useState(false);
   const [reviewBranchRefsError, setReviewBranchRefsError] = useState<string | null>(null);
   const [currentBranchRef, setCurrentBranchRef] = useState<string | null>(null);
+  const [uncommittedCount, setUncommittedCount] = useState(0);
+  const [selectedComposerBranchRef, setSelectedComposerBranchRef] =
+    useState<string | null>(null);
   const [workspaceGitAvailable, setWorkspaceGitAvailable] = useState<
     boolean | null
   >(null);
@@ -282,6 +300,8 @@ export default function App() {
     null
   );
   const reviewRequestIdRef = useRef(0);
+  const reviewBranchRefsRequestIdRef = useRef(0);
+  const reviewBranchRefsCacheRef = useRef<BranchRefsCache>(new BranchRefsCache());
   const workspaceFilesRequestIdRef = useRef(0);
   const filePreviewRequestIdRef = useRef(0);
 
@@ -329,6 +349,7 @@ export default function App() {
 
   useEffect(() => {
     reviewRequestIdRef.current += 1;
+    reviewBranchRefsRequestIdRef.current += 1;
     setReviewDiff(null);
     setReviewLoading(false);
     setReviewError(null);
@@ -336,6 +357,8 @@ export default function App() {
     setReviewBranchRefs([]);
     setReviewBranchRefsError(null);
     setCurrentBranchRef(null);
+    setUncommittedCount(0);
+    setSelectedComposerBranchRef(null);
     setWorkspaceGitAvailable(null);
     setReviewBranchComparison(null);
     setWorkspaceFiles([]);
@@ -536,8 +559,12 @@ export default function App() {
       if (event.type === "session.started") {
         setSessionsLoading(false);
 
-        if (expectingNewSessionRef.current) {
+        if (
+          expectingNewSessionRef.current ||
+          useSessionStore.getState().pendingNewRequestId
+        ) {
           expectingNewSessionRef.current = false;
+          pendingNewSessionRequestRef.current = null;
           setPendingNewRequestId(null);
           setSelectedThread(event.session.id);
           setActiveNav("New session");
@@ -551,16 +578,57 @@ export default function App() {
         return;
       }
 
-      if (event.type === "turn.completed" && selectedThread === event.sessionId) {
+      if (event.type === "error") {
+        setSessionsLoading(false);
+        const pendingRequest = pendingNewSessionRequestRef.current;
+
+        if (
+          expectingNewSessionRef.current &&
+          (!event.requestId ||
+            event.requestId === pendingRequest?.requestId ||
+            event.requestId === useSessionStore.getState().pendingNewRequestId)
+        ) {
+          expectingNewSessionRef.current = false;
+          pendingNewSessionRequestRef.current = null;
+          setPendingNewRequestId(null);
+
+          if (!event.sessionId && pendingRequest) {
+            const errorSessionId = `${pendingRequest.provider}-error-${createId()}`;
+            setSessions((current) =>
+              appendErrorMessage(
+                current,
+                undefined,
+                pendingRequest.prompt,
+                pendingRequest.provider,
+                event.message,
+                errorSessionId
+              )
+            );
+            setSelectedThread(errorSessionId);
+            setActiveNav("New session");
+            navigate(sessionRoute(errorSessionId));
+          }
+        }
+
+        return;
+      }
+
+      if (
+        event.type === "turn.completed" &&
+        (selectedThread === event.sessionId ||
+          useSessionStore.getState().selectedThread === event.sessionId)
+      ) {
         setPendingNewRequestId(null);
       }
     },
     [
       applySessionStoreAgentEvent,
       navigate,
+      pendingNewRequestId,
       selectedThread,
       setActiveNav,
       setPendingNewRequestId,
+      setSessions,
       setSelectedThread,
       setSessionsLoading
     ]
@@ -743,9 +811,28 @@ export default function App() {
       return;
     }
 
+    if (pendingNewRequestId || expectingNewSessionRef.current) {
+      return;
+    }
+
     setSelectedThread("");
     setActiveNav("New session");
-  }, [location.pathname, sessions]);
+  }, [location.pathname, pendingNewRequestId, sessions]);
+
+  useEffect(() => {
+    const route = appRouteFromPathname(location.pathname);
+
+    if (route.kind !== "new" || pendingNewRequestId || !selectedThread) {
+      return;
+    }
+
+    if (!sessions[selectedThread]) {
+      return;
+    }
+
+    setActiveNav("New session");
+    navigateAppRoute(sessionRoute(selectedThread), { replace: true });
+  }, [location.pathname, pendingNewRequestId, selectedThread, sessions]);
 
   function setClampedSidebarWidth(value: number) {
     setSidebarWidth(clampSidebarWidth(value));
@@ -851,6 +938,11 @@ export default function App() {
 
     if (!sessionId) {
       expectingNewSessionRef.current = true;
+      pendingNewSessionRequestRef.current = {
+        requestId,
+        prompt: promptWithComments,
+        provider: requestProvider
+      };
       setPendingNewRequestId(requestId);
     }
 
@@ -867,7 +959,7 @@ export default function App() {
         branch:
           sessionId || workspaceGitAvailable === false
             ? undefined
-            : currentBranchRef ?? undefined,
+            : selectedComposerBranchRef ?? currentBranchRef ?? undefined,
         permissionMode: permission,
         intelligence: activeIntelligence,
         model: activeModel,
@@ -894,6 +986,7 @@ export default function App() {
     } catch (error) {
       if (!sessionId) {
         expectingNewSessionRef.current = false;
+        pendingNewSessionRequestRef.current = null;
         setPendingNewRequestId(null);
       }
 
@@ -974,7 +1067,17 @@ export default function App() {
       setProvider(provider);
       navigateAppRoute(sessionRoute(activeSession.id), { replace: true });
     } catch (error) {
-      console.warn("Could not adopt parallel thread", error);
+      const message = error instanceof Error ? error.message : String(error);
+      console.error("Could not adopt parallel thread", error);
+      setSessions((current) =>
+        appendErrorMessage(
+          current,
+          activeSession.id,
+          `Continue with ${provider}`,
+          provider,
+          `Could not continue with this thread: ${message}`
+        )
+      );
     }
   }
 
@@ -1265,36 +1368,77 @@ export default function App() {
     }
   }
 
+  function applyReviewBranchData(data: ReviewBranchList) {
+    setReviewBranchRefs(data.branches);
+    setCurrentBranchRef(resolveCurrentBranchRef(data));
+    setUncommittedCount(
+      data.gitAvailable === false ? 0 : data.uncommittedCount ?? 0
+    );
+    setSelectedComposerBranchRef((current) =>
+      resolveSelectedBranchRef(current, data)
+    );
+    setWorkspaceGitAvailable(data.gitAvailable !== false);
+    setReviewBranchComparison((current) =>
+      resolveBranchComparison(current, data)
+    );
+  }
+
   async function loadReviewBranches() {
+    const requestId = ++reviewBranchRefsRequestIdRef.current;
     const cwd = currentCwd;
 
     if (!agentClient || !cwd) {
+      if (reviewBranchRefsRequestIdRef.current !== requestId) {
+        return;
+      }
+
       setReviewBranchRefs([]);
       setCurrentBranchRef(null);
+      setSelectedComposerBranchRef(null);
       setWorkspaceGitAvailable(null);
       setReviewBranchRefsError("Branches are available after the agent server connects.");
       setReviewBranchRefsLoading(false);
       return;
     }
 
-    setReviewBranchRefsLoading(true);
-    setReviewBranchRefsError(null);
+    // Render any cached branches for this workspace immediately and refresh in
+    // the background, so opening the dropdown never blocks on git/server I/O.
+    const cached = reviewBranchRefsCacheRef.current.get(cwd);
+
+    if (cached) {
+      applyReviewBranchData(cached);
+      setReviewBranchRefsError(null);
+      setReviewBranchRefsLoading(false);
+    } else {
+      setReviewBranchRefsLoading(true);
+      setReviewBranchRefsError(null);
+    }
 
     try {
       const data = await agentClient.loadReviewBranches(cwd);
-      setReviewBranchRefs(data.branches);
-      setCurrentBranchRef(data.gitAvailable === false ? null : data.currentRef);
-      setWorkspaceGitAvailable(data.gitAvailable !== false);
-      setReviewBranchComparison((current) => current ?? (
-        data.gitAvailable !== false && data.defaultBaseRef
-          ? { headRef: data.currentRef, baseRef: data.defaultBaseRef }
-          : null
-      ));
+
+      if (reviewBranchRefsRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      reviewBranchRefsCacheRef.current.set(cwd, data);
+      applyReviewBranchData(data);
+      setReviewBranchRefsError(null);
     } catch (error) {
+      if (reviewBranchRefsRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      // Keep showing cached branches if the background refresh failed.
+      if (cached) {
+        return;
+      }
+
       const message = error instanceof Error ? error.message : String(error);
 
       setReviewBranchRefs([]);
       setCurrentBranchRef(null);
+      setSelectedComposerBranchRef(null);
       setReviewBranchComparison(null);
 
       if (isNonGitReviewError(message)) {
@@ -1305,46 +1449,68 @@ export default function App() {
         setReviewBranchRefsError(message);
       }
     } finally {
-      setReviewBranchRefsLoading(false);
+      if (reviewBranchRefsRequestIdRef.current === requestId) {
+        setReviewBranchRefsLoading(false);
+      }
     }
   }
 
   async function selectComposerBranch(option: PromptComposerFooterOption) {
     const cwd = currentCwd;
+    const previousSelected = selectedComposerBranchRef;
+    const previousCurrent = currentBranchRef;
 
-    if (!agentClient || !cwd) {
-      setReviewBranchRefsError("Branches are available after the agent server connects.");
+    // Block switching away from a branch with uncommitted changes.
+    const blockedReason = blockedBranchSwitchReason(
+      option.id,
+      currentBranchRef,
+      uncommittedCount
+    );
+
+    if (blockedReason) {
+      pushAppError(blockedReason);
       return;
     }
 
-    if (option.id === currentBranchRef) {
-      return;
-    }
-
-    setReviewBranchRefsLoading(true);
+    // Reflect the choice immediately so the footer feels responsive.
+    setSelectedComposerBranchRef(option.id);
+    setWorkspaceGitAvailable(true);
     setReviewBranchRefsError(null);
+
+    // Without a connected agent/workspace there is nothing to switch yet; the
+    // selection is applied when the session is created.
+    if (!agentClient || !cwd || option.id === previousCurrent) {
+      reviewBranchRefsRequestIdRef.current += 1;
+      setReviewBranchRefsLoading(false);
+      return;
+    }
+
+    // Switch the workspace to the chosen branch right away, surfacing any git
+    // failure (e.g. the branch is checked out in another worktree).
+    const requestId = ++reviewBranchRefsRequestIdRef.current;
+    setReviewBranchRefsLoading(true);
 
     try {
       const data = await agentClient.checkoutBranch(cwd, option.id);
-      const nextComparison = data.defaultBaseRef
-        ? { headRef: data.currentRef, baseRef: data.defaultBaseRef }
-        : null;
 
-      setReviewBranchRefs(data.branches);
-      setCurrentBranchRef(data.gitAvailable === false ? null : data.currentRef);
-      setWorkspaceGitAvailable(data.gitAvailable !== false);
-      setReviewBranchComparison(data.gitAvailable === false ? null : nextComparison);
-
-      if (reviewScope === "branch") {
-        void loadReviewDiff({
-          scope: "branch",
-          branchComparison: nextComparison ?? undefined
-        });
+      if (reviewBranchRefsRequestIdRef.current !== requestId) {
+        return;
       }
+
+      reviewBranchRefsCacheRef.current.set(cwd, data);
+      applyReviewBranchData(data);
     } catch (error) {
-      setReviewBranchRefsError(error instanceof Error ? error.message : String(error));
+      if (reviewBranchRefsRequestIdRef.current !== requestId) {
+        return;
+      }
+
+      // Revert the optimistic selection and surface the failure as a toast.
+      setSelectedComposerBranchRef(previousSelected ?? previousCurrent ?? null);
+      pushActionError("Failed to switch branch", error);
     } finally {
-      setReviewBranchRefsLoading(false);
+      if (reviewBranchRefsRequestIdRef.current === requestId) {
+        setReviewBranchRefsLoading(false);
+      }
     }
   }
 
@@ -1566,19 +1732,26 @@ export default function App() {
         .filter((branch) => branch.kind === "local")
         .map((branch) => ({
           id: branch.name,
-          label: branch.name
+          label: branch.name,
+          detail:
+            branch.name === currentBranchRef
+              ? describeUncommitted(uncommittedCount)
+              : undefined
         })),
-    [reviewBranchRefs]
+    [reviewBranchRefs, currentBranchRef, uncommittedCount]
   );
   const branchFooterLabel =
-    workspaceGitAvailable === false ? "No branch" : currentBranchRef ?? "Branch";
+    workspaceGitAvailable === false
+      ? "No branch"
+      : selectedComposerBranchRef ?? currentBranchRef ?? "Branch";
   const sessionBranchFooterItem: PromptComposerFooterItem = {
     icon: GitBranch,
     optionIcon: GitBranch,
     label: branchFooterLabel,
     options: branchFooterOptions,
-    selectedOptionId: currentBranchRef ?? undefined,
+    selectedOptionId: selectedComposerBranchRef ?? currentBranchRef ?? undefined,
     searchPlaceholder: "Search branches",
+    showOptionDetails: true,
     emptyLabel:
       workspaceGitAvailable === false
         ? "This folder is not a git repository"
@@ -1720,6 +1893,7 @@ export default function App() {
         } as CSSProperties
       }
     >
+      <AppToasts />
       <Sidebar
         open={sidebarOpen}
         setSidebarOpen={setSidebarOpen}
@@ -1943,6 +2117,7 @@ export default function App() {
           branchRefsLoading={reviewBranchRefsLoading}
           branchRefsError={reviewBranchRefsError}
           branchComparison={reviewBranchComparison}
+          reviewComments={reviewCommentAttachments}
           selectedReviewPath={selectedReviewPath}
           filePreviewTabOpen={filePreviewTabOpen}
           filePreviewPath={filePreviewPath}
@@ -2455,10 +2630,11 @@ function appendErrorMessage(
   sessionId: string | undefined,
   prompt: string,
   provider: SessionProvider,
-  error: string
+  error: string,
+  errorSessionId?: string
 ): Record<string, SessionContent> {
   if (!sessionId || !sessions[sessionId]) {
-    const id = `${provider}-error-${createId()}`;
+    const id = errorSessionId ?? `${provider}-error-${createId()}`;
 
     return {
       ...sessions,

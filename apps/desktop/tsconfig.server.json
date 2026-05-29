@@ -26,6 +26,9 @@
     "electron/composer-session-registry.ts",
     "electron/cli-env.ts",
     "electron/patch-review.ts",
-    "src/types.ts"
+    "src/types.ts",
+    "src/state/branch-refs-cache.ts",
+    "src/state/toast-utils.ts",
+    "src/components/diff-view-data.ts"
   ]
 }

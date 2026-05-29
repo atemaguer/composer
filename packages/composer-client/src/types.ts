@@ -155,6 +155,7 @@ export type ReviewBranchList = {
   defaultBaseRef: string | null;
   branches: ReviewBranchRef[];
   gitAvailable?: boolean;
+  uncommittedCount?: number;
 };
 
 export type ProjectThread = {
@@ -440,7 +441,13 @@ export type LiveAgentEvent =
       turnId?: string;
       status: AgentSessionRuntimeStatus;
     }
-  | { id: string; type: "error"; sessionId?: string; message: string };
+  | {
+      id: string;
+      type: "error";
+      sessionId?: string;
+      requestId?: string;
+      message: string;
+    };
 
 export type ComposerChatDataTypes = {
   composer: LiveAgentEvent;

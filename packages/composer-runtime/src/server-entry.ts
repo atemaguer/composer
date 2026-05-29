@@ -14,7 +14,7 @@ export type StartComposerRuntimeServerOptions = {
 export async function startComposerRuntimeServer(
   options: StartComposerRuntimeServerOptions = {}
 ) {
-  const runtime = new AgentRuntime(loadLocalSessionList(), {
+  const runtime = new AgentRuntime(await loadLocalSessionList(), {
     loadSessionContent: loadLocalSessionContent,
     loadSessionList: loadLocalSessionList,
     persistence: localRuntimePersistence

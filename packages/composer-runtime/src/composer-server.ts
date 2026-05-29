@@ -269,16 +269,26 @@ export function createComposerServer({
           }
         };
 
-        if (sessionId) {
-          await runtime.sendMessage(
-            { sessionId, provider, prompt, cwd, settings, imageAttachments, requestId },
-            writeEvent
-          );
-        } else {
-          await runtime.createSession(
-            { provider, prompt, cwd, settings, imageAttachments, requestId, workTarget },
-            writeEvent
-          );
+        try {
+          if (sessionId) {
+            await runtime.sendMessage(
+              { sessionId, provider, prompt, cwd, settings, imageAttachments, requestId },
+              writeEvent
+            );
+          } else {
+            await runtime.createSession(
+              { provider, prompt, cwd, settings, imageAttachments, requestId, workTarget },
+              writeEvent
+            );
+          }
+        } catch (error) {
+          writeEvent({
+            id: randomUUID(),
+            type: "error",
+            sessionId,
+            requestId,
+            message: error instanceof Error ? error.message : String(error)
+          });
         }
       },
       onError: (error) => (error instanceof Error ? error.message : String(error))
@@ -331,7 +341,10 @@ export function createComposerServer({
       return;
     }
 
-    const snapshot: SessionSnapshot = runtime.adoptParallelThread(sessionId, provider);
+    const snapshot: SessionSnapshot = await runtime.adoptParallelThread(
+      sessionId,
+      provider
+    );
     writeJson(response, 200, { ok: true, snapshot });
   }
 
@@ -345,7 +358,7 @@ export function createComposerServer({
       return;
     }
 
-    const session = runtime.loadSessionContent(sessionId);
+    const session = await runtime.loadSessionContent(sessionId);
 
     if (!session) {
       writeJson(response, 404, { error: `Unknown session ${sessionId}` });

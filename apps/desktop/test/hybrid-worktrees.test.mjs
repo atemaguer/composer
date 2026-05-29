@@ -26,7 +26,7 @@ test("parallel initial creates only the Codex Composer-managed worktree", async 
     const { createCodexParallelWorktree } = await import(
       "../dist-server/server/parallel-worktrees.js"
     );
-    const worktree = createCodexParallelWorktree({
+    const worktree = await createCodexParallelWorktree({
       baseCwd: repo,
       parentSessionId: "session/one"
     });
@@ -67,7 +67,7 @@ test("parallel initial bootstraps non-git project folders", async () => {
     const { createCodexParallelWorktree } = await import(
       "../dist-server/server/parallel-worktrees.js"
     );
-    const worktree = createCodexParallelWorktree({
+    const worktree = await createCodexParallelWorktree({
       baseCwd: repo,
       parentSessionId: "session/non-git"
     });
@@ -313,7 +313,7 @@ test("parallel adoption discards the unchosen provider session before handoff", 
       projects: []
     });
 
-    const adopted = runtime.adoptParallelThread("meta-live-test", "codex")
+    const adopted = (await runtime.adoptParallelThread("meta-live-test", "codex"))
       .sessions["meta-live-test"];
 
     assert.equal(adopted.provider, "codex");
@@ -511,7 +511,7 @@ test("registered parallel sessions reload as one Composer parent session", async
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const snapshot = loadLocalSessions();
+    const snapshot = await loadLocalSessions();
 
     assert.deepEqual(Object.keys(snapshot.sessions), ["meta-live-test"]);
     assert.equal(snapshot.projects[0]?.id, sourceCwd);
@@ -590,7 +590,7 @@ test("archived Composer sessions do not reload in workspace sessions", async () 
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const snapshot = loadLocalSessions();
+    const snapshot = await loadLocalSessions();
 
     assert.deepEqual(Object.keys(snapshot.sessions), []);
     assert.deepEqual(snapshot.projects, []);
@@ -661,7 +661,7 @@ test("adopted parallel sessions reload as the chosen provider only", async () =>
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const snapshot = loadLocalSessions();
+    const snapshot = await loadLocalSessions();
     const session = snapshot.sessions["meta-live-test"];
 
     assert.deepEqual(Object.keys(snapshot.sessions), ["meta-live-test"]);
@@ -786,7 +786,7 @@ test("registered handoff sessions reload interleaved provider transcripts", asyn
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const session = loadLocalSessions().sessions["meta-live-test"];
+    const session = (await loadLocalSessions()).sessions["meta-live-test"];
 
     assert.equal(session.provider, "claude");
     assert.equal(session.renderMode, "single");
@@ -916,7 +916,7 @@ test("registered handoff sessions backfill markers from provider records", async
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const session = loadLocalSessions().sessions["meta-live-test"];
+    const session = (await loadLocalSessions()).sessions["meta-live-test"];
 
     assert.deepEqual(
       session.items.map((item) =>
@@ -960,7 +960,7 @@ test("Claude array user content reloads as the first user message", async () => 
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const snapshot = loadLocalSessions();
+    const snapshot = await loadLocalSessions();
     const session = snapshot.sessions[`claude-${sessionId}`];
 
     assert.equal(session.items[0]?.type, "user_message");
@@ -989,7 +989,7 @@ test("Codex subagent sessions render under their parent thread", async () => {
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const snapshot = loadLocalSessions();
+    const snapshot = await loadLocalSessions();
     const child = snapshot.sessions["codex-codex-child"];
     const parentThread = snapshot.projects[0]?.threads.find(
       (thread) => thread.id === "codex-codex-parent"
@@ -1018,7 +1018,7 @@ test("self-parented Codex sessions render as root sessions", async () => {
     const { loadLocalSessionList } = await import(
       "../dist-server/electron/session-loader.js"
     );
-    const snapshot = loadLocalSessionList();
+    const snapshot = await loadLocalSessionList();
     const session = snapshot.sessions["codex-codex-self-parent"];
     const projectThread = snapshot.projects[0]?.threads.find(
       (thread) => thread.id === "codex-codex-self-parent"
@@ -1061,7 +1061,7 @@ test("Codex parent threads sort by newest child activity", async () => {
     const { loadLocalSessionList } = await import(
       "../dist-server/electron/session-loader.js"
     );
-    const snapshot = loadLocalSessionList();
+    const snapshot = await loadLocalSessionList();
     const project = snapshot.projects.find((candidate) => candidate.id === cwd);
 
     assert.equal(project?.threads[0]?.id, "codex-codex-parent");
@@ -1090,8 +1090,8 @@ test("Codex standalone chat sessions do not render as project sessions", async (
       "../dist-server/electron/session-loader.js"
     );
 
-    assert.equal(loadLocalSessions().sessions["codex-codex-chat"], undefined);
-    assert.equal(loadLocalSessionList().sessions["codex-codex-chat"], undefined);
+    assert.equal((await loadLocalSessions()).sessions["codex-codex-chat"], undefined);
+    assert.equal((await loadLocalSessionList()).sessions["codex-codex-chat"], undefined);
   });
 });
 
@@ -1145,8 +1145,8 @@ test("registered Codex standalone chat sessions do not render as project session
       "../dist-server/electron/session-loader.js"
     );
 
-    assert.equal(loadLocalSessions().sessions["composer-chat"], undefined);
-    assert.equal(loadLocalSessionList().sessions["composer-chat"], undefined);
+    assert.equal((await loadLocalSessions()).sessions["composer-chat"], undefined);
+    assert.equal((await loadLocalSessionList()).sessions["composer-chat"], undefined);
   });
 });
 
@@ -1172,7 +1172,7 @@ test("Claude sidechain sessions render under their parent thread", async () => {
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const snapshot = loadLocalSessions();
+    const snapshot = await loadLocalSessions();
     const child = snapshot.sessions["claude-agent-a1"];
     const parentThread = snapshot.projects[0]?.threads.find(
       (thread) => thread.id === "claude-claude-parent"
@@ -1259,7 +1259,7 @@ test("registered Claude sidechain sessions keep native subagent metadata", async
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const snapshot = loadLocalSessions();
+    const snapshot = await loadLocalSessions();
     const child = snapshot.sessions["composer-child"];
     const parentThread = snapshot.projects[0]?.threads.find(
       (thread) => thread.id === "composer-parent"
@@ -1344,7 +1344,7 @@ test("registered Codex subagent sessions keep native subagent metadata", async (
     });
 
     const { loadLocalSessions } = await import("../dist-server/electron/session-loader.js");
-    const snapshot = loadLocalSessions();
+    const snapshot = await loadLocalSessions();
     const child = snapshot.sessions["composer-child"];
     const parentThread = snapshot.projects[0]?.threads.find(
       (thread) => thread.id === "composer-parent"
@@ -1565,9 +1565,9 @@ test("local session list defers transcript content until selected", async () => 
     const { loadLocalSessionContent, loadLocalSessionList } = await import(
       "../dist-server/electron/session-loader.js"
     );
-    const snapshot = loadLocalSessionList();
+    const snapshot = await loadLocalSessionList();
     const listed = snapshot.sessions["codex-codex-lazy"];
-    const loaded = loadLocalSessionContent("codex-codex-lazy");
+    const loaded = await loadLocalSessionContent("codex-codex-lazy");
 
     assert.equal(listed.contentLoaded, false);
     assert.equal(listed.items.length, 0);
@@ -1591,7 +1591,7 @@ test("selected local session content is not truncated", async () => {
     const { loadLocalSessionContent } = await import(
       "../dist-server/electron/session-loader.js"
     );
-    const loaded = loadLocalSessionContent("codex-codex-long");
+    const loaded = await loadLocalSessionContent("codex-codex-long");
 
     assert.equal(loaded.items.length, 146);
     assert.equal(
@@ -1716,7 +1716,7 @@ test("Claude tool results stay attached to their interleaved tool calls", async 
     const { loadLocalSessionContent } = await import(
       "../dist-server/electron/session-loader.js"
     );
-    const loaded = loadLocalSessionContent(`claude-${sessionId}`);
+    const loaded = await loadLocalSessionContent(`claude-${sessionId}`);
 
     assert.equal(loaded.items.length, 6);
     assert.deepEqual(
