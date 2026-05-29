@@ -220,6 +220,66 @@ test("archiveComposerSession marks a registry session archived", async () => {
   });
 });
 
+test("provider session file metadata is stored outside transcript scans", async () => {
+  await withTemporaryHome(async () => {
+    const {
+      deleteComposerProviderSessionFile,
+      readComposerProviderSessionFile,
+      upsertComposerProviderSessionFile,
+      upsertComposerProviderSessionFiles
+    } = await importRegistryModule();
+
+    upsertComposerProviderSessionFile({
+      provider: "codex",
+      providerSessionId: "codex-session-file",
+      filePath: "/tmp/.codex/sessions/codex-session-file.jsonl",
+      fileMtimeMs: 1234.5,
+      fileSizeBytes: 4096,
+      cwd: "/tmp/source",
+      title: "Cached transcript"
+    });
+    upsertComposerProviderSessionFiles([
+      {
+        provider: "claude",
+        providerSessionId: "claude-session-file",
+        filePath: "/tmp/.claude/projects/source/claude-session-file.jsonl"
+      }
+    ]);
+
+    assert.deepEqual(
+      pick(readComposerProviderSessionFile("codex", "codex-session-file"), [
+        "provider",
+        "providerSessionId",
+        "filePath",
+        "fileMtimeMs",
+        "fileSizeBytes",
+        "cwd",
+        "title"
+      ]),
+      {
+        provider: "codex",
+        providerSessionId: "codex-session-file",
+        filePath: "/tmp/.codex/sessions/codex-session-file.jsonl",
+        fileMtimeMs: 1234.5,
+        fileSizeBytes: 4096,
+        cwd: "/tmp/source",
+        title: "Cached transcript"
+      }
+    );
+    assert.equal(
+      readComposerProviderSessionFile("claude", "claude-session-file").filePath,
+      "/tmp/.claude/projects/source/claude-session-file.jsonl"
+    );
+
+    deleteComposerProviderSessionFile("codex", "codex-session-file");
+
+    assert.equal(
+      readComposerProviderSessionFile("codex", "codex-session-file"),
+      undefined
+    );
+  });
+});
+
 async function withTemporaryHome(callback) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "composer-session-registry-"));
   const home = path.join(root, "home");

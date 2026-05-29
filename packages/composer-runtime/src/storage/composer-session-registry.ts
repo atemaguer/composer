@@ -52,6 +52,28 @@ export type ComposerProviderSessionRecord = {
   updatedAt: string;
 };
 
+export type ComposerProviderSessionFileRecord = {
+  provider: ComposerDelegateProvider;
+  providerSessionId: string;
+  filePath: string;
+  fileMtimeMs?: number;
+  fileSizeBytes?: number;
+  cwd?: string;
+  title?: string;
+  updatedAt: string;
+};
+
+export type ComposerProviderSessionFileInput = {
+  provider: ComposerDelegateProvider;
+  providerSessionId: string;
+  filePath: string;
+  fileMtimeMs?: number;
+  fileSizeBytes?: number;
+  cwd?: string;
+  title?: string;
+  updatedAt?: string;
+};
+
 export type ComposerSessionEvent = {
   id: string;
   composerSessionId: string;
@@ -131,6 +153,15 @@ export type ComposerSessionRegistryStore = {
   adoptParallelProvider(adoption: ComposerParallelProviderAdoption): void;
   archiveSession(composerSessionId: string): boolean;
   delegateProviderSessionKeys(registry?: ComposerSessionRegistry): Set<string>;
+  readProviderSessionFile(
+    provider: ComposerDelegateProvider,
+    providerSessionId: string
+  ): ComposerProviderSessionFileRecord | undefined;
+  upsertProviderSessionFiles(records: ComposerProviderSessionFileInput[]): void;
+  deleteProviderSessionFile(
+    provider: ComposerDelegateProvider,
+    providerSessionId: string
+  ): void;
 };
 
 const MAX_EVENTS = 1_000;
@@ -151,7 +182,13 @@ export function createComposerSessionRegistryStore(
     archiveSession: (composerSessionId) =>
       archiveComposerSession(composerSessionId, options),
     delegateProviderSessionKeys: (registry) =>
-      composerDelegateProviderSessionKeys(registry ?? readComposerSessionRegistry(options))
+      composerDelegateProviderSessionKeys(registry ?? readComposerSessionRegistry(options)),
+    readProviderSessionFile: (provider, providerSessionId) =>
+      readComposerProviderSessionFile(provider, providerSessionId, options),
+    upsertProviderSessionFiles: (records) =>
+      upsertComposerProviderSessionFiles(records, options),
+    deleteProviderSessionFile: (provider, providerSessionId) =>
+      deleteComposerProviderSessionFile(provider, providerSessionId, options)
   };
 }
 
@@ -405,6 +442,64 @@ export function composerDelegateProviderSessionKeys(
   );
 }
 
+export function readComposerProviderSessionFile(
+  provider: ComposerDelegateProvider,
+  providerSessionId: string,
+  options?: ComposerSessionRegistryStoreOptions
+): ComposerProviderSessionFileRecord | undefined {
+  const db = openRegistryDatabase(options);
+
+  try {
+    return readProviderSessionFileRecord(db, provider, providerSessionId);
+  } finally {
+    db.close();
+  }
+}
+
+export function upsertComposerProviderSessionFile(
+  record: ComposerProviderSessionFileInput,
+  options?: ComposerSessionRegistryStoreOptions
+) {
+  upsertComposerProviderSessionFiles([record], options);
+}
+
+export function upsertComposerProviderSessionFiles(
+  records: ComposerProviderSessionFileInput[],
+  options?: ComposerSessionRegistryStoreOptions
+) {
+  if (records.length === 0) {
+    return;
+  }
+
+  const db = openRegistryDatabase(options);
+
+  try {
+    transaction(db, () => {
+      for (const record of records) {
+        upsertProviderSessionFileRecord(db, record);
+      }
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export function deleteComposerProviderSessionFile(
+  provider: ComposerDelegateProvider,
+  providerSessionId: string,
+  options?: ComposerSessionRegistryStoreOptions
+) {
+  const db = openRegistryDatabase(options);
+
+  try {
+    db.prepare(
+      "DELETE FROM provider_session_files WHERE provider = ? AND provider_session_id = ?"
+    ).run(provider, providerSessionId);
+  } finally {
+    db.close();
+  }
+}
+
 export function providerSessionKey(
   provider: ComposerDelegateProvider,
   providerSessionId: string
@@ -575,6 +670,36 @@ function appendEvent(
   ).run(MAX_EVENTS);
 }
 
+function upsertProviderSessionFileRecord(
+  db: DatabaseSync,
+  next: ComposerProviderSessionFileInput
+) {
+  const updatedAt = next.updatedAt ?? new Date().toISOString();
+
+  db.prepare(
+    `INSERT INTO provider_session_files (
+       provider, provider_session_id, file_path, file_mtime_ms, file_size_bytes,
+       cwd, title, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(provider, provider_session_id) DO UPDATE SET
+       file_path = excluded.file_path,
+       file_mtime_ms = excluded.file_mtime_ms,
+       file_size_bytes = excluded.file_size_bytes,
+       cwd = excluded.cwd,
+       title = excluded.title,
+       updated_at = excluded.updated_at`
+  ).run(
+    next.provider,
+    next.providerSessionId,
+    next.filePath,
+    next.fileMtimeMs ?? null,
+    next.fileSizeBytes ?? null,
+    next.cwd ?? null,
+    next.title ?? null,
+    updatedAt
+  );
+}
+
 function trimRegistry(registry: ComposerSessionRegistry): ComposerSessionRegistry {
   return {
     version: 1,
@@ -651,6 +776,17 @@ type ProviderSessionRow = {
   updated_at: string;
 };
 
+type ProviderSessionFileRow = {
+  provider: string;
+  provider_session_id: string;
+  file_path: string;
+  file_mtime_ms: number | null;
+  file_size_bytes: number | null;
+  cwd: string | null;
+  title: string | null;
+  updated_at: string;
+};
+
 type EventRow = {
   id: string;
   composer_session_id: string;
@@ -665,6 +801,18 @@ function readSessionRecords(db: DatabaseSync) {
   return (db.prepare(
     "SELECT * FROM composer_sessions ORDER BY updated_at DESC, id DESC"
   ).all() as SessionRow[]).map(sessionFromRow);
+}
+
+function readProviderSessionFileRecord(
+  db: DatabaseSync,
+  provider: ComposerDelegateProvider,
+  providerSessionId: string
+) {
+  const row = db.prepare(
+    "SELECT * FROM provider_session_files WHERE provider = ? AND provider_session_id = ?"
+  ).get(provider, providerSessionId) as ProviderSessionFileRow | undefined;
+
+  return row ? providerSessionFileFromRow(row) : undefined;
 }
 
 function readSessionRecord(db: DatabaseSync, id: string) {
@@ -740,6 +888,27 @@ function providerSessionFromRow(row: ProviderSessionRow): ComposerProviderSessio
     originalHead: row.original_head ?? undefined,
     lastContextVersion: row.last_context_version ?? undefined,
     createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function providerSessionFileFromRow(
+  row: ProviderSessionFileRow
+): ComposerProviderSessionFileRecord {
+  const provider = parseDelegateProvider(row.provider);
+
+  if (!provider) {
+    throw new Error(`Invalid provider in Composer provider session file: ${row.provider}`);
+  }
+
+  return {
+    provider,
+    providerSessionId: row.provider_session_id,
+    filePath: row.file_path,
+    fileMtimeMs: row.file_mtime_ms ?? undefined,
+    fileSizeBytes: row.file_size_bytes ?? undefined,
+    cwd: row.cwd ?? undefined,
+    title: row.title ?? undefined,
     updatedAt: row.updated_at
   };
 }
@@ -820,6 +989,18 @@ function ensureSchema(db: DatabaseSync) {
       FOREIGN KEY (composer_session_id) REFERENCES composer_sessions(id) ON DELETE CASCADE
     );
 
+    CREATE TABLE IF NOT EXISTS provider_session_files (
+      provider TEXT NOT NULL,
+      provider_session_id TEXT NOT NULL,
+      file_path TEXT NOT NULL,
+      file_mtime_ms REAL,
+      file_size_bytes INTEGER,
+      cwd TEXT,
+      title TEXT,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (provider, provider_session_id)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_composer_sessions_updated
       ON composer_sessions(updated_at DESC, id DESC);
     CREATE INDEX IF NOT EXISTS idx_composer_sessions_source_cwd
@@ -832,6 +1013,10 @@ function ensureSchema(db: DatabaseSync) {
       ON provider_sessions(lifecycle, updated_at DESC);
     CREATE INDEX IF NOT EXISTS idx_session_events_composer_timestamp
       ON session_events(composer_session_id, timestamp ASC);
+    CREATE INDEX IF NOT EXISTS idx_provider_session_files_updated
+      ON provider_session_files(updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_provider_session_files_path
+      ON provider_session_files(file_path);
   `);
 
   db.prepare(

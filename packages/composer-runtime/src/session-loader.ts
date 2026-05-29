@@ -21,8 +21,11 @@ import {
 import {
   archiveComposerSession,
   composerDelegateProviderSessionKeys,
+  deleteComposerProviderSessionFile,
   providerSessionKey,
+  readComposerProviderSessionFile,
   readComposerSessionRegistry,
+  upsertComposerProviderSessionFile,
   type ComposerProviderSessionRecord,
   type ComposerSessionEvent,
   type ComposerSessionRegistry,
@@ -979,7 +982,7 @@ async function loadCodexSessions(options: { includeItems: boolean }): Promise<Se
     const parsed = await parseCodexSession(file.fullPath, index, options);
 
     if (parsed && (!options.includeItems || parsed.items.length > 0)) {
-      cacheSessionFilePath(parsed, file.fullPath);
+      await cacheSessionFilePath(parsed, file.fullPath);
       sessions.push(parsed);
     }
   }
@@ -1322,7 +1325,7 @@ async function loadClaudeSessions(options: { includeItems: boolean }): Promise<S
     const parsed = await parseClaudeSession(file.fullPath, options);
 
     if (parsed && (!options.includeItems || parsed.items.length > 0)) {
-      cacheSessionFilePath(parsed, file.fullPath);
+      await cacheSessionFilePath(parsed, file.fullPath);
       sessions.push(parsed);
     }
   }
@@ -1842,7 +1845,7 @@ async function findSessionFile(
   }
 
   if (filePath) {
-    cacheSessionFilePath(session, filePath);
+    await cacheSessionFilePath(session, filePath);
   }
 
   return filePath;
@@ -1857,28 +1860,75 @@ async function cachedSessionFilePath(
     return undefined;
   }
 
-  const filePath = providerSessionFilePathCache.get(cacheKey);
+  let filePath = providerSessionFilePathCache.get(cacheKey);
+
+  if (!filePath) {
+    try {
+      const providerId = providerIdForSession(session);
+
+      filePath =
+        providerId && (session.provider === "codex" || session.provider === "claude")
+          ? readComposerProviderSessionFile(session.provider, providerId)?.filePath
+          : undefined;
+    } catch {
+      filePath = undefined;
+    }
+  }
 
   if (!filePath) {
     return undefined;
   }
 
   if (await pathExists(filePath)) {
+    providerSessionFilePathCache.set(cacheKey, filePath);
     return filePath;
   }
 
   providerSessionFilePathCache.delete(cacheKey);
+  try {
+    const providerId = providerIdForSession(session);
+
+    if (providerId && (session.provider === "codex" || session.provider === "claude")) {
+      deleteComposerProviderSessionFile(session.provider, providerId);
+    }
+  } catch {
+    // Persistent metadata is an optimization; stale cleanup should not block loading.
+  }
   return undefined;
 }
 
-function cacheSessionFilePath(
-  session: Pick<SessionContent, "id" | "provider" | "providerSessionId">,
+async function cacheSessionFilePath(
+  session: Pick<SessionContent, "id" | "provider" | "providerSessionId"> &
+    Partial<Pick<SessionContent, "cwd" | "title">>,
   filePath: string
 ) {
   const cacheKey = providerSessionFilePathCacheKey(session);
 
   if (cacheKey) {
     providerSessionFilePathCache.set(cacheKey, filePath);
+  }
+
+  const providerId = providerIdForSession(session);
+
+  if (!providerId || (session.provider !== "codex" && session.provider !== "claude")) {
+    return;
+  }
+
+  try {
+    const stats = await fs.stat(filePath);
+
+    upsertComposerProviderSessionFile({
+      provider: session.provider,
+      providerSessionId: providerId,
+      filePath,
+      fileMtimeMs: stats.mtimeMs,
+      fileSizeBytes: stats.size,
+      cwd: session.cwd,
+      title: session.title
+    });
+  } catch {
+    // Persistent metadata is only a fast path; transcript loading still works
+    // through provider directory scans when metadata writes fail.
   }
 }
 
