@@ -9,7 +9,7 @@
   "license": "MIT",
   "type": "module",
   "scripts": {
-    "dev": "npm --workspace @composer/runtime run build && concurrently -k \"vite --host 127.0.0.1 --port 5173 --strictPort\" \"tsc -p tsconfig.electron.json --watch\" \"tsc -p tsconfig.server.json --watch\" \"wait-on tcp:5173 file:dist-electron/main.js file:dist-server/server/index.js && electron .\"",
+    "dev": "npm --workspace @composer/runtime run build && concurrently -k -n vite,client,runtime,electron-ts,server-ts,electron \"vite --host 127.0.0.1 --port 5173 --strictPort\" \"tsc -p ../../packages/composer-client/tsconfig.json --watch --preserveWatchOutput\" \"tsc -p ../../packages/composer-runtime/tsconfig.json --watch --preserveWatchOutput\" \"tsc -p tsconfig.electron.json --watch --preserveWatchOutput\" \"tsc -p tsconfig.server.json --watch --preserveWatchOutput\" \"node scripts/dev-electron.mjs\"",
     "server:dev": "npm --workspace @composer/runtime run build && tsc -p tsconfig.server.json --watch",
     "server:build": "npm --workspace @composer/runtime run build && tsc -p tsconfig.server.json",
     "build": "npm --workspace @composer/runtime run build && tsc -p tsconfig.electron.json && tsc -p tsconfig.server.json && vite build",
