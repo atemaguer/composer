@@ -347,12 +347,7 @@ export default function App() {
     : selectedWorkspace?.cwd;
 
   useEffect(() => {
-    reviewRequestIdRef.current += 1;
     reviewBranchRefsRequestIdRef.current += 1;
-    setReviewDiff(null);
-    setReviewLoading(false);
-    setReviewError(null);
-    setSelectedReviewPath(null);
     setReviewBranchRefs([]);
     setReviewBranchRefsError(null);
     setCurrentBranchRef(null);
@@ -360,6 +355,14 @@ export default function App() {
     setSelectedComposerBranchRef(null);
     setWorkspaceGitAvailable(null);
     setReviewBranchComparison(null);
+  }, [currentCwd]);
+
+  useEffect(() => {
+    reviewRequestIdRef.current += 1;
+    setReviewDiff(null);
+    setReviewLoading(false);
+    setReviewError(null);
+    setSelectedReviewPath(null);
     setWorkspaceFiles([]);
     setWorkspaceFilesError(null);
     filePreviewRequestIdRef.current += 1;
