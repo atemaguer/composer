@@ -201,6 +201,7 @@ export type LocalSessionAction = "archive";
 const MAX_SESSIONS_PER_PROVIDER = 50;
 const MAX_TEXT_LENGTH = 4_000;
 const MAX_DETAIL_LENGTH = 520;
+const providerSessionFilePathCache = new Map<string, string>();
 
 export function loadLocalSessions(): Promise<SessionSnapshot> {
   return loadLocalSessionSnapshot({ includeItems: true });
@@ -978,6 +979,7 @@ async function loadCodexSessions(options: { includeItems: boolean }): Promise<Se
     const parsed = await parseCodexSession(file.fullPath, index, options);
 
     if (parsed && (!options.includeItems || parsed.items.length > 0)) {
+      cacheSessionFilePath(parsed, file.fullPath);
       sessions.push(parsed);
     }
   }
@@ -1320,6 +1322,7 @@ async function loadClaudeSessions(options: { includeItems: boolean }): Promise<S
     const parsed = await parseClaudeSession(file.fullPath, options);
 
     if (parsed && (!options.includeItems || parsed.items.length > 0)) {
+      cacheSessionFilePath(parsed, file.fullPath);
       sessions.push(parsed);
     }
   }
@@ -1820,19 +1823,71 @@ async function findSessionFile(
     return undefined;
   }
 
-  if (session.provider === "codex") {
-    return (await findJsonl(path.join(os.homedir(), ".codex", "sessions")))
-      .map((file) => file.fullPath)
-      .find((filePath) => codexIdFromPath(filePath) === providerId);
+  const cachedFilePath = await cachedSessionFilePath(session);
+
+  if (cachedFilePath) {
+    return cachedFilePath;
   }
 
-  if (session.provider === "claude") {
-    return (await findClaudeProjectJsonl(path.join(os.homedir(), ".claude", "projects")))
+  let filePath: string | undefined;
+
+  if (session.provider === "codex") {
+    filePath = (await findJsonl(path.join(os.homedir(), ".codex", "sessions")))
+      .map((file) => file.fullPath)
+      .find((filePath) => codexIdFromPath(filePath) === providerId);
+  } else if (session.provider === "claude") {
+    filePath = (await findClaudeProjectJsonl(path.join(os.homedir(), ".claude", "projects")))
       .map((file) => file.fullPath)
       .find((filePath) => path.basename(filePath, ".jsonl") === providerId);
   }
 
+  if (filePath) {
+    cacheSessionFilePath(session, filePath);
+  }
+
+  return filePath;
+}
+
+async function cachedSessionFilePath(
+  session: Pick<SessionContent, "id" | "provider" | "providerSessionId">
+) {
+  const cacheKey = providerSessionFilePathCacheKey(session);
+
+  if (!cacheKey) {
+    return undefined;
+  }
+
+  const filePath = providerSessionFilePathCache.get(cacheKey);
+
+  if (!filePath) {
+    return undefined;
+  }
+
+  if (await pathExists(filePath)) {
+    return filePath;
+  }
+
+  providerSessionFilePathCache.delete(cacheKey);
   return undefined;
+}
+
+function cacheSessionFilePath(
+  session: Pick<SessionContent, "id" | "provider" | "providerSessionId">,
+  filePath: string
+) {
+  const cacheKey = providerSessionFilePathCacheKey(session);
+
+  if (cacheKey) {
+    providerSessionFilePathCache.set(cacheKey, filePath);
+  }
+}
+
+function providerSessionFilePathCacheKey(
+  session: Pick<SessionContent, "id" | "provider" | "providerSessionId">
+) {
+  const providerId = providerIdForSession(session);
+
+  return providerId ? `${session.provider}:${providerId}` : undefined;
 }
 
 function providerIdForSession(
