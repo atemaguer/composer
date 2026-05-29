@@ -1,9 +1,44 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "mint",
+  "theme": "luma",
   "name": "Composer",
   "colors": {
-    "primary": "#172033"
+    "primary": "#172033",
+    "light": "#8FB7FF",
+    "dark": "#172033"
+  },
+  "logo": {
+    "light": "/images/composer-icon.png",
+    "dark": "/images/composer-icon.png",
+    "href": "https://getcomposer.dev"
+  },
+  "favicon": "/images/composer-icon.png",
+  "appearance": {
+    "default": "light"
+  },
+  "icons": {
+    "library": "lucide"
+  },
+  "navbar": {
+    "links": [
+      {
+        "label": "Home",
+        "href": "https://getcomposer.dev"
+      },
+      {
+        "label": "Blog",
+        "href": "https://getcomposer.dev/blog"
+      },
+      {
+        "label": "Changelog",
+        "href": "https://getcomposer.dev/changelog"
+      }
+    ],
+    "primary": {
+      "type": "button",
+      "label": "Download",
+      "href": "https://getcomposer.dev/api/download"
+    }
   },
   "seo": {
     "metatags": {

@@ -23,6 +23,21 @@ export default function Home() {
           prompt. Composer carries the context so you do not have to re-explain
           the work in another terminal.
         </p>
+        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
+          <a
+            className="inline-flex h-10 items-center justify-center bg-[#172033] px-5 text-sm font-semibold leading-none text-white transition hover:bg-[#2a354c]"
+            href="/api/download"
+            aria-label="Download Composer for your current platform"
+          >
+            Download Composer
+          </a>
+          <Link
+            className="inline-flex h-10 items-center justify-center border border-[#c9d2df] bg-white px-5 text-sm font-semibold leading-none text-[#172033] transition hover:border-[#9aa8bb] hover:bg-[#edf2f8]"
+            href="/docs"
+          >
+            Read the docs
+          </Link>
+        </div>
 
         <a
           className="mt-12 block w-full cursor-zoom-in"
@@ -265,6 +280,7 @@ export default function Home() {
             title="[Resources]"
             links={[
               { label: "FAQ", href: "#faq" },
+              { label: "Docs", href: "/docs" },
               { label: "Blog", href: "/blog" },
               { label: "Changelog", href: "/changelog" }
             ]}
@@ -311,9 +327,16 @@ function LandingHeader() {
         >
           FAQ
         </a>
+        <Link
+          className="rounded-full px-2.5 py-1 leading-none transition hover:bg-white hover:text-[#172033]"
+          href="/docs"
+        >
+          Docs
+        </Link>
         <HeaderMenu
           label="Resources"
           links={[
+            { label: "Docs", href: "/docs" },
             { label: "Changelog", href: "/changelog" },
             { label: "Blog", href: "/blog" },
             { label: "Contact", href: "mailto:atemjohn@stanford.edu" }
