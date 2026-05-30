@@ -1,29 +1,154 @@
 import Image from "next/image";
 import Link from "next/link";
+
 import {
-  ArrowRightLeft,
-  ClipboardX,
-  GitBranch,
-  Repeat2,
-  Split,
-  Terminal
-} from "lucide-react";
+  HeroMock,
+  ParallelMock,
+  WorkflowMock,
+  type MiniStep,
+} from "@/components/composer-mock";
+import { MobileNav } from "@/components/mobile-nav";
+import { siteConfig } from "@/lib/site";
+
+const NAV_LINKS = [
+  { label: "FAQ", href: "#faq" },
+  { label: "Docs", href: "/docs" },
+  { label: "Changelog", href: "/changelog" },
+  { label: "Blog", href: "/blog" },
+  { label: "Contact", href: "mailto:atemjohn@stanford.edu" },
+];
+
+const WORKFLOWS: Array<{
+  step: string;
+  title: string;
+  description: string;
+  outcome: string;
+  steps?: MiniStep[];
+  parallel?: boolean;
+}> = [
+  {
+    step: "01",
+    title: "Plan, then review",
+    description:
+      "Have one agent sketch the approach and the other challenge it before code changes start.",
+    outcome: "Second pass before code",
+    steps: [
+      { kind: "msg", provider: "claude", text: "Plan: extract token refresh into a guarded helper." },
+      { kind: "handoff", to: "codex" },
+      { kind: "msg", provider: "codex", text: "Reviewed — flagged a missing token-expiry case." },
+    ],
+  },
+  {
+    step: "02",
+    title: "Plan, then execute",
+    description:
+      "Hand a plan from Claude to Codex, or from Codex to Claude, and let the next agent run with it.",
+    outcome: "Another agent runs with it",
+    steps: [
+      { kind: "msg", provider: "claude", text: "Plan ready: 3 steps across auth + tests." },
+      { kind: "handoff", to: "codex" },
+      { kind: "tool", label: "Edited 3 files" },
+      { kind: "diff", file: "auth.ts", add: 24, del: 6 },
+    ],
+  },
+  {
+    step: "03",
+    title: "Start both, pick one",
+    description:
+      "Send the same first prompt to Claude and Codex, compare the first pass, then continue from the thread you trust.",
+    outcome: "Continue the better start",
+    parallel: true,
+  },
+  {
+    step: "04",
+    title: "Switch the next turn",
+    description:
+      "Send the next prompt to whichever agent fits the moment, then switch back without starting a new terminal conversation.",
+    outcome: "One working thread",
+    steps: [
+      { kind: "msg", provider: "codex", text: "Shipped the migration and ran it locally." },
+      { kind: "handoff", to: "claude" },
+      { kind: "msg", provider: "claude", text: "Next: add a rollback test for the down path." },
+    ],
+  },
+];
+
+const FAQ_ITEMS = [
+  {
+    question: "What is Composer?",
+    answer:
+      "Composer is a meta-harness that orchestrates harnesses like Codex, Claude, and others into one unified harness across shared context, sessions, and agents.",
+  },
+  {
+    question: "What does shared context mean?",
+    answer:
+      "Composer keeps the active codebase, session history, tool results, diffs, and review notes together so Codex and Claude can work from the same picture.",
+  },
+  {
+    question: "Why compose Codex and Claude?",
+    answer:
+      "Different agents are useful as independent passes on the same work. Use one to plan, another to implement, and either one to challenge the result without rebuilding context from pasted summaries.",
+  },
+  {
+    question: "How does handoff work?",
+    answer:
+      "Handoffs happen through shared sessions and thread context instead of copy-pasting summaries between separate chats. The next agent can pick up the task with the relevant state already nearby.",
+  },
+  {
+    question: "What carries across threads?",
+    answer:
+      "Composer keeps track of the workspace, previous turns, changed files, review comments, and agent outputs so follow-up work can stay grounded in the actual project.",
+  },
+  {
+    question: "What workflows does this unlock?",
+    answer:
+      "Planning with Claude and reviewing with Codex, implementing with Codex and asking Claude to critique the design, or running parallel approaches while keeping the diffs, notes, and tool output comparable.",
+  },
+];
+
+const STRUCTURED_DATA = {
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "SoftwareApplication",
+      name: siteConfig.name,
+      applicationCategory: "DeveloperApplication",
+      operatingSystem: "macOS, Windows, Linux",
+      description: siteConfig.description,
+      url: siteConfig.url,
+      offers: { "@type": "Offer", price: "0", priceCurrency: "USD" },
+    },
+    {
+      "@type": "FAQPage",
+      mainEntity: FAQ_ITEMS.map((item) => ({
+        "@type": "Question",
+        name: item.question,
+        acceptedAnswer: { "@type": "Answer", text: item.answer },
+      })),
+    },
+  ],
+};
 
 export default function Home() {
   return (
     <main className="min-h-screen bg-[#f5f7fb] text-[#172033]">
+      <script
+        type="application/ld+json"
+        // eslint-disable-next-line react/no-danger
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
+      />
       <LandingHeader />
 
-      <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-5 pb-16 pt-16 text-center sm:px-8 sm:pb-24 sm:pt-24">
-        <h1 className="max-w-5xl text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
+      <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-5 pb-16 pt-14 text-center sm:px-8 sm:pb-24 sm:pt-20">
+        <h1 className="max-w-3xl text-[1.95rem] font-semibold leading-[1.08] tracking-tight text-balance sm:text-[2.6rem]">
           Seamless Claude and Codex handoff.
         </h1>
-        <p className="mt-5 max-w-3xl text-base leading-7 text-[#657188] sm:text-lg">
+        <p className="mt-4 max-w-xl text-[13.5px] leading-6 text-[#657188] sm:text-[15px]">
           Start in Claude, continue in Codex, then switch back on the next
           prompt. Composer carries the context so you do not have to re-explain
           the work in another terminal.
         </p>
-        <div className="mt-8 flex flex-col items-center gap-3 sm:flex-row">
+        <div className="mt-7 flex flex-col items-center gap-3 sm:flex-row">
           <a
             className="inline-flex h-10 items-center justify-center bg-[#172033] px-5 text-sm font-semibold leading-none text-white transition hover:bg-[#2a354c]"
             href="/api/download"
@@ -39,51 +164,10 @@ export default function Home() {
           </Link>
         </div>
 
-        <a
-          className="mt-12 block w-full cursor-zoom-in"
-          href="#composer-screenshot"
-          aria-label="Open Composer screenshot in full view"
-        >
-          <Image
-            src="/composer-session.png"
-            alt="Composer desktop thread session"
-            width={3104}
-            height={2024}
-            className="h-auto w-full"
-            priority
-            unoptimized
-          />
-        </a>
-      </section>
-
-      <div
-        id="composer-screenshot"
-        className="pointer-events-none fixed inset-0 z-50 flex items-center justify-center bg-[#101010]/0 px-3 py-5 opacity-0 transition duration-200 target:pointer-events-auto target:bg-[#101010]/92 target:opacity-100 sm:px-8"
-        aria-label="Composer screenshot full view"
-      >
-        <a
-          className="absolute inset-0 cursor-zoom-out"
-          href="#"
-          aria-label="Close full view"
-        />
-        <div className="relative max-h-full w-full max-w-[min(96vw,1600px)]">
-          <a
-            className="absolute right-3 top-3 z-10 inline-flex size-8 items-center justify-center rounded-full bg-black/70 text-lg leading-none text-white transition hover:bg-black"
-            href="#"
-            aria-label="Close full view"
-          >
-            ×
-          </a>
-          <Image
-            src="/composer-session.png"
-            alt="Composer desktop thread session"
-            width={3104}
-            height={2024}
-            className="max-h-[92vh] w-full rounded-xl object-contain shadow-2xl"
-            unoptimized
-          />
+        <div className="mt-10 w-full">
+          <HeroMock />
         </div>
-      </div>
+      </section>
 
       <section
         id="use-cases"
@@ -92,122 +176,35 @@ export default function Home() {
         <div className="mx-auto w-full max-w-6xl">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-end">
             <div>
-              <p className="font-mono text-sm text-[#657188]">Workflows</p>
-              <h2 className="mt-5 max-w-3xl text-4xl font-semibold leading-none tracking-tight text-balance sm:text-6xl">
+              <p className="font-mono text-[13px] text-[#657188]">Workflows</p>
+              <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-tight tracking-tight text-balance sm:text-[2rem]">
                 The handoffs people already do by hand.
               </h2>
             </div>
-            <p className="max-w-xl text-base leading-7 text-[#657188] lg:justify-self-end">
+            <p className="max-w-md text-[13.5px] leading-6 text-[#657188] sm:text-[15px] lg:justify-self-end">
               Composer turns the copy-paste relay between Claude and Codex
               terminals into one continuous agent thread.
             </p>
           </div>
 
-          <div className="mt-12 bg-[#172033] p-5 text-white sm:p-6">
-            <div className="grid gap-5 lg:grid-cols-[1fr_auto_1fr_auto_minmax(220px,0.75fr)] lg:items-center">
-              <div className="bg-[#f0a07b] p-4 text-[#2d160d]">
-                <Terminal className="size-5" aria-hidden="true" />
-                <p className="mt-8 font-mono text-sm">Claude terminal</p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">
-                  Plan
-                </p>
-              </div>
-              <ArrowRightLeft
-                className="mx-auto size-5 text-[#d8dee8] max-lg:rotate-90"
-                aria-hidden="true"
-              />
-              <div className="bg-[#8fb7ff] p-4 text-[#0d1b35]">
-                <Terminal className="size-5" aria-hidden="true" />
-                <p className="mt-8 font-mono text-sm">Codex terminal</p>
-                <p className="mt-2 text-2xl font-semibold tracking-tight">
-                  Review
-                </p>
-              </div>
-              <div className="hidden h-24 w-px bg-white/14 lg:block" />
-              <div className="grid gap-3 border border-white/12 bg-white/5 p-4">
-                <div className="flex items-center gap-3 text-[#d8dee8]">
-                  <ClipboardX
-                    className="size-5 text-[#ffb4a0]"
-                    aria-hidden="true"
-                  />
-                  <span className="font-mono text-sm">No pasted summary</span>
-                </div>
-                <p className="text-sm leading-6 text-[#aab4c3]">
-                  Same task, next agent, no terminal-to-terminal reconstruction.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-4 md:grid-cols-2">
-            {[
-              {
-                step: "01",
-                title: "Plan, then review",
-                left: "Plan",
-                right: "Review",
-                description:
-                  "Have one agent sketch the approach and the other challenge it before code changes start.",
-                outcome: "Second pass before code",
-                Icon: GitBranch,
-                color: "bg-[#f0a07b]"
-              },
-              {
-                step: "02",
-                title: "Plan, then execute",
-                left: "Plan",
-                right: "Execute",
-                description:
-                  "Hand a plan from Claude to Codex, or from Codex to Claude, and let the next agent run with it.",
-                outcome: "Another agent runs with it",
-                Icon: ArrowRightLeft,
-                color: "bg-[#8fb7ff]"
-              },
-              {
-                step: "03",
-                title: "Start both, pick one",
-                left: "First pass",
-                right: "First pass",
-                description:
-                  "Send the same first prompt to Claude and Codex, compare the first pass, then continue from the thread you trust.",
-                outcome: "Continue the better start",
-                Icon: Split,
-                color: "bg-[#9ee6b4]"
-              },
-              {
-                step: "04",
-                title: "Switch the next turn",
-                left: "Next prompt",
-                right: "Switch back",
-                description:
-                  "Send the next prompt to whichever agent fits the moment, then switch back without starting a new terminal conversation.",
-                outcome: "One working thread",
-                Icon: Repeat2,
-                color: "bg-[#d9b7ff]"
-              }
-            ].map((item) => (
+          <div className="mt-12 grid gap-4 md:grid-cols-2">
+            {WORKFLOWS.map((item) => (
               <article
                 key={item.title}
-                className="group grid gap-5 bg-white p-5 shadow-[inset_0_0_0_1px_rgba(23,32,51,0.08)] transition hover:shadow-[inset_0_0_0_1px_rgba(23,32,51,0.18)]"
+                className="group flex flex-col gap-5 bg-white p-5 shadow-[inset_0_0_0_1px_rgba(23,32,51,0.08)] transition hover:shadow-[inset_0_0_0_1px_rgba(23,32,51,0.18)]"
               >
-                <div className="flex items-start gap-4">
-                  <div
-                    className={`${item.color} flex size-12 shrink-0 items-center justify-center text-[#172033]`}
-                  >
-                    <item.Icon className="size-5" aria-hidden="true" />
-                  </div>
-                  <div className="flex items-center gap-3 font-mono text-sm text-[#657188]">
-                    <span>{item.step}</span>
-                    <span>{item.left}</span>
-                    <span aria-hidden="true">→</span>
-                    <span>{item.right}</span>
-                  </div>
+                <div className="flex items-center gap-3 font-mono text-sm text-[#657188]">
+                  <span>{item.step}</span>
+                  <span aria-hidden="true">/</span>
+                  <span className="text-[#172033]">{item.title}</span>
                 </div>
-                <div>
-                  <h3 className="mt-2 text-2xl font-semibold tracking-tight text-balance">
-                    {item.title}
-                  </h3>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-[#657188]">
+                {item.parallel ? (
+                  <ParallelMock />
+                ) : (
+                  <WorkflowMock steps={item.steps ?? []} />
+                )}
+                <div className="mt-auto">
+                  <p className="max-w-xl text-sm leading-6 text-[#657188]">
                     {item.description}
                   </p>
                   <div className="mt-4 inline-flex bg-[#f5f7fb] px-3 py-2 font-mono text-sm text-[#172033]">
@@ -229,38 +226,7 @@ export default function Home() {
             FAQ
           </h2>
           <div className="mt-8 grid gap-8 sm:grid-cols-2">
-            {[
-              {
-                question: "What is Composer?",
-                answer:
-                  "Composer is a meta-harness that orchestrates harnesses like Codex, Claude, and others into one unified harness across shared context, sessions, and agents."
-              },
-              {
-                question: "What does shared context mean?",
-                answer:
-                  "Composer keeps the active codebase, session history, tool results, diffs, and review notes together so Codex and Claude can work from the same picture."
-              },
-              {
-                question: "Why compose Codex and Claude?",
-                answer:
-                  "Different agents are useful as independent passes on the same work. Use one to plan, another to implement, and either one to challenge the result without rebuilding context from pasted summaries."
-              },
-              {
-                question: "How does handoff work?",
-                answer:
-                  "Handoffs happen through shared sessions and thread context instead of copy-pasting summaries between separate chats. The next agent can pick up the task with the relevant state already nearby."
-              },
-              {
-                question: "What carries across threads?",
-                answer:
-                  "Composer keeps track of the workspace, previous turns, changed files, review comments, and agent outputs so follow-up work can stay grounded in the actual project."
-              },
-              {
-                question: "What workflows does this unlock?",
-                answer:
-                  "Planning with Claude and reviewing with Codex, implementing with Codex and asking Claude to critique the design, or running parallel approaches while keeping the diffs, notes, and tool output comparable."
-              }
-            ].map((item) => (
+            {FAQ_ITEMS.map((item) => (
               <div key={item.question}>
                 <h3 className="text-base font-semibold text-[#172033]">
                   {item.question}
