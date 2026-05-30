@@ -1,30 +1,47 @@
 @import "tailwindcss";
 
+/* ----------------------------------------------------------------------
+   Visual identity: "warm ink on paper" — an editorial developer-tool look.
+   The accent (terracotta) echoes the Claude mark inside the dark app mocks,
+   so the specimens feel native to the page rather than dropped onto SaaS gray.
+---------------------------------------------------------------------- */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+
+  --paper: #f7f4ee;
+  --paper-2: #f1ede3;
+  --paper-3: #ebe5d8;
+  --ink: #191b20;
+  --ink-soft: #595d68;
+  --ink-faint: #8d909b;
+  --line: #e5dfd3;
+  --line-strong: #d9d1c2;
+  --accent: #cf5b34;
+  --accent-deep: #b1481f;
+  --accent-soft: #f0d6c8;
+  --paper-dark: #181511;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-background: var(--paper);
+  --color-foreground: var(--ink);
+  --color-paper: var(--paper);
+  --color-paper-2: var(--paper-2);
+  --color-paper-3: var(--paper-3);
+  --color-ink: var(--ink);
+  --color-ink-soft: var(--ink-soft);
+  --color-ink-faint: var(--ink-faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-accent-deep: var(--accent-deep);
+  --color-accent-soft: var(--accent-soft);
+  --color-paper-dark: var(--paper-dark);
   --font-sans: CursorGothic, "CursorGothic Fallback", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
   --font-mono: CursorGothic, "CursorGothic Fallback", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
-}
-
-/* The marketing site is intentionally a single light theme; the app mock
-   carries its own dark "window" surface, so we pin color-scheme to light to
-   keep form controls, scrollbars, and OS theming consistent. */
-:root {
-  color-scheme: light;
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-cursor-gothic), system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
-  font-size: 16px;
-  line-height: 24px;
 }
 
 html {
@@ -33,17 +50,101 @@ html {
   line-height: 24px;
 }
 
+body {
+  position: relative;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-cursor-gothic), system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Atmosphere: a soft warm/cool gradient mesh that blooms from the edges. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(52% 42% at 16% 26%, rgba(207, 91, 52, 0.12), transparent 66%),
+    radial-gradient(46% 40% at 94% 30%, rgba(73, 96, 168, 0.07), transparent 70%),
+    radial-gradient(80% 55% at 50% 108%, rgba(207, 91, 52, 0.06), transparent 72%);
+}
+
+/* Fine film grain so flat areas read as paper, not plastic. */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.04;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+
 a {
   text-underline-offset: 4px;
 }
 
 ::selection {
-  background: #b8ffca;
-  color: #101217;
+  background: var(--accent-soft);
+  color: var(--accent-deep);
 }
 
-.hero-stage {
-  background: #08090b;
+/* Mono eyebrow / index labels — a true monospace adds technical texture
+   without changing the brand grotesk used everywhere else. */
+.eyebrow {
+  font-family: ui-monospace, "SF Mono", "SFMono-Regular", Menlo, monospace;
+  font-size: 11px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+}
+
+/* Faint blueprint grid used behind the hero specimen. */
+.blueprint-grid {
+  background-image:
+    linear-gradient(to right, rgba(25, 27, 32, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(25, 27, 32, 0.05) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: radial-gradient(70% 70% at 50% 40%, #000 35%, transparent 78%);
+  -webkit-mask-image: radial-gradient(70% 70% at 50% 40%, #000 35%, transparent 78%);
+}
+
+/* ---- Motion: one orchestrated load + scroll-driven section reveals ---- */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .load-up {
+    animation: fadeUp 0.8s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  }
+  .load-1 { animation-delay: 0.04s; }
+  .load-2 { animation-delay: 0.12s; }
+  .load-3 { animation-delay: 0.2s; }
+  .load-4 { animation-delay: 0.3s; }
+  .load-5 { animation-delay: 0.44s; }
+
+  /* Scroll reveals only where scroll-timeline is supported; otherwise the
+     content stays visible (no JS, no hidden-content risk). */
+  @supports (animation-timeline: view()) {
+    .reveal {
+      animation: fadeUp linear both;
+      animation-timeline: view();
+      animation-range: entry 2% cover 26%;
+    }
+  }
 }
 
 @keyframes composerSessionIn {
