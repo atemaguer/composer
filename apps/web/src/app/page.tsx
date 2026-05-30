@@ -131,7 +131,7 @@ const STRUCTURED_DATA = {
 
 export default function Home() {
   return (
-    <main className="min-h-screen bg-[#f5f7fb] text-[#172033]">
+    <main className="relative z-10 min-h-screen text-ink">
       <script
         type="application/ld+json"
         // eslint-disable-next-line react/no-danger
@@ -139,64 +139,73 @@ export default function Home() {
       />
       <LandingHeader />
 
-      <section className="mx-auto flex w-full max-w-6xl flex-col items-center px-5 pb-16 pt-14 text-center sm:px-8 sm:pb-24 sm:pt-20">
-        <h1 className="max-w-3xl text-[1.95rem] font-semibold leading-[1.08] tracking-tight text-balance sm:text-[2.6rem]">
+      <section className="relative mx-auto flex w-full max-w-6xl flex-col items-center px-5 pb-20 pt-16 text-center sm:px-8 sm:pb-28 sm:pt-20">
+        <h1 className="load-up load-1 max-w-3xl text-[2rem] font-semibold leading-[1.05] tracking-[-0.02em] text-balance text-ink sm:text-[2.7rem]">
           Seamless Claude and Codex handoff.
         </h1>
-        <p className="mt-4 max-w-xl text-[13.5px] leading-6 text-[#657188] sm:text-[15px]">
+        <p className="load-up load-2 mt-5 max-w-xl text-[14px] leading-6 text-ink-soft sm:text-[15px]">
           Start in Claude, continue in Codex, then switch back on the next
           prompt. Composer carries the context so you do not have to re-explain
           the work in another terminal.
         </p>
-        <div className="mt-7 flex flex-col items-center gap-3 sm:flex-row">
+        <div className="load-up load-3 mt-8 flex flex-col items-center gap-3 sm:flex-row">
           <a
-            className="inline-flex h-10 items-center justify-center bg-[#172033] px-5 text-sm font-semibold leading-none text-white transition hover:bg-[#2a354c]"
+            className="inline-flex h-11 items-center justify-center bg-ink px-6 text-[13.5px] font-semibold leading-none text-paper transition-colors duration-200 hover:bg-accent-deep"
             href="/api/download"
             aria-label="Download Composer for your current platform"
           >
             Download Composer
           </a>
           <Link
-            className="inline-flex h-10 items-center justify-center border border-[#c9d2df] bg-white px-5 text-sm font-semibold leading-none text-[#172033] transition hover:border-[#9aa8bb] hover:bg-[#edf2f8]"
+            className="inline-flex h-11 items-center justify-center border border-line-strong bg-paper/70 px-6 text-[13.5px] font-semibold leading-none text-ink transition-colors duration-200 hover:border-ink hover:bg-paper-2"
             href="/docs"
           >
             Read the docs
           </Link>
         </div>
 
-        <div className="mt-10 w-full">
-          <HeroMock />
+        <div className="load-up load-5 relative mt-14 w-full">
+          <div className="blueprint-grid pointer-events-none absolute -inset-x-6 -top-12 bottom-10 sm:-inset-x-14" />
+          <div className="pointer-events-none absolute inset-x-16 -top-10 h-52 bg-[radial-gradient(58%_120%_at_50%_0%,rgba(207,91,52,0.22),transparent_70%)]" />
+          <div className="relative [filter:drop-shadow(0_48px_70px_rgba(24,21,17,0.22))]">
+            <HeroMock />
+          </div>
         </div>
       </section>
 
       <section
         id="use-cases"
-        className="bg-[#eaf0f8] px-5 py-16 text-[#172033] sm:px-8 sm:py-24"
+        className="relative border-y border-line bg-paper-2 px-5 py-20 text-ink sm:px-8 sm:py-28"
       >
         <div className="mx-auto w-full max-w-6xl">
           <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-end">
-            <div>
-              <p className="font-mono text-[13px] text-[#657188]">Workflows</p>
-              <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-tight tracking-tight text-balance sm:text-[2rem]">
+            <div className="reveal">
+              <p className="eyebrow flex items-center gap-2 text-accent">
+                <span className="inline-block h-px w-6 bg-accent" aria-hidden="true" />
+                Workflows
+              </p>
+              <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-tight tracking-[-0.01em] text-balance sm:text-[2rem]">
                 The handoffs people already do by hand.
               </h2>
             </div>
-            <p className="max-w-md text-[13.5px] leading-6 text-[#657188] sm:text-[15px] lg:justify-self-end">
+            <p className="reveal max-w-md text-[14px] leading-6 text-ink-soft sm:text-[15px] lg:justify-self-end">
               Composer turns the copy-paste relay between Claude and Codex
               terminals into one continuous agent thread.
             </p>
           </div>
 
-          <div className="mt-12 grid gap-4 md:grid-cols-2">
+          <div className="mt-14 grid gap-5 md:grid-cols-2">
             {WORKFLOWS.map((item) => (
               <article
                 key={item.title}
-                className="group flex flex-col gap-5 bg-white p-5 shadow-[inset_0_0_0_1px_rgba(23,32,51,0.08)] transition hover:shadow-[inset_0_0_0_1px_rgba(23,32,51,0.18)]"
+                className="reveal group flex flex-col gap-5 rounded-2xl border border-line bg-paper p-5 shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_18px_40px_-30px_rgba(24,21,17,0.4)] transition duration-300 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_28px_55px_-28px_rgba(24,21,17,0.45)]"
               >
-                <div className="flex items-center gap-3 font-mono text-sm text-[#657188]">
-                  <span>{item.step}</span>
-                  <span aria-hidden="true">/</span>
-                  <span className="text-[#172033]">{item.title}</span>
+                <div className="flex items-center gap-3">
+                  <span className="eyebrow text-accent">{item.step}</span>
+                  <span className="h-3 w-px bg-line-strong" aria-hidden="true" />
+                  <span className="text-[15px] font-semibold tracking-tight text-ink">
+                    {item.title}
+                  </span>
                 </div>
                 {item.parallel ? (
                   <ParallelMock />
@@ -204,10 +213,11 @@ export default function Home() {
                   <WorkflowMock steps={item.steps ?? []} />
                 )}
                 <div className="mt-auto">
-                  <p className="max-w-xl text-sm leading-6 text-[#657188]">
+                  <p className="max-w-xl text-[14px] leading-6 text-ink-soft">
                     {item.description}
                   </p>
-                  <div className="mt-4 inline-flex bg-[#f5f7fb] px-3 py-2 font-mono text-sm text-[#172033]">
+                  <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-line-strong bg-paper-2 px-3 py-1.5 font-mono text-[12px] text-ink-soft">
+                    <span className="size-1 rounded-full bg-accent" aria-hidden="true" />
                     {item.outcome}
                   </div>
                 </div>
@@ -219,44 +229,65 @@ export default function Home() {
 
       <section
         id="faq"
-        className="mx-auto w-full max-w-6xl px-5 pb-16 sm:px-8 sm:pb-24"
+        className="mx-auto w-full max-w-6xl px-5 py-20 sm:px-8 sm:py-28"
       >
-        <div className="border-t border-[#d8dee8] pt-12">
-          <h2 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            FAQ
-          </h2>
-          <div className="mt-8 grid gap-8 sm:grid-cols-2">
-            {FAQ_ITEMS.map((item) => (
-              <div key={item.question}>
-                <h3 className="text-base font-semibold text-[#172033]">
+        <h2 className="reveal flex items-center gap-3 text-2xl font-semibold tracking-[-0.01em] text-ink sm:text-[2rem]">
+          <span className="inline-block h-5 w-1 rounded-full bg-accent" aria-hidden="true" />
+          FAQ
+        </h2>
+        <div className="mt-10 grid gap-x-14 gap-y-2 sm:grid-cols-2">
+          {FAQ_ITEMS.map((item, index) => (
+            <div
+              key={item.question}
+              className="reveal flex gap-4 border-t border-line py-5"
+            >
+              <span className="eyebrow mt-1 shrink-0 text-accent">
+                {String(index + 1).padStart(2, "0")}
+              </span>
+              <div>
+                <h3 className="text-[15px] font-semibold text-ink">
                   {item.question}
                 </h3>
-                <p className="mt-2 text-sm leading-6 text-[#657188]">
+                <p className="mt-2 text-[14px] leading-6 text-ink-soft">
                   {item.answer}
                 </p>
               </div>
-            ))}
-          </div>
+            </div>
+          ))}
         </div>
       </section>
 
-      <footer className="bg-[#1f1c1a] text-[#d6d0cb]">
-        <div className="mx-auto grid w-full max-w-6xl gap-12 px-5 py-14 text-sm sm:grid-cols-2 sm:px-8 sm:py-16">
-          <FooterColumn
-            title="[Resources]"
-            links={[
-              { label: "FAQ", href: "#faq" },
-              { label: "Docs", href: "/docs" },
-              { label: "Blog", href: "/blog" },
-              { label: "Changelog", href: "/changelog" }
-            ]}
-          />
-          <FooterColumn
-            title="[Connect]"
-            links={[{ label: "Email", href: "mailto:atemjohn@stanford.edu" }]}
-          />
+      <footer className="relative z-10 border-t border-line bg-paper-dark text-[#cdc6bb]">
+        <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-5 py-16 text-sm sm:flex-row sm:items-start sm:justify-between sm:px-8">
+          <div className="flex items-center gap-2.5">
+            <Image
+              src="/composer-icon.png"
+              alt=""
+              width={28}
+              height={28}
+              className="size-7 rounded-md"
+            />
+            <span className="text-[15px] font-semibold tracking-tight text-[#f4efe6]">
+              Composer
+            </span>
+          </div>
+          <div className="grid gap-12 sm:grid-cols-2 sm:gap-16">
+            <FooterColumn
+              title="[Resources]"
+              links={[
+                { label: "FAQ", href: "#faq" },
+                { label: "Docs", href: "/docs" },
+                { label: "Blog", href: "/blog" },
+                { label: "Changelog", href: "/changelog" }
+              ]}
+            />
+            <FooterColumn
+              title="[Connect]"
+              links={[{ label: "Email", href: "mailto:atemjohn@stanford.edu" }]}
+            />
+          </div>
         </div>
-        <div className="mx-auto w-full max-w-6xl px-5 pb-8 text-sm text-[#8f8984] sm:px-8">
+        <div className="mx-auto w-full max-w-6xl border-t border-white/10 px-5 py-6 font-mono text-[12px] text-[#857d72] sm:px-8">
           © 2026 Composer
         </div>
       </footer>
@@ -266,58 +297,63 @@ export default function Home() {
 
 function LandingHeader() {
   return (
-    <header className="mx-auto flex w-full max-w-6xl items-center justify-between gap-5 px-5 py-5 text-sm sm:px-8">
-      <Link
-        className="flex shrink-0 items-center gap-3"
-        href="/"
-        aria-label="Composer home"
-      >
-        <Image
-          src="/composer-icon.png"
-          alt=""
-          width={32}
-          height={32}
-          className="size-8 rounded-md"
-          priority
-        />
-        <span className="text-base font-semibold tracking-tight">Composer</span>
-      </Link>
-
-      <nav
-        className="hidden flex-1 items-center justify-center gap-1 font-medium text-[#4c586d] md:flex"
-        aria-label="Primary navigation"
-      >
-        <a
-          className="rounded-full px-2.5 py-1 leading-none transition hover:bg-white hover:text-[#172033]"
-          href="#faq"
-        >
-          FAQ
-        </a>
+    <header className="sticky top-0 z-50 bg-paper/60 backdrop-blur-md">
+      <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-5 px-5 py-3.5 text-sm sm:px-8">
         <Link
-          className="rounded-full px-2.5 py-1 leading-none transition hover:bg-white hover:text-[#172033]"
-          href="/docs"
+          className="flex shrink-0 items-center gap-2.5"
+          href="/"
+          aria-label="Composer home"
         >
-          Docs
+          <Image
+            src="/composer-icon.png"
+            alt=""
+            width={32}
+            height={32}
+            className="size-7 rounded-md ring-1 ring-line-strong"
+            priority
+          />
+          <span className="text-[15px] font-semibold tracking-tight text-ink">
+            Composer
+          </span>
         </Link>
-        <HeaderMenu
-          label="Resources"
-          links={[
-            { label: "Docs", href: "/docs" },
-            { label: "Changelog", href: "/changelog" },
-            { label: "Blog", href: "/blog" },
-            { label: "Contact", href: "mailto:atemjohn@stanford.edu" }
-          ]}
-        />
-      </nav>
 
-      <div className="flex shrink-0 items-center gap-2 font-medium">
-        <a
-          className="inline-flex h-8 items-center justify-center rounded-full bg-[#172033] px-3.5 leading-none text-white transition hover:bg-[#2a354c]"
-          href="/api/download"
-          aria-label="Download Composer for your current platform"
+        <nav
+          className="hidden flex-1 items-center justify-center gap-1 font-medium text-ink-soft md:flex"
+          aria-label="Primary navigation"
         >
-          Download
-        </a>
+          <a
+            className="rounded-full px-3 py-1.5 leading-none transition-colors hover:bg-ink/5 hover:text-ink"
+            href="#faq"
+          >
+            FAQ
+          </a>
+          <Link
+            className="rounded-full px-3 py-1.5 leading-none transition-colors hover:bg-ink/5 hover:text-ink"
+            href="/docs"
+          >
+            Docs
+          </Link>
+          <HeaderMenu
+            label="Resources"
+            links={[
+              { label: "Docs", href: "/docs" },
+              { label: "Changelog", href: "/changelog" },
+              { label: "Blog", href: "/blog" },
+              { label: "Contact", href: "mailto:atemjohn@stanford.edu" }
+            ]}
+          />
+        </nav>
+
+        <div className="flex shrink-0 items-center gap-2 font-medium">
+          <MobileNav links={NAV_LINKS} />
+          <a
+            className="inline-flex h-8 items-center justify-center rounded-full bg-ink px-4 leading-none text-paper transition-colors hover:bg-accent-deep"
+            href="/api/download"
+            aria-label="Download Composer for your current platform"
+          >
+            Download
+          </a>
+        </div>
       </div>
     </header>
   );
@@ -335,21 +371,21 @@ function HeaderMenu({ label, links }: HeaderMenuProps) {
   return (
     <div className="group relative">
       <button
-        className="flex items-center gap-1 rounded-full px-2.5 py-1 leading-none transition hover:bg-white hover:text-[#172033]"
+        className="flex items-center gap-1 rounded-full px-3 py-1.5 leading-none transition-colors hover:bg-ink/5 hover:text-ink"
         type="button"
       >
         {label}
-        <span className="text-xs text-[#8b95a5]" aria-hidden="true">
+        <span className="text-xs text-ink-faint" aria-hidden="true">
           ↓
         </span>
       </button>
       <div className="invisible absolute left-0 top-full z-20 min-w-44 pt-2 opacity-0 transition group-hover:visible group-hover:opacity-100">
-        <div className="grid gap-1 rounded-xl border border-[#d8dee8] bg-white p-2 shadow-xl shadow-[#172033]/10">
+        <div className="grid gap-1 rounded-xl border border-line-strong bg-paper p-2 shadow-[0_20px_45px_-20px_rgba(24,21,17,0.35)]">
           {links.map((link) =>
             link.href.startsWith("/") && !link.href.startsWith("/api/") ? (
               <Link
                 key={`${label}-${link.href}`}
-                className="rounded-lg px-2.5 py-1 leading-none text-[#4c586d] transition hover:bg-[#f5f7fb] hover:text-[#172033]"
+                className="rounded-lg px-2.5 py-1.5 leading-none text-ink-soft transition-colors hover:bg-paper-2 hover:text-accent-deep"
                 href={link.href}
               >
                 {link.label}
@@ -357,7 +393,7 @@ function HeaderMenu({ label, links }: HeaderMenuProps) {
             ) : (
               <a
                 key={`${label}-${link.href}`}
-                className="rounded-lg px-2.5 py-1 leading-none text-[#4c586d] transition hover:bg-[#f5f7fb] hover:text-[#172033]"
+                className="rounded-lg px-2.5 py-1.5 leading-none text-ink-soft transition-colors hover:bg-paper-2 hover:text-accent-deep"
                 href={link.href}
               >
                 {link.label}
@@ -381,14 +417,14 @@ type FooterColumnProps = {
 function FooterColumn({ title, links }: FooterColumnProps) {
   return (
     <div>
-      <h2 className="font-mono text-sm tracking-wide text-[#8f8984]">
+      <h2 className="font-mono text-[12px] uppercase tracking-[0.16em] text-accent/80">
         {title}
       </h2>
       <nav className="mt-5 grid gap-3" aria-label={title}>
         {links.map((link) => (
           <a
             key={`${link.href}-${link.label}`}
-            className="font-mono text-sm transition hover:text-white"
+            className="w-fit font-mono text-[13px] text-[#cdc6bb] transition-colors hover:text-[#f4efe6]"
             href={link.href}
           >
             {link.label}
