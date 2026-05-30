@@ -1306,7 +1306,7 @@ function ReviewDiffPreview({
   onRefresh?: () => void;
 }) {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
-    () => reviewFilePathSet(review?.files)
+    () => initialExpandedPaths(review?.files, selectedPath)
   );
 
   useEffect(() => {
@@ -1315,8 +1315,27 @@ function ReviewDiffPreview({
       return;
     }
 
-    setExpandedPaths(reviewFilePathSet(review.files));
+    // Only expand the selected (or first) file by default. Collapsed files keep
+    // their DiffView unmounted, so we avoid an async disk read + parse per file
+    // on every refresh. Other files can still be expanded on click.
+    setExpandedPaths(initialExpandedPaths(review.files, selectedPath));
   }, [review?.generatedAt, reviewScope, selectedPath]);
+
+  // Stable so memoized DiffFileSection rows don't re-render when a sibling
+  // toggles or comments change.
+  const togglePath = useCallback((path: string) => {
+    setExpandedPaths((current) => {
+      const next = new Set(current);
+
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+
+      return next;
+    });
+  }, []);
 
   if (loading) {
     return (
@@ -1376,19 +1395,7 @@ function ReviewDiffPreview({
           file={file}
           comments={comments}
           expanded={expandedPaths.has(file.path)}
-          onToggle={() => {
-            setExpandedPaths((current) => {
-              const next = new Set(current);
-
-              if (next.has(file.path)) {
-                next.delete(file.path);
-              } else {
-                next.add(file.path);
-              }
-
-              return next;
-            });
-          }}
+          onToggle={togglePath}
           onAddReviewComment={onAddReviewComment}
         />
       ))}
@@ -1441,11 +1448,26 @@ function orderReviewFiles(files: ReviewDiffFile[], selectedPath?: string | null)
   return [selectedFile, ...files.filter((file) => file.path !== selectedPath)];
 }
 
-function reviewFilePathSet(files: readonly ReviewDiffFile[] | undefined) {
-  return new Set(files?.map((file) => file.path) ?? []);
+// Default to expanding a single file (the selected one, otherwise the first).
+// Keeping the rest collapsed leaves their DiffView unmounted, avoiding a disk
+// read + diff parse per file until the user expands it.
+function initialExpandedPaths(
+  files: readonly ReviewDiffFile[] | undefined,
+  selectedPath?: string | null
+): Set<string> {
+  if (!files?.length) {
+    return new Set();
+  }
+
+  const initialPath =
+    (selectedPath && files.some((file) => file.path === selectedPath)
+      ? selectedPath
+      : null) ?? files[0].path;
+
+  return new Set([initialPath]);
 }
 
-function DiffFileSection({
+const DiffFileSection = memo(function DiffFileSection({
   cwd,
   file,
   comments,
@@ -1457,7 +1479,7 @@ function DiffFileSection({
   file: ReviewDiffFile;
   comments?: ReadonlyArray<ComposerReviewCommentAttachment>;
   expanded: boolean;
-  onToggle: () => void;
+  onToggle: (path: string) => void;
   onAddReviewComment?: (attachment: Omit<ComposerReviewCommentAttachment, "id">) => void;
 }) {
   return (
@@ -1469,7 +1491,7 @@ function DiffFileSection({
         )}
         type="button"
         aria-expanded={expanded}
-        onClick={onToggle}
+        onClick={() => onToggle(file.path)}
       >
         <span className="truncate">{file.path}</span>
         <span className="whitespace-nowrap text-[14px] font-medium">
@@ -1492,7 +1514,7 @@ function DiffFileSection({
       )}
     </section>
   );
-}
+});
 
 function FilePreviewLoading() {
   return (

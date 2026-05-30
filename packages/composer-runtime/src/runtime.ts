@@ -174,6 +174,10 @@ export class AgentRuntime {
   private monitoredParentSessionIds = new Set<string>();
   private localSessionFingerprints = new Map<string, string>();
   private localSubagentSourceFingerprints = new Map<string, string>();
+  // Last on-disk freshness signal (transcript mtime, surfaced as updatedAt by
+  // the list walk) seen for each monitored subagent. Lets each poll tick skip
+  // the expensive full-transcript re-read when the file has not changed.
+  private localSubagentSourceMtimes = new Map<string, string>();
   private persistence: RuntimePersistence;
 
   constructor(snapshot: SessionSnapshot, options: AgentRuntimeOptions = {}) {
@@ -308,7 +312,18 @@ export class AgentRuntime {
     session.originalBranch = workspace.worktree?.originalBranch;
     session.originalHead = workspace.worktree?.originalHead;
     session.updatedAt = new Date().toISOString();
-    this.emitToSink(sink, { id: randomUUID(), type: "session.updated", session });
+    // The session was just broadcast in full via `session.started`; only
+    // workspace metadata changed here, so emit a targeted patch. The runtime
+    // keeps the same in-memory object and persistence runs via `apply`.
+    this.emitToSink(sink, {
+      id: randomUUID(),
+      type: "session.patch",
+      sessionId: session.id,
+      cwd: session.cwd,
+      worktreePath: session.worktreePath,
+      worktreeBranch: session.worktreeBranch,
+      updatedAt: session.updatedAt
+    });
 
     this.startProviderRun(request.provider, {
       sessionId: id,
@@ -352,13 +367,16 @@ export class AgentRuntime {
       session.cwd = request.cwd;
     }
     session.model = providerModel(provider, request.settings.model);
-    session.items.push({
-      id: `${session.id}-user-${session.items.length}`,
-      type: "user_message",
-      body: request.prompt,
-      timestamp: formatTime(new Date())
-    });
-    session.items.push(...attachmentItems(session.id, request.imageAttachments));
+    const appendedItems: ConversationItem[] = [
+      {
+        id: `${session.id}-user-${session.items.length}`,
+        type: "user_message",
+        body: request.prompt,
+        timestamp: formatTime(new Date())
+      },
+      ...attachmentItems(session.id, request.imageAttachments)
+    ];
+    session.items.push(...appendedItems);
     session.pendingItems = [
       {
         id: `${session.id}-pending`,
@@ -368,7 +386,19 @@ export class AgentRuntime {
       }
     ];
     this.persistence.upsertSession(session);
-    this.emitToSink(sink, { id: randomUUID(), type: "session.updated", session });
+    // Only the just-sent user message (plus attachments) and the running-status
+    // metadata changed; the running pending item is derived by consumers from
+    // runtimeStatus, so a patch with appendedItems faithfully captures this.
+    this.emitToSink(sink, {
+      id: randomUUID(),
+      type: "session.patch",
+      sessionId: session.id,
+      runtimeStatus: session.runtimeStatus,
+      updatedAt: session.updatedAt,
+      cwd: session.cwd,
+      model: session.model,
+      appendedItems
+    });
 
     this.startProviderRun(provider, {
       ...request,
@@ -422,14 +452,13 @@ export class AgentRuntime {
     void this.persistence.updateSessionVisibility(session, action);
     delete this.sessions[sessionId];
 
-    const snapshot = this.snapshot();
     this.broadcast({
       id: randomUUID(),
-      type: "sessions.snapshot",
-      snapshot
+      type: "session.removed",
+      sessionId
     });
 
-    return snapshot;
+    return this.snapshot();
   }
 
   async adoptParallelThread(sessionId: string, provider: DelegateSessionProvider) {
@@ -707,16 +736,36 @@ export class AgentRuntime {
       return;
     }
 
+    if (event.type === "session.patch") {
+      // Callers mutate the in-memory session in place before emitting a patch,
+      // so the patch only needs to persist that already-updated session and
+      // forward the delta to listeners — never re-broadcast the whole session.
+      const session = this.sessions[event.sessionId];
+
+      if (session) {
+        this.persistence.upsertSession(session);
+      }
+
+      this.broadcast(event);
+      return;
+    }
+
     if (event.type === "approval.requested") {
       const session = this.sessions[event.approval.sessionId];
 
       if (session) {
         applySessionEvent(session, event);
         this.persistence.upsertSession(session);
+        // The desktop store derives `awaiting_approval` plus the pending item
+        // directly from `approval.requested`, so the full `session.updated`
+        // re-broadcast was redundant. Emit only a minimal status patch for any
+        // consumer that still needs the runtimeStatus transition.
         this.broadcast({
           id: randomUUID(),
-          type: "session.updated",
-          session
+          type: "session.patch",
+          sessionId: session.id,
+          runtimeStatus: "awaiting_approval",
+          updatedAt: session.updatedAt
         });
       }
 
@@ -777,6 +826,7 @@ export class AgentRuntime {
 
     this.monitoredParentSessionIds.clear();
     this.localSubagentSourceFingerprints.clear();
+    this.localSubagentSourceMtimes.clear();
   }
 
   private async refreshLocalSubagentSessions(options: { markIdle?: boolean } = {}) {
@@ -808,6 +858,25 @@ export class AgentRuntime {
         }
 
         const current = this.sessions[metadata.id];
+
+        // mtime gate: the list walk surfaces the transcript mtime as updatedAt
+        // without parsing the file. While a run is active, the vast majority of
+        // poll ticks see an unchanged subagent transcript, so skip the
+        // expensive full re-read/re-parse when the on-disk freshness signal is
+        // unchanged and we already hold a normalized session. The final
+        // markIdle pass always runs so running->idle still settles.
+        const diskMtime = metadata.updatedAt;
+        const previousDiskMtime = this.localSubagentSourceMtimes.get(metadata.id);
+        const diskUnchanged =
+          options.markIdle !== true &&
+          current !== undefined &&
+          diskMtime !== undefined &&
+          previousDiskMtime === diskMtime;
+
+        if (diskUnchanged) {
+          continue;
+        }
+
         const loaded =
           !current || current.contentLoaded
             ? await this.loadSessionContentFromStore(metadata.id)
@@ -830,13 +899,44 @@ export class AgentRuntime {
         const fingerprint = localSessionFingerprint(session);
 
         this.localSubagentSourceFingerprints.set(metadata.id, sourceFingerprint);
+        if (diskMtime !== undefined) {
+          this.localSubagentSourceMtimes.set(metadata.id, diskMtime);
+        }
 
         if (this.localSessionFingerprints.get(session.id) === fingerprint) {
           continue;
         }
 
         this.localSessionFingerprints.set(session.id, fingerprint);
+        const previousSession = this.sessions[session.id];
         this.sessions[session.id] = session;
+
+        // When only the runtime status/timestamp advanced (no timeline change),
+        // broadcast a lightweight patch instead of the whole session. Any change
+        // to the timeline content — including an in-place body/output mutation of
+        // an existing item (same id/count) — must ship a full update so the
+        // client doesn't keep a stale body. We only reach this code when the
+        // session fingerprint already changed, so the stringify is not per-tick.
+        const timelineSignature = (target: SessionContent) =>
+          JSON.stringify({
+            items: target.items,
+            pendingItems: target.pendingItems
+          });
+        const itemsUnchanged =
+          previousSession !== undefined &&
+          timelineSignature(previousSession) === timelineSignature(session);
+
+        if (itemsUnchanged) {
+          this.broadcast({
+            id: randomUUID(),
+            type: "session.patch",
+            sessionId: session.id,
+            runtimeStatus: session.runtimeStatus,
+            updatedAt: session.updatedAt
+          });
+          continue;
+        }
+
         this.broadcast({
           id: randomUUID(),
           type: "session.updated",

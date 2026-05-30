@@ -1460,7 +1460,17 @@ test("runtime detects and refreshes local subagent sessions during a parent run"
       loadSessionList: () => ({
         sessions: exposeChild
           ? {
-              [childMetadata.id]: childMetadata,
+              // The list walk derives updatedAt from the transcript file mtime
+              // (session-loader isoFromMtime on the includeItems:false path), so
+              // it advances whenever the subagent appends to its transcript —
+              // mirror that here so the monitor's mtime gate sees the change.
+              [childMetadata.id]: {
+                ...childMetadata,
+                updatedAt:
+                  childBody === "Updated child answer"
+                    ? "2026-05-23T00:00:03.000Z"
+                    : "2026-05-23T00:00:02.000Z"
+              },
               [idleSiblingMetadata.id]: idleSiblingMetadata
             }
           : {},

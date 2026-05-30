@@ -68,6 +68,53 @@ export function createComposerServer({
   const sockets = new Set<WebSocket>();
   let closing = false;
 
+  // Memoized metadata-only snapshot for WS connect + session.list broadcasts.
+  // Clients lazily fetch full transcripts via GET /api/sessions/:id on select,
+  // so the broadcast snapshot strips items/pendingItems (mirroring
+  // loadLocalSessionList's includeItems:false semantics). The serialized
+  // snapshot body is cached and invalidated whenever a session mutates (every
+  // mutation flows through broadcast()). Per-session live updates still arrive
+  // via session.updated/session.patch events, which carry full content.
+  let metadataSnapshotJson: string | undefined;
+
+  function metadataSnapshotBody(): string {
+    if (metadataSnapshotJson !== undefined) {
+      return metadataSnapshotJson;
+    }
+
+    const { sessions, projects } = runtime.snapshot();
+    const metadataSessions: SessionSnapshot["sessions"] = {};
+
+    for (const [id, session] of Object.entries(sessions)) {
+      metadataSessions[id] = {
+        ...session,
+        items: [],
+        pendingItems: [],
+        contentLoaded: false
+      };
+    }
+
+    const snapshot: SessionSnapshot = { sessions: metadataSessions, projects };
+    metadataSnapshotJson = JSON.stringify(snapshot);
+
+    return metadataSnapshotJson;
+  }
+
+  function sendMetadataSnapshot(socket: WebSocket) {
+    if (socket.readyState !== socket.OPEN) {
+      return;
+    }
+
+    // Fresh id per send (matching other events), memoized snapshot body.
+    socket.send(
+      `{"id":${JSON.stringify(randomUUID())},"type":"sessions.snapshot","snapshot":${metadataSnapshotBody()}}`
+    );
+  }
+
+  function invalidateMetadataSnapshot() {
+    metadataSnapshotJson = undefined;
+  }
+
   const server = createServer(async (request, response) => {
     setCorsHeaders(response);
 
@@ -153,7 +200,7 @@ export function createComposerServer({
 
   wss.on("connection", (socket) => {
     sockets.add(socket);
-    send(socket, { id: randomUUID(), type: "sessions.snapshot", snapshot: runtime.snapshot() });
+    sendMetadataSnapshot(socket);
 
     socket.on("message", async (raw) => {
       try {
@@ -166,11 +213,7 @@ export function createComposerServer({
         };
 
         if (message.type === "session.list") {
-          send(socket, {
-            id: randomUUID(),
-            type: "sessions.snapshot",
-            snapshot: runtime.snapshot()
-          });
+          sendMetadataSnapshot(socket);
           return;
         }
 
@@ -436,8 +479,17 @@ export function createComposerServer({
   }
 
   function broadcast(event: LiveAgentEvent) {
+    // Every session mutation flows through broadcast(), so invalidate the
+    // memoized metadata snapshot here.
+    invalidateMetadataSnapshot();
+
+    // Serialize once and send the identical payload to every open socket.
+    const payload = JSON.stringify(event);
+
     for (const socket of sockets) {
-      send(socket, event);
+      if (socket.readyState === socket.OPEN) {
+        socket.send(payload);
+      }
     }
   }
 

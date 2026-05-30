@@ -442,6 +442,30 @@ export type LiveAgentEvent =
       status: AgentSessionRuntimeStatus;
     }
   | {
+      // Lightweight metadata/status patch for an existing session. Carries only
+      // changed scalar fields (and optionally appended items) instead of the
+      // entire SessionContent. Reserve `session.updated` for structural rebuilds
+      // (new user message turn, parallel adoption, handoff/compaction).
+      id: string;
+      type: "session.patch";
+      sessionId: string;
+      runtimeStatus?: AgentSessionRuntimeStatus;
+      updatedAt?: string;
+      title?: string;
+      cwd?: string;
+      displayCwd?: string;
+      worktreePath?: string;
+      worktreeBranch?: string;
+      model?: string;
+      lastProvider?: SessionProvider;
+      contextVersion?: number;
+      providerSessions?: Partial<Record<SessionProvider, ProviderSessionState>>;
+      // Items to append to the session timeline (e.g. a just-sent user message).
+      // Items whose id already exists are replaced in place, not duplicated.
+      appendedItems?: ConversationItem[];
+    }
+  | { id: string; type: "session.removed"; sessionId: string }
+  | {
       id: string;
       type: "error";
       sessionId?: string;

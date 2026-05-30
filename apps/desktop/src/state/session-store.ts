@@ -42,6 +42,124 @@ export type SessionStoreActions = {
 
 export type SessionStore = SessionStoreState & SessionStoreActions;
 
+type BufferableDeltaEvent = Extract<
+  LiveAgentEvent,
+  { type: "message.delta" | "tool.delta" }
+>;
+
+// Per-session ordered buffer of streaming delta events. Deltas are coalesced
+// and flushed in a single store commit on requestAnimationFrame (~16ms) to
+// avoid one full-clone set() per token.
+const deltaBuffers = new Map<string, BufferableDeltaEvent[]>();
+let flushScheduled = false;
+
+function scheduleFlush(flush: () => void) {
+  if (flushScheduled) {
+    return;
+  }
+
+  flushScheduled = true;
+
+  const run = () => {
+    flushScheduled = false;
+    flush();
+  };
+
+  if (typeof requestAnimationFrame === "function") {
+    requestAnimationFrame(run);
+  } else {
+    // Fallback when requestAnimationFrame is unavailable (~16ms ≈ one frame).
+    setTimeout(run, 16);
+  }
+}
+
+// Collapse a run of buffered deltas for one session into the minimal set of
+// events to apply: consecutive deltas targeting the same message/tool are
+// concatenated so a single flush appends the combined delta.
+function coalesceDeltas(
+  events: BufferableDeltaEvent[]
+): BufferableDeltaEvent[] {
+  const result: BufferableDeltaEvent[] = [];
+
+  for (const event of events) {
+    const last = result[result.length - 1];
+
+    if (
+      last &&
+      last.type === "message.delta" &&
+      event.type === "message.delta" &&
+      last.messageId === event.messageId
+    ) {
+      result[result.length - 1] = {
+        ...last,
+        delta: `${last.delta}${event.delta}`,
+        provider: event.provider ?? last.provider,
+        layoutGroupId: event.layoutGroupId ?? last.layoutGroupId,
+        layoutTitle: event.layoutTitle ?? last.layoutTitle
+      };
+      continue;
+    }
+
+    if (
+      last &&
+      last.type === "tool.delta" &&
+      event.type === "tool.delta" &&
+      last.toolId === event.toolId
+    ) {
+      result[result.length - 1] = {
+        ...last,
+        delta: `${last.delta}${event.delta}`,
+        provider: event.provider ?? last.provider,
+        layoutGroupId: event.layoutGroupId ?? last.layoutGroupId,
+        layoutTitle: event.layoutTitle ?? last.layoutTitle
+      };
+      continue;
+    }
+
+    result.push(event);
+  }
+
+  return result;
+}
+
+// Apply all buffered deltas for a single session to the given state, returning
+// the partial update (or undefined if nothing buffered / session is gone).
+function applyBufferedDeltasForSession(
+  state: SessionStoreState,
+  sessionId: string
+): Partial<SessionStoreState> | undefined {
+  const buffered = deltaBuffers.get(sessionId);
+  deltaBuffers.delete(sessionId);
+
+  if (!buffered || buffered.length === 0) {
+    return undefined;
+  }
+
+  const session = state.sessions[sessionId];
+
+  if (!session) {
+    return undefined;
+  }
+
+  let updated = session;
+
+  for (const event of coalesceDeltas(buffered)) {
+    updated = applyLiveSessionEvent(updated, event);
+  }
+
+  if (updated === session) {
+    return undefined;
+  }
+
+  // Streaming-only deltas never affect the projects array (P1-2).
+  return {
+    sessions: {
+      ...state.sessions,
+      [updated.id]: updated
+    }
+  };
+}
+
 export const useSessionStore = create<SessionStore>((set) => ({
   projects: [],
   sessions: {},
@@ -68,6 +186,7 @@ export const useSessionStore = create<SessionStore>((set) => ({
     }),
   removeSession: (sessionId) =>
     set((state) => {
+      deltaBuffers.delete(sessionId);
       const sessions = { ...state.sessions };
       delete sessions[sessionId];
 
@@ -89,8 +208,91 @@ export const useSessionStore = create<SessionStore>((set) => ({
     set((state) => ({
       approvals: state.approvals.filter((approval) => approval.id !== approvalId)
     })),
-  applyAgentEvent: (event) =>
-    set((state) => applyAgentEventToState(state, event)),
+  applyAgentEvent: (event) => {
+    // Buffer streaming-only deltas and flush them coalesced on the next frame.
+    if (
+      (event.type === "message.delta" || event.type === "tool.delta") &&
+      event.sessionId
+    ) {
+      const sessionId = event.sessionId;
+      const buffered = deltaBuffers.get(sessionId);
+
+      if (buffered) {
+        buffered.push(event);
+      } else {
+        deltaBuffers.set(sessionId, [event]);
+      }
+
+      scheduleFlush(() => {
+        const sessionIds = Array.from(deltaBuffers.keys());
+
+        if (sessionIds.length === 0) {
+          return;
+        }
+
+        set((state) => {
+          let sessions = state.sessions;
+
+          for (const id of sessionIds) {
+            const partial = applyBufferedDeltasForSession(
+              { ...state, sessions },
+              id
+            );
+
+            if (partial?.sessions) {
+              sessions = partial.sessions;
+            }
+          }
+
+          return sessions === state.sessions ? {} : { sessions };
+        });
+      });
+
+      return;
+    }
+
+    // For any non-delta event targeting a specific session, flush that
+    // session's pending deltas first so ordering is preserved, then apply.
+    const targetSessionId =
+      "sessionId" in event && event.sessionId
+        ? event.sessionId
+        : event.type === "approval.requested"
+          ? event.approval.sessionId
+          : undefined;
+
+    // A removed session should discard any pending buffered deltas rather than
+    // flush them onto a session that is about to be deleted.
+    if (event.type === "session.removed") {
+      deltaBuffers.delete(event.sessionId);
+    }
+
+    set((state) => {
+      let working = state;
+
+      if (
+        targetSessionId &&
+        event.type !== "session.removed" &&
+        deltaBuffers.has(targetSessionId)
+      ) {
+        const flushed = applyBufferedDeltasForSession(state, targetSessionId);
+
+        if (flushed?.sessions) {
+          working = { ...state, sessions: flushed.sessions };
+        }
+      }
+
+      const result = applyAgentEventToState(working, event);
+
+      if (working === state) {
+        return result;
+      }
+
+      // Carry the flushed sessions through if the reducer didn't replace them.
+      return result.sessions
+        ? result
+        : { ...result, sessions: working.sessions };
+    });
+  },
   setSelectedThread: (selectedThread) => set({ selectedThread }),
   setPendingNewRequestId: (pendingNewRequestId) =>
     set({ pendingNewRequestId })
@@ -152,41 +354,88 @@ export function normalizeSession(session: SessionContent): SessionContent {
   };
 }
 
+// Identity-relevant fields whose change should produce a new session object.
+// Arrays/records (items, pendingItems, providerSessions) are compared by
+// reference since normalizeSession reuses the incoming references when it can.
+function sessionsEquivalent(a: SessionContent, b: SessionContent): boolean {
+  return (
+    a.id === b.id &&
+    a.provider === b.provider &&
+    a.providerSessionId === b.providerSessionId &&
+    a.title === b.title &&
+    a.updatedAt === b.updatedAt &&
+    a.cwd === b.cwd &&
+    a.displayCwd === b.displayCwd &&
+    a.worktreePath === b.worktreePath &&
+    a.worktreeBranch === b.worktreeBranch &&
+    a.model === b.model &&
+    a.lastProvider === b.lastProvider &&
+    a.contextVersion === b.contextVersion &&
+    a.parentSessionId === b.parentSessionId &&
+    a.subagent === b.subagent &&
+    a.renderMode === b.renderMode &&
+    a.parallelAdoptedProvider === b.parallelAdoptedProvider &&
+    a.runtimeStatus === b.runtimeStatus &&
+    a.contentLoaded === b.contentLoaded &&
+    a.items === b.items &&
+    a.pendingItems === b.pendingItems &&
+    a.providerSessions === b.providerSessions &&
+    a.handoffSummaries === b.handoffSummaries &&
+    a.compactionSummaries === b.compactionSummaries
+  );
+}
+
 export function normalizeSessions(
   sessions: Record<string, SessionContent>,
   existingSessions: Record<string, SessionContent> = {}
 ): Record<string, SessionContent> {
-  return Object.fromEntries(
-    Object.entries(sessions).map(([id, session]) => {
-      const normalized = normalizeSession(session);
-      const existing = existingSessions[id];
+  const result: Record<string, SessionContent> = {};
+  let changed = false;
 
-      if (!normalized.contentLoaded && existing?.contentLoaded) {
-        const incomingRunning = isSessionRunning(normalized);
+  for (const [id, session] of Object.entries(sessions)) {
+    let normalized = normalizeSession(session);
+    const existing = existingSessions[id];
 
-        return [
-          id,
-          normalizeSession({
-            ...normalized,
-            items: existing.items,
-            pendingItems: incomingRunning
-              ? normalized.pendingItems.length
-                ? normalized.pendingItems
-                : existing.pendingItems
-              : [],
-            runtimeStatus: incomingRunning ? normalized.runtimeStatus : "idle",
-            providerSessions: {
-              ...normalized.providerSessions,
-              ...existing.providerSessions
-            },
-            contentLoaded: true
-          })
-        ];
-      }
+    if (!normalized.contentLoaded && existing?.contentLoaded) {
+      const incomingRunning = isSessionRunning(normalized);
 
-      return [id, normalized];
-    })
-  );
+      normalized = normalizeSession({
+        ...normalized,
+        items: existing.items,
+        pendingItems: incomingRunning
+          ? normalized.pendingItems.length
+            ? normalized.pendingItems
+            : existing.pendingItems
+          : [],
+        runtimeStatus: incomingRunning ? normalized.runtimeStatus : "idle",
+        providerSessions: {
+          ...normalized.providerSessions,
+          ...existing.providerSessions
+        },
+        contentLoaded: true
+      });
+    }
+
+    // Reuse the existing object when nothing identity-relevant changed so
+    // consumers keep referential equality and skip re-renders.
+    if (existing && sessionsEquivalent(existing, normalized)) {
+      result[id] = existing;
+    } else {
+      result[id] = normalized;
+      changed = true;
+    }
+  }
+
+  // If no entry changed and the key set is identical, return the existing
+  // record unchanged to preserve referential equality.
+  if (
+    !changed &&
+    Object.keys(existingSessions).length === Object.keys(result).length
+  ) {
+    return existingSessions;
+  }
+
+  return result;
 }
 
 export function applyAgentEventToState(
@@ -212,7 +461,7 @@ export function applyAgentEventToState(
         ...state.sessions,
         [normalized.id]: normalized
       },
-      projects: upsertSessionProject(state.projects, normalized),
+      projects: upsertSessionProjectIfChanged(state.projects, normalized),
       ...newSessionSelection
     };
   }
@@ -233,7 +482,7 @@ export function applyAgentEventToState(
         ...state.sessions,
         [updated.id]: updated
       },
-      projects: upsertSessionProject(state.projects, updated)
+      projects: upsertSessionProjectIfChanged(state.projects, updated)
     };
   }
 
@@ -263,7 +512,54 @@ export function applyAgentEventToState(
         ...state.sessions,
         [updated.id]: updated
       },
-      projects: upsertSessionProject(state.projects, updated)
+      projects: upsertSessionProjectIfChanged(state.projects, updated)
+    };
+  }
+
+  if (event.type === "session.patch") {
+    const session = state.sessions[event.sessionId];
+
+    if (!session) {
+      return {};
+    }
+
+    const updated = applySessionPatch(session, event);
+
+    if (updated === session) {
+      return {};
+    }
+
+    return {
+      sessions: {
+        ...state.sessions,
+        [updated.id]: updated
+      },
+      // Only rebuild projects when project-relevant metadata changed.
+      projects: upsertSessionProjectIfChanged(state.projects, updated)
+    };
+  }
+
+  if (event.type === "session.removed") {
+    const sessions = { ...state.sessions };
+
+    if (!(event.sessionId in sessions)) {
+      return {};
+    }
+
+    delete sessions[event.sessionId];
+
+    return {
+      sessions,
+      projects: removeThreadFromProjects(state.projects, event.sessionId),
+      approvals: state.approvals.filter(
+        (approval) => approval.sessionId !== event.sessionId
+      ),
+      selectedThread:
+        state.selectedThread === event.sessionId ? "" : state.selectedThread,
+      pendingNewRequestId:
+        state.selectedThread === event.sessionId
+          ? null
+          : state.pendingNewRequestId
     };
   }
 
@@ -276,27 +572,88 @@ export function applyAgentEventToState(
 
     const updated = applyLiveSessionEvent(session, event);
 
+    // Streaming-only events (turn.started, tool.started/delta/completed,
+    // message.delta, error) never affect project metadata, so leave
+    // state.projects untouched to avoid sidebar/thread-tab re-renders.
     return {
       sessions: {
         ...state.sessions,
         [updated.id]: updated
-      },
-      projects: upsertSessionProject(state.projects, updated)
+      }
     };
   }
 
   return {};
 }
 
+// Apply a lightweight session.patch: only the provided changed scalar fields,
+// merged providerSessions, and appended timeline items (replace-by-id, else
+// push). Returns the original session reference when nothing changed.
+function applySessionPatch(
+  session: SessionContent,
+  event: Extract<LiveAgentEvent, { type: "session.patch" }>
+): SessionContent {
+  const next: SessionContent = { ...session };
+  let changed = false;
+
+  const assign = <K extends keyof SessionContent>(
+    key: K,
+    value: SessionContent[K] | undefined
+  ) => {
+    if (value !== undefined && value !== session[key]) {
+      next[key] = value;
+      changed = true;
+    }
+  };
+
+  assign("runtimeStatus", event.runtimeStatus);
+  assign("updatedAt", event.updatedAt);
+  assign("title", event.title);
+  assign("cwd", event.cwd);
+  assign("displayCwd", event.displayCwd);
+  assign("worktreePath", event.worktreePath);
+  assign("worktreeBranch", event.worktreeBranch);
+  assign("model", event.model);
+  assign("lastProvider", event.lastProvider);
+  assign("contextVersion", event.contextVersion);
+
+  if (event.providerSessions) {
+    next.providerSessions = {
+      ...(session.providerSessions ?? {}),
+      ...event.providerSessions
+    };
+    changed = true;
+  }
+
+  if (event.appendedItems?.length) {
+    const items = [...session.items];
+
+    for (const item of event.appendedItems) {
+      const index = items.findIndex((existing) => existing.id === item.id);
+
+      if (index >= 0) {
+        items[index] = item;
+      } else {
+        items.push(item);
+      }
+    }
+
+    next.items = items;
+    changed = true;
+  }
+
+  return changed ? next : session;
+}
+
 function applyLiveSessionEvent(
   session: SessionContent,
   event: LiveAgentEvent
 ): SessionContent {
+  // Shallow clone with a fresh updatedAt. Arrays (items/pendingItems/
+  // providerSessions) are cloned lazily per-branch so high-frequency delta
+  // events only touch the one array they actually mutate.
   const next: SessionContent = {
     ...session,
-    items: [...(session.items ?? [])],
-    pendingItems: [...(session.pendingItems ?? [])],
-    providerSessions: { ...(session.providerSessions ?? {}) },
     updatedAt: new Date().toISOString()
   };
 
@@ -314,15 +671,16 @@ function applyLiveSessionEvent(
   }
 
   if (event.type === "message.delta") {
-    const existingIndex = next.items.findIndex(
+    const items = [...(session.items ?? [])];
+    const existingIndex = items.findIndex(
       (item) => item.type === "assistant_message" && item.id === event.messageId
     );
 
     if (existingIndex >= 0) {
-      const existing = next.items[existingIndex];
+      const existing = items[existingIndex];
 
       if (existing.type === "assistant_message") {
-        next.items[existingIndex] = {
+        items[existingIndex] = {
           ...existing,
           body: `${existing.body}${event.delta}`,
           provider: event.provider ?? existing.provider,
@@ -331,7 +689,7 @@ function applyLiveSessionEvent(
         };
       }
     } else {
-      next.items.push({
+      items.push({
         id: event.messageId,
         type: "assistant_message",
         body: event.delta,
@@ -341,19 +699,21 @@ function applyLiveSessionEvent(
       });
     }
 
+    next.items = items;
     return next;
   }
 
   if (event.type === "message.completed") {
-    const existingIndex = next.items.findIndex(
+    const items = [...(session.items ?? [])];
+    const existingIndex = items.findIndex(
       (item) => item.type === "assistant_message" && item.id === event.messageId
     );
 
     if (existingIndex >= 0) {
-      const existing = next.items[existingIndex];
+      const existing = items[existingIndex];
 
       if (existing.type === "assistant_message") {
-        next.items[existingIndex] = {
+        items[existingIndex] = {
           ...existing,
           body: event.body ?? existing.body,
           provider: event.provider ?? existing.provider,
@@ -362,7 +722,7 @@ function applyLiveSessionEvent(
         };
       }
     } else if (event.body) {
-      next.items.push({
+      items.push({
         id: event.messageId,
         type: "assistant_message",
         body: event.body,
@@ -372,40 +732,49 @@ function applyLiveSessionEvent(
       });
     }
 
+    next.items = items;
     return next;
   }
 
   if (event.type === "tool.started") {
-    if (next.items.some((item) => item.type === "tool_group" && item.id === event.toolId)) {
+    const sessionItems = session.items ?? [];
+
+    if (sessionItems.some((item) => item.type === "tool_group" && item.id === event.toolId)) {
+      next.items = sessionItems;
       return next;
     }
 
-    next.items.push({
-      id: event.toolId,
-      type: "tool_group",
-      summary: event.label,
-      details: [
-        {
-          ...(event.detail ?? toolDetail(event.toolId, event.label)),
-          status: "running"
-        }
-      ],
-      provider: event.provider,
-      layoutGroupId: event.layoutGroupId,
-      layoutTitle: event.layoutTitle,
-      defaultOpen: false,
-      status: "running"
-    });
+    next.items = [
+      ...sessionItems,
+      {
+        id: event.toolId,
+        type: "tool_group",
+        summary: event.label,
+        details: [
+          {
+            ...(event.detail ?? toolDetail(event.toolId, event.label)),
+            status: "running"
+          }
+        ],
+        provider: event.provider,
+        layoutGroupId: event.layoutGroupId,
+        layoutTitle: event.layoutTitle,
+        defaultOpen: false,
+        status: "running"
+      }
+    ];
     return next;
   }
 
   if (event.type === "tool.delta") {
-    const toolIndex = next.items.findIndex(
+    const sessionItems = session.items ?? [];
+    const toolIndex = sessionItems.findIndex(
       (item) => item.type === "tool_group" && item.id === event.toolId
     );
-    const tool = next.items[toolIndex];
+    const tool = sessionItems[toolIndex];
 
     if (tool?.type !== "tool_group") {
+      next.items = sessionItems;
       return next;
     }
 
@@ -428,18 +797,22 @@ function applyLiveSessionEvent(
       details.push(nextOutput);
     }
 
-    next.items[toolIndex] = { ...tool, details };
+    const items = [...sessionItems];
+    items[toolIndex] = { ...tool, details };
+    next.items = items;
     return next;
   }
 
   if (event.type === "tool.completed") {
-    const toolIndex = next.items.findIndex(
+    const sessionItems = session.items ?? [];
+    const toolIndex = sessionItems.findIndex(
       (item) => item.type === "tool_group" && item.id === event.toolId
     );
-    const tool = next.items[toolIndex];
+    const tool = sessionItems[toolIndex];
 
     if (tool?.type === "tool_group") {
-      next.items[toolIndex] = {
+      const items = [...sessionItems];
+      items[toolIndex] = {
         ...tool,
         status: event.detail?.status ?? "completed",
         details: [
@@ -450,6 +823,9 @@ function applyLiveSessionEvent(
           ...(event.detail ? [event.detail] : [])
         ]
       };
+      next.items = items;
+    } else {
+      next.items = sessionItems;
     }
 
     return next;
@@ -471,19 +847,20 @@ function applyLiveSessionEvent(
   if (event.type === "error") {
     next.runtimeStatus = "error";
     next.pendingItems = [];
-    next.items = settleRunningToolGroups(next.items);
-    next.items.push({
+    const items = settleRunningToolGroups(session.items ?? []);
+    items.push({
       id: `${next.id}-error-${Date.now()}`,
       type: "notice",
       label: `Agent failed: ${event.message}`
     });
+    next.items = items;
     return next;
   }
 
   if (event.type === "turn.completed") {
     next.runtimeStatus = event.status;
     next.pendingItems = [];
-    next.items = settleRunningToolGroups(next.items);
+    next.items = settleRunningToolGroups(session.items ?? []);
   }
 
   return next;
@@ -537,6 +914,50 @@ function upsertApprovalState(
       index === existingIndex ? approval : item
     )
   };
+}
+
+// Rebuild the projects array only when the session's project-relevant thread
+// metadata actually changed. relativeAge is intentionally excluded because it
+// is time-derived and would otherwise always differ. Returns the original
+// projects reference unchanged when nothing the sidebar cares about changed.
+export function upsertSessionProjectIfChanged(
+  projects: Project[],
+  session: SessionContent
+): Project[] {
+  const existingThread = findThread(projects, session.id);
+
+  if (existingThread) {
+    const sameProject =
+      projectKey(threadProject(projects, session.id)) ===
+      workspaceProjectForSession(session).id;
+
+    if (
+      sameProject &&
+      existingThread.name === session.title &&
+      existingThread.provider === session.provider &&
+      existingThread.model === session.model &&
+      existingThread.cwd === session.cwd &&
+      existingThread.parentSessionId === session.parentSessionId &&
+      existingThread.subagent === session.subagent
+    ) {
+      return projects;
+    }
+  }
+
+  return upsertSessionProject(projects, session);
+}
+
+// Find which project currently contains the given session's thread.
+function threadProject(projects: Project[], sessionId: string): Project {
+  for (const project of projects) {
+    if (findThreadInTree(project.threads, sessionId)) {
+      return project;
+    }
+  }
+
+  // Should not happen when called after findThread succeeds; fall back to a
+  // sentinel that won't match any workspace id.
+  return { id: " __no_project__", name: "", cwd: "", threads: [] };
 }
 
 export function upsertSessionProject(

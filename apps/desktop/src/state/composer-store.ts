@@ -121,11 +121,19 @@ export const useComposerStore = create<ComposerStore>((set) => ({
       imageAttachments: [...state.imageAttachments, ...attachments]
     })),
   removeImageAttachment: (id) =>
-    set((state) => ({
-      imageAttachments: state.imageAttachments.filter(
-        (attachment) => attachment.id !== id
-      )
-    })),
+    set((state) => {
+      const removed = state.imageAttachments.find(
+        (attachment) => attachment.id === id
+      );
+
+      revokeAttachmentPreview(removed);
+
+      return {
+        imageAttachments: state.imageAttachments.filter(
+          (attachment) => attachment.id !== id
+        )
+      };
+    }),
   addReviewCommentAttachment: (attachment) =>
     set((state) => ({
       reviewCommentAttachments: [
@@ -140,5 +148,22 @@ export const useComposerStore = create<ComposerStore>((set) => ({
       )
     })),
   clearComposer: () =>
-    set({ prompt: "", imageAttachments: [], reviewCommentAttachments: [] })
+    set((state) => {
+      for (const attachment of state.imageAttachments) {
+        revokeAttachmentPreview(attachment);
+      }
+
+      return { prompt: "", imageAttachments: [], reviewCommentAttachments: [] };
+    })
 }));
+
+// Image previews use object URLs (created at attach time) so we avoid eagerly
+// base64-encoding files just to show a thumbnail. Revoke them whenever the
+// attachment leaves the composer so the blobs can be garbage collected.
+function revokeAttachmentPreview(
+  attachment: ComposerImageAttachment | undefined
+) {
+  if (attachment?.previewUrl?.startsWith("blob:")) {
+    URL.revokeObjectURL(attachment.previewUrl);
+  }
+}

@@ -331,6 +331,21 @@ export type CapabilityContent = {
   content: string;
 };
 
+export type LoadSessionOptions = {
+  /**
+   * Maximum number of most-recent timeline items to fetch. Omit to load the
+   * full session content. Forwarded as the `limit` query param; the server may
+   * ignore it until server-side pagination is implemented.
+   */
+  limit?: number;
+  /**
+   * Opaque cursor (e.g. an item id) identifying the oldest already-loaded
+   * item; the server returns history older than this cursor. Forwarded as the
+   * `before` query param; the server may ignore it for now.
+   */
+  before?: string;
+};
+
 export type ComposerEventSocket<
   LiveEvent extends BaseLiveAgentEvent = BaseLiveAgentEvent
 > = {
@@ -442,10 +457,32 @@ export class ComposerClient<
   }
 
   async loadSession<SessionContent = unknown>(
-    sessionId: string
+    sessionId: string,
+    options?: LoadSessionOptions
   ): Promise<SessionContent | undefined> {
+    // Without options this fetches the full SessionContent (no history is
+    // dropped). When `limit`/`before` are supplied they are forwarded as query
+    // params so the server can return only the most-recent N timeline items
+    // and lazy-load older history via the `before` cursor. The server may
+    // ignore these params for now (returning the full content) until
+    // server-side pagination lands.
+    const query = new URLSearchParams();
+
+    if (typeof options?.limit === "number") {
+      query.set("limit", String(options.limit));
+    }
+
+    if (options?.before) {
+      query.set("before", options.before);
+    }
+
+    const search = query.toString();
     const response = await this.fetcher(
-      this.url(`/api/sessions/${encodeURIComponent(sessionId)}`)
+      this.url(
+        `/api/sessions/${encodeURIComponent(sessionId)}${
+          search ? `?${search}` : ""
+        }`
+      )
     );
 
     await assertOk(response, "Session load failed");

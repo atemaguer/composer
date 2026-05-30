@@ -2,6 +2,7 @@ import {
   forwardRef,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
   type ChangeEvent,
@@ -57,6 +58,7 @@ import {
   type ProviderModelOption
 } from "../provider-registry";
 import { cn } from "../lib/cn";
+import { useComposerStore } from "../state/composer-store";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { ProviderLogo } from "./ProviderLogo";
 import {
@@ -107,12 +109,20 @@ export type ComposerProps = {
   intelligenceMenuId: string;
   provider: SessionProvider;
   setProvider: (value: SessionProvider) => void;
-  value: string;
-  setValue: (value: string) => void;
+  // The controlled draft text lives in useComposerStore. Composer subscribes to
+  // it directly so keystrokes only re-render Composer (not the App root). These
+  // remain accepted for backwards compatibility / explicit overrides, but are
+  // optional — when omitted the store value/setter is used.
+  value?: string;
+  setValue?: (value: string) => void;
   onSubmit: () => void;
   onStop?: () => void;
   submitMode?: "send" | "stop";
   submitDisabled?: boolean;
+  // When true and the (store-owned) prompt is empty, the send action is
+  // disabled. Lets the parent express "non-empty prompt required" without
+  // subscribing to every keystroke itself.
+  requireNonEmptyPrompt?: boolean;
   layout?: "overlay" | "inline";
   footerItems?: PromptComposerFooterItem[];
   branchFooterItem?: PromptComposerFooterItem;
@@ -238,8 +248,8 @@ export function PromptComposer({
   intelligenceMenuId,
   provider,
   setProvider,
-  value,
-  setValue,
+  value: valueProp,
+  setValue: setValueProp,
   placeholder,
   textareaRows = 1,
   showAttachmentPill = true,
@@ -248,6 +258,7 @@ export function PromptComposer({
   onSubmit,
   onStop,
   submitDisabled = false,
+  requireNonEmptyPrompt = false,
   imageAttachments = [],
   reviewCommentAttachments = [],
   onAddImageAttachments,
@@ -269,6 +280,15 @@ export function PromptComposer({
   const intelligenceMenuRef = useRef<HTMLDivElement>(null);
   const intelligenceButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // Subscribe to the store-owned draft text here so typing re-renders this
+  // component only. An explicit `value`/`setValue` prop (if provided) still
+  // wins for backwards compatibility.
+  const storePrompt = useComposerStore((state) => state.prompt);
+  const storeSetPrompt = useComposerStore((state) => state.setPrompt);
+  const value = valueProp ?? storePrompt;
+  const setValue = setValueProp ?? storeSetPrompt;
+  const effectiveSubmitDisabled =
+    submitDisabled || (requireNonEmptyPrompt && value.trim().length === 0);
   const activeProvider = composerProvider(provider);
   const selectedModel = modelOption(activeProvider, model);
   const compactModelLabel = compactModelOptionLabel(selectedModel);
@@ -370,7 +390,7 @@ export function PromptComposer({
 
     event.preventDefault();
 
-    if (submitMode === "send" && !submitDisabled) {
+    if (submitMode === "send" && !effectiveSubmitDisabled) {
       onSubmit();
     }
   }
@@ -533,7 +553,7 @@ export function PromptComposer({
             <TooltipButton
               className={primaryIconButton}
               aria-label={submitLabel}
-              disabled={submitDisabled}
+              disabled={effectiveSubmitDisabled}
               onClick={submitMode === "send" ? onSubmit : (onStop ?? onSubmit)}
               tooltip={submitLabel}
               type="button"
@@ -1127,10 +1147,14 @@ function ComposerFooterButton({
     externalError
   );
   const normalizedQuery = query.trim().toLowerCase();
-  const filteredOptions = (options ?? []).filter((option) =>
-    `${option.label} ${option.detail ?? ""} ${option.cwd ?? ""}`
-      .toLowerCase()
-      .includes(normalizedQuery)
+  const filteredOptions = useMemo(
+    () =>
+      (options ?? []).filter((option) =>
+        `${option.label} ${option.detail ?? ""} ${option.cwd ?? ""}`
+          .toLowerCase()
+          .includes(normalizedQuery)
+      ),
+    [options, normalizedQuery]
   );
   const createActionLabel = query.trim()
     ? `Create "${query.trim()}"`

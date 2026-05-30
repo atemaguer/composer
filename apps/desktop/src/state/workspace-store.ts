@@ -9,8 +9,6 @@ export type WorkspaceOption = PromptComposerFooterOption;
 type Updater<T> = T | ((current: T) => T);
 
 const workspacePreferencesStorageKey = "composer.workspace.preferences";
-const workspaceStorageKey = "composer.workspaces";
-const selectedWorkspaceStorageKey = "composer.selectedWorkspace";
 
 type PersistedWorkspacePreferences = {
   workspaceOptions: WorkspaceOption[];
@@ -36,18 +34,19 @@ export type WorkspaceStore = {
   resetWorkspacePreferences: () => void;
 };
 
+const initialPreferences = loadPersistedPreferences();
+
 export const useWorkspaceStore = create<WorkspaceStore>()(
   persist(
     (set, get) => ({
-      workspaceOptions: loadWorkspaceOptions(),
-      selectedWorkspaceId: readStorage(selectedWorkspaceStorageKey) ?? "",
+      workspaceOptions: initialPreferences.workspaceOptions,
+      selectedWorkspaceId: initialPreferences.selectedWorkspaceId,
       setWorkspaceOptions: (next) =>
         set((state) => {
           const workspaceOptions = mergeWorkspaceOptions(
             resolveNextValue(next, state.workspaceOptions)
           );
 
-          writeWorkspaceOptions(workspaceOptions);
           return { workspaceOptions };
         }),
       setSelectedWorkspaceId: (next) =>
@@ -57,18 +56,15 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             state.selectedWorkspaceId
           );
 
-          writeSelectedWorkspaceId(selectedWorkspaceId);
           return { selectedWorkspaceId };
         }),
       selectWorkspace: (workspace) =>
         set((state) => {
           if (!workspace) {
-            writeSelectedWorkspaceId("");
             return { selectedWorkspaceId: "" };
           }
 
           if (typeof workspace === "string") {
-            writeSelectedWorkspaceId(workspace);
             return { selectedWorkspaceId: workspace };
           }
 
@@ -78,8 +74,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ]);
           const selectedWorkspaceId = workspace.cwd ?? workspace.id;
 
-          writeWorkspaceOptions(workspaceOptions);
-          writeSelectedWorkspaceId(selectedWorkspaceId);
           return { workspaceOptions, selectedWorkspaceId };
         }),
       upsertWorkspaceOption: (workspace) =>
@@ -89,7 +83,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             workspace
           ]);
 
-          writeWorkspaceOptions(workspaceOptions);
           return { workspaceOptions };
         }),
       addWorkspaceOption: (workspace) =>
@@ -99,7 +92,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             workspace
           ]);
 
-          writeWorkspaceOptions(workspaceOptions);
           return { workspaceOptions };
         }),
       removeWorkspaceOption: (workspaceId) =>
@@ -114,8 +106,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ? workspaceOptions[0]?.id ?? ""
               : state.selectedWorkspaceId;
 
-          writeWorkspaceOptions(workspaceOptions);
-          writeSelectedWorkspaceId(selectedWorkspaceId);
           return { workspaceOptions, selectedWorkspaceId };
         }),
       mergeWorkspaceOptions: (workspaces) =>
@@ -125,7 +115,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             ...workspaces
           ]);
 
-          writeWorkspaceOptions(workspaceOptions);
           return { workspaceOptions };
         }),
       ensureSelectedWorkspace: (workspaces = []) =>
@@ -141,14 +130,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               (workspace) => workspace.id === state.selectedWorkspaceId
             )
           ) {
-            writeWorkspaceOptions(workspaceOptions);
             return { workspaceOptions };
           }
 
           const selectedWorkspaceId = workspaceOptions[0]?.id ?? "";
 
-          writeWorkspaceOptions(workspaceOptions);
-          writeSelectedWorkspaceId(selectedWorkspaceId);
           return { workspaceOptions, selectedWorkspaceId };
         }),
       getSelectedWorkspace: () => {
@@ -157,8 +143,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         return getSelectedWorkspace(workspaceOptions, selectedWorkspaceId);
       },
       resetWorkspacePreferences: () => {
-        writeWorkspaceOptions([]);
-        writeSelectedWorkspaceId("");
         set({ workspaceOptions: [], selectedWorkspaceId: "" });
       }
     }),
@@ -177,9 +161,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         );
         const selectedWorkspaceId =
           persisted?.selectedWorkspaceId ?? currentState.selectedWorkspaceId;
-
-        writeWorkspaceOptions(workspaceOptions);
-        writeSelectedWorkspaceId(selectedWorkspaceId);
 
         return {
           ...currentState,
@@ -257,14 +238,34 @@ function normalizeWorkspaceOption(
   };
 }
 
-function loadWorkspaceOptions(): WorkspaceOption[] {
-  try {
-    const raw = window.localStorage.getItem(workspaceStorageKey);
-    const parsed = raw ? (JSON.parse(raw) as WorkspaceOption[]) : [];
+function loadPersistedPreferences(): PersistedWorkspacePreferences {
+  const empty: PersistedWorkspacePreferences = {
+    workspaceOptions: [],
+    selectedWorkspaceId: ""
+  };
 
-    return Array.isArray(parsed) ? mergeWorkspaceOptions(parsed) : [];
+  try {
+    const raw = window.localStorage.getItem(workspacePreferencesStorageKey);
+
+    if (!raw) {
+      return empty;
+    }
+
+    // zustand's persist middleware wraps the partialized state under `state`.
+    const parsed = JSON.parse(raw) as {
+      state?: Partial<PersistedWorkspacePreferences>;
+    } | null;
+    const state = parsed?.state;
+
+    return {
+      workspaceOptions: mergeWorkspaceOptions(state?.workspaceOptions ?? []),
+      selectedWorkspaceId:
+        typeof state?.selectedWorkspaceId === "string"
+          ? state.selectedWorkspaceId
+          : ""
+    };
   } catch {
-    return [];
+    return empty;
   }
 }
 
@@ -280,36 +281,4 @@ function resolveNextValue<T>(next: Updater<T>, current: T) {
   return typeof next === "function"
     ? (next as (currentValue: T) => T)(current)
     : next;
-}
-
-function readStorage(key: string) {
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-}
-
-function writeWorkspaceOptions(workspaceOptions: WorkspaceOption[]) {
-  writeStorage(workspaceStorageKey, JSON.stringify(workspaceOptions));
-}
-
-function writeSelectedWorkspaceId(selectedWorkspaceId: string) {
-  try {
-    if (selectedWorkspaceId) {
-      window.localStorage.setItem(selectedWorkspaceStorageKey, selectedWorkspaceId);
-    } else {
-      window.localStorage.removeItem(selectedWorkspaceStorageKey);
-    }
-  } catch {
-    // Local storage can be disabled in embedded previews.
-  }
-}
-
-function writeStorage(key: string, value: string) {
-  try {
-    window.localStorage.setItem(key, value);
-  } catch {
-    // Local storage can be disabled in embedded previews.
-  }
 }

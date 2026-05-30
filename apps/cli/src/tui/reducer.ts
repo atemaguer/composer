@@ -467,6 +467,96 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
       return { ...state, sessions, busy: false };
     }
 
+    case "session.patch": {
+      const session = state.sessions[event.sessionId];
+
+      if (!session) {
+        return state;
+      }
+
+      const patched: SessionContent = { ...session };
+
+      if (event.runtimeStatus !== undefined) {
+        patched.runtimeStatus = event.runtimeStatus;
+      }
+      if (event.updatedAt !== undefined) {
+        patched.updatedAt = event.updatedAt;
+      }
+      if (event.title !== undefined) {
+        patched.title = event.title;
+      }
+      if (event.cwd !== undefined) {
+        patched.cwd = event.cwd;
+      }
+      if (event.displayCwd !== undefined) {
+        patched.displayCwd = event.displayCwd;
+      }
+      if (event.worktreePath !== undefined) {
+        patched.worktreePath = event.worktreePath;
+      }
+      if (event.worktreeBranch !== undefined) {
+        patched.worktreeBranch = event.worktreeBranch;
+      }
+      if (event.model !== undefined) {
+        patched.model = event.model;
+      }
+      if (event.lastProvider !== undefined) {
+        patched.lastProvider = event.lastProvider;
+      }
+      if (event.contextVersion !== undefined) {
+        patched.contextVersion = event.contextVersion;
+      }
+      if (event.providerSessions) {
+        patched.providerSessions = {
+          ...(session.providerSessions ?? {}),
+          ...event.providerSessions
+        };
+      }
+
+      if (event.appendedItems?.length) {
+        const items = [...session.items];
+
+        for (const item of event.appendedItems) {
+          const index = items.findIndex((existing) => existing.id === item.id);
+
+          if (index >= 0) {
+            items[index] = item;
+          } else {
+            items.push(item);
+          }
+        }
+
+        patched.items = items;
+      }
+
+      return { ...state, sessions: putSession(state.sessions, patched) };
+    }
+
+    case "session.removed": {
+      if (!state.sessions[event.sessionId]) {
+        return state;
+      }
+
+      const sessions = { ...state.sessions };
+      delete sessions[event.sessionId];
+
+      return {
+        ...state,
+        sessions,
+        approvals: state.approvals.filter(
+          (approval) => approval.sessionId !== event.sessionId
+        ),
+        selectedThread:
+          state.selectedThread === event.sessionId
+            ? null
+            : state.selectedThread,
+        pendingNewRequestId:
+          state.pendingNewRequestId === event.sessionId
+            ? null
+            : state.pendingNewRequestId
+      };
+    }
+
     default: {
       // turn.started, message.*, tool.* — all carry a sessionId.
       const sessions = applyEventToSession(

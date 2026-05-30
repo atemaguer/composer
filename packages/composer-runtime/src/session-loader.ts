@@ -1,7 +1,47 @@
 import fs from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import type { Dirent } from "node:fs";
+import readline from "node:readline";
 import os from "node:os";
 import path from "node:path";
+
+const FILE_SCAN_CONCURRENCY = 8;
+
+/**
+ * Runs `worker` over `items` with a bounded number of in-flight promises so a
+ * large session directory does not spawn one filesystem/parse task per file at
+ * once. Results are returned in the original input order.
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>
+): Promise<R[]> {
+  if (items.length === 0) {
+    return [];
+  }
+
+  const results = new Array<R>(items.length);
+  const concurrency = Math.max(1, Math.min(limit, items.length));
+  let cursor = 0;
+
+  async function runner() {
+    while (cursor < items.length) {
+      const index = cursor;
+      cursor += 1;
+      results[index] = await worker(items[index], index);
+    }
+  }
+
+  await Promise.all(Array.from({ length: concurrency }, () => runner()));
+
+  return results;
+}
+
+function log(message: string) {
+  // Session loading is best-effort; surface capacity warnings without throwing.
+  console.warn(`[session-loader] ${message}`);
+}
 
 async function pathExists(p: string): Promise<boolean> {
   try {
@@ -227,6 +267,15 @@ export async function loadLocalSessionContent(sessionId: string): Promise<Sessio
         record.composerSessionId === sessionRecord.id
       )
     );
+    // Single-render mode only displays the visible provider record's items, so
+    // load full items for that record alone and metadata-only for the rest.
+    // Hybrid/handoff modes interleave every record's items, so they all need a
+    // full load. latestSessionUpdatedAt only consumes each native's updatedAt,
+    // which the metadata-only load still resolves from mtime.
+    const fullItemKeys = providerRecordKeysRequiringItems(
+      sessionRecord,
+      providerRecords
+    );
     const nativeSessions = uniqueSessionsById(
       (
         await Promise.all(
@@ -234,7 +283,11 @@ export async function loadLocalSessionContent(sessionId: string): Promise<Sessio
             loadNativeProviderSession(
               record.provider,
               record.providerSessionId,
-              { includeItems: true }
+              {
+                includeItems: fullItemKeys.has(
+                  providerSessionKey(record.provider, record.providerSessionId)
+                )
+              }
             )
           )
         )
@@ -407,6 +460,55 @@ function activeProviderRecordsForSession(
   }
 
   return providers.filter((record) => record.lifecycle !== "discarded");
+}
+
+/**
+ * Returns the set of provider-session keys whose native transcript items are
+ * actually rendered for `sessionRecord`. Single-render mode only displays the
+ * visible provider record; hybrid (parallel) and handoff modes interleave every
+ * record. Mirrors the render-mode branching in {@link composerSessionFromRecord}
+ * so single-render opens avoid fully parsing the non-visible provider sessions.
+ */
+function providerRecordKeysRequiringItems(
+  sessionRecord: ComposerSessionRecord,
+  providerRecords: ComposerProviderSessionRecord[]
+): Set<string> {
+  const allKeys = () =>
+    new Set(
+      providerRecords.map((record) =>
+        providerSessionKey(record.provider, record.providerSessionId)
+      )
+    );
+
+  const renderMode = sessionRecord.renderMode ??
+    (sessionRecord.hybridMode === "parallel-initial" && !sessionRecord.parallelAdoptedProvider
+      ? "hybrid"
+      : "single");
+
+  if (renderMode === "hybrid" && !sessionRecord.parallelAdoptedProvider) {
+    return allKeys();
+  }
+
+  if (shouldRenderHandoffTimeline(sessionRecord, providerRecords)) {
+    return allKeys();
+  }
+
+  const visibleProvider = sessionRecord.parallelAdoptedProvider ??
+    (sessionRecord.currentProvider === "codex" || sessionRecord.currentProvider === "claude"
+      ? sessionRecord.currentProvider
+      : providerRecords[0]?.provider);
+  const visibleRecord = visibleProvider
+    ? latestProviderRecord(providerRecords.filter((record) => record.provider === visibleProvider))
+    : latestProviderRecord(providerRecords);
+
+  if (!visibleRecord) {
+    // Fall back to a full load so we never under-fetch the visible items.
+    return allKeys();
+  }
+
+  return new Set([
+    providerSessionKey(visibleRecord.provider, visibleRecord.providerSessionId)
+  ]);
 }
 
 function composerSessionFromRecord(
@@ -977,21 +1079,41 @@ async function loadCodexSessions(options: { includeItems: boolean }): Promise<Se
   const index = await readCodexIndex(codexRoot);
   const files = (await findJsonl(path.join(codexRoot, "sessions")))
     .filter((file) => !file.fullPath.endsWith("session_index.jsonl"))
+    // Newest-by-mtime first so the bounded pool resolves the most relevant
+    // sessions earliest.
     .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  // Parse the unavoidable previews with a bounded concurrency pool instead of
+  // serially; results stay in newest-first order.
+  const parsedFiles = await mapWithConcurrency(
+    files,
+    FILE_SCAN_CONCURRENCY,
+    async (file) => ({
+      file,
+      parsed: await parseCodexSession(file.fullPath, index, options)
+    })
+  );
+
   const sessions: SessionContent[] = [];
   const fileRecords: ComposerProviderSessionFileInput[] = [];
 
-  for (const file of files) {
-    const parsed = await parseCodexSession(file.fullPath, index, options);
+  for (const { file, parsed } of parsedFiles) {
+    if (!parsed) {
+      continue;
+    }
 
-    if (parsed && (!options.includeItems || parsed.items.length > 0)) {
-      cacheSessionFilePath(parsed, file.fullPath);
-      const fileRecord = providerSessionFileInput(parsed, file.fullPath, file.mtimeMs);
+    // Cache + persist the file path for every listed session, including
+    // zero-item ones, so a later single-file open hits the fast path. This was
+    // previously gated behind the items>0 list filter, leaving zero-item
+    // sessions uncacheable.
+    cacheSessionFilePath(parsed, file.fullPath);
+    const fileRecord = providerSessionFileInput(parsed, file.fullPath, file.mtimeMs);
 
-      if (fileRecord) {
-        fileRecords.push(fileRecord);
-      }
+    if (fileRecord) {
+      fileRecords.push(fileRecord);
+    }
 
+    if (!options.includeItems || parsed.items.length > 0) {
       sessions.push(parsed);
     }
   }
@@ -1115,7 +1237,11 @@ async function parseCodexSession(
           const parsedMessage = parseCodexUserMessage(
             rawBody,
             `${id}-user-${items.length}`,
-            await imageUrlsFromPayload(payload)
+            // Reading + base64-encoding local images is only needed when the
+            // resulting attachment_group is actually emitted. During list/preview
+            // (includeItems === false) the attachments are discarded, so skip the
+            // filesystem work entirely.
+            includeItems ? await imageUrlsFromPayload(payload) : []
           );
 
           if (includeItems && parsedMessage.attachments.length > 0) {
@@ -1327,23 +1453,43 @@ async function parseCodexSession(
 
 async function loadClaudeSessions(options: { includeItems: boolean }): Promise<SessionContent[]> {
   const projectsRoot = path.join(os.homedir(), ".claude", "projects");
+  // Newest-by-mtime first so the bounded pool resolves the most relevant
+  // sessions earliest.
   const files = (await findClaudeProjectJsonl(projectsRoot)).sort(
     (a, b) => b.mtimeMs - a.mtimeMs
   );
+
+  // Parse the unavoidable previews with a bounded concurrency pool instead of
+  // serially; results stay in newest-first order.
+  const parsedFiles = await mapWithConcurrency(
+    files,
+    FILE_SCAN_CONCURRENCY,
+    async (file) => ({
+      file,
+      parsed: await parseClaudeSession(file.fullPath, options)
+    })
+  );
+
   const sessions: SessionContent[] = [];
   const fileRecords: ComposerProviderSessionFileInput[] = [];
 
-  for (const file of files) {
-    const parsed = await parseClaudeSession(file.fullPath, options);
+  for (const { file, parsed } of parsedFiles) {
+    if (!parsed) {
+      continue;
+    }
 
-    if (parsed && (!options.includeItems || parsed.items.length > 0)) {
-      cacheSessionFilePath(parsed, file.fullPath);
-      const fileRecord = providerSessionFileInput(parsed, file.fullPath, file.mtimeMs);
+    // Cache + persist the file path for every listed session, including
+    // zero-item ones, so a later single-file open hits the fast path. This was
+    // previously gated behind the items>0 list filter, leaving zero-item
+    // sessions uncacheable.
+    cacheSessionFilePath(parsed, file.fullPath);
+    const fileRecord = providerSessionFileInput(parsed, file.fullPath, file.mtimeMs);
 
-      if (fileRecord) {
-        fileRecords.push(fileRecord);
-      }
+    if (fileRecord) {
+      fileRecords.push(fileRecord);
+    }
 
+    if (!options.includeItems || parsed.items.length > 0) {
       sessions.push(parsed);
     }
   }
@@ -1701,12 +1847,24 @@ function subagentTitle(subagent?: SubagentMetadata) {
 }
 
 async function readJsonl(filePath: string) {
-  try {
-    const content = await fs.readFile(filePath, "utf8");
+  const rows: JsonRecord[] = [];
+  let stream: ReturnType<typeof createReadStream> | undefined;
 
-    return parseJsonlLines(content.split("\n"));
+  try {
+    stream = createReadStream(filePath, { encoding: "utf8" });
+    const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
+
+    // Stream line-by-line so peak transient memory is a single line rather than
+    // the whole file plus a split() array copy.
+    for await (const line of lines) {
+      pushJsonlRow(rows, line);
+    }
+
+    return rows;
   } catch {
-    return [];
+    return rows;
+  } finally {
+    stream?.destroy();
   }
 }
 
@@ -1736,28 +1894,39 @@ function parseJsonlLines(lines: string[]) {
   const rows: JsonRecord[] = [];
 
   for (const line of lines) {
-    const trimmed = line.trim();
-
-    if (!trimmed) {
-      continue;
-    }
-
-    try {
-      const parsed = JSON.parse(trimmed);
-
-      if (parsed && typeof parsed === "object") {
-        rows.push(parsed as JsonRecord);
-      }
-    } catch {
-      // Individual malformed rows should not block the rest of the session.
-    }
+    pushJsonlRow(rows, line);
   }
 
   return rows;
 }
 
+function pushJsonlRow(rows: JsonRecord[], line: string) {
+  const trimmed = line.trim();
+
+  if (!trimmed) {
+    return;
+  }
+
+  try {
+    const parsed = JSON.parse(trimmed);
+
+    if (parsed && typeof parsed === "object") {
+      rows.push(parsed as JsonRecord);
+    }
+  } catch {
+    // Individual malformed rows should not block the rest of the session.
+  }
+}
+
 async function findJsonl(root: string) {
-  const files: Array<{ fullPath: string; mtimeMs: number }> = [];
+  return statJsonlPaths(await findJsonlPaths(root));
+}
+
+// Path-only enumeration (no mtime stats). Used on the single-file open path
+// where only the matching file path is needed and the mtimes would be
+// discarded.
+async function findJsonlPaths(root: string) {
+  const paths: string[] = [];
 
   async function walk(dir: string, depth: number) {
     if (depth > 8) {
@@ -1781,27 +1950,41 @@ async function findJsonl(root: string) {
         }
         await walk(fullPath, depth + 1);
       } else if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-        files.push({
-          fullPath,
-          mtimeMs: await safeMtimeMs(fullPath)
-        });
+        paths.push(fullPath);
       }
     }
   }
 
   await walk(root, 0);
-  return files;
+  return paths;
+}
+
+// Batches the per-file mtime stats with a bounded concurrency pool instead of
+// awaiting each stat serially during the directory walk.
+async function statJsonlPaths(paths: string[]) {
+  return mapWithConcurrency(paths, FILE_SCAN_CONCURRENCY, async (fullPath) => ({
+    fullPath,
+    mtimeMs: await safeMtimeMs(fullPath)
+  }));
 }
 
 async function findClaudeProjectJsonl(projectsRoot: string) {
-  const files: Array<{ fullPath: string; mtimeMs: number }> = [];
+  // Batch the unavoidable per-file stats with a bounded pool rather than
+  // statting each serially while enumerating.
+  return statJsonlPaths(await findClaudeProjectJsonlPaths(projectsRoot));
+}
+
+// Path-only enumeration (no mtime stats). Used on the single-file open path
+// where only the matching file path is needed.
+async function findClaudeProjectJsonlPaths(projectsRoot: string) {
+  const paths: string[] = [];
 
   let projectDirs: Dirent[];
 
   try {
     projectDirs = await fs.readdir(projectsRoot, { withFileTypes: true });
   } catch {
-    return files;
+    return paths;
   }
 
   for (const projectDir of projectDirs) {
@@ -1822,19 +2005,16 @@ async function findClaudeProjectJsonl(projectsRoot: string) {
       const fullPath = path.join(dir, entry.name);
 
       if (entry.isFile() && entry.name.endsWith(".jsonl")) {
-        files.push({
-          fullPath,
-          mtimeMs: await safeMtimeMs(fullPath)
-        });
+        paths.push(fullPath);
       } else if (entry.isDirectory()) {
-        for (const file of await findJsonl(fullPath)) {
-          files.push(file);
+        for (const nestedPath of await findJsonlPaths(fullPath)) {
+          paths.push(nestedPath);
         }
       }
     }
   }
 
-  return files;
+  return paths;
 }
 
 async function findSessionFile(
@@ -1854,13 +2034,13 @@ async function findSessionFile(
 
   let filePath: string | undefined;
 
+  // On a cache miss we only need the matching path, so enumerate paths without
+  // statting every file (the mtimes were previously computed and discarded).
   if (session.provider === "codex") {
-    filePath = (await findJsonl(path.join(os.homedir(), ".codex", "sessions")))
-      .map((file) => file.fullPath)
+    filePath = (await findJsonlPaths(path.join(os.homedir(), ".codex", "sessions")))
       .find((filePath) => codexIdFromPath(filePath) === providerId);
   } else if (session.provider === "claude") {
-    filePath = (await findClaudeProjectJsonl(path.join(os.homedir(), ".claude", "projects")))
-      .map((file) => file.fullPath)
+    filePath = (await findClaudeProjectJsonlPaths(path.join(os.homedir(), ".claude", "projects")))
       .find((filePath) => path.basename(filePath, ".jsonl") === providerId);
   }
 
@@ -2092,6 +2272,7 @@ function selectSessionTree(sessions: SessionContent[], maxRootSessions: number) 
   const byId = new Map(sessions.map((session) => [session.id, session]));
   const sortedSessions = [...sessions].sort(compareSessionsByUpdatedAt);
   const selectedRootIds = new Set<string>();
+  let capped = false;
 
   for (const session of sortedSessions) {
     const parentSessionId = session.parentSessionId === session.id
@@ -2111,8 +2292,17 @@ function selectSessionTree(sessions: SessionContent[], maxRootSessions: number) 
     selectedRootIds.add(rootId);
 
     if (selectedRootIds.size >= maxRootSessions) {
+      capped = true;
       break;
     }
+  }
+
+  if (capped) {
+    // Never drop sessions silently: surface when the newest-first cap defers
+    // older root sessions from the list.
+    log(
+      `Capped session list at ${maxRootSessions} root sessions (of ${sortedSessions.length} parsed); older sessions deferred.`
+    );
   }
 
   return sortedSessions.filter(
@@ -2689,11 +2879,21 @@ async function imageUrlsFromPayload(payload: JsonRecord) {
     }
   }
 
-  for (const image of asArray(payload.local_images)) {
-    const url = await localImageToDataUrl(image);
+  const localImages = asArray(payload.local_images);
 
-    if (url) {
-      urls.push(url);
+  if (localImages.length > 0) {
+    // Bound concurrency so a message with many inline images does not open an
+    // unbounded number of file handles at once.
+    const dataUrls = await mapWithConcurrency(
+      localImages,
+      FILE_SCAN_CONCURRENCY,
+      (image) => localImageToDataUrl(image)
+    );
+
+    for (const url of dataUrls) {
+      if (url) {
+        urls.push(url);
+      }
     }
   }
 
