@@ -23,71 +23,78 @@ export const metadata: Metadata = {
 
 export default function ChangelogPage() {
   return (
-    <main className="min-h-screen bg-[#f5f7fb] text-[#172033]">
-      <header className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-5 sm:px-8">
-        <Link className="flex items-center gap-3" href="/" aria-label="Composer home">
-          <Image
-            src="/composer-icon.png"
-            alt=""
-            width={32}
-            height={32}
-            className="size-8 rounded-md"
-            priority
-          />
-          <span className="text-base font-semibold tracking-tight">Composer</span>
-        </Link>
-        <nav className="flex items-center gap-5 text-sm font-medium">
-          <Link className="text-[#657188] transition hover:text-[#172033]" href="/blog">
-            Blog
+    <main className="relative z-10 min-h-screen text-ink">
+      <header className="sticky top-0 z-50 bg-paper/60 backdrop-blur-md">
+        <div className="mx-auto flex w-full max-w-6xl items-center justify-between px-5 py-3.5 sm:px-8">
+          <Link className="flex items-center gap-2.5" href="/" aria-label="Composer home">
+            <Image
+              src="/composer-icon.png"
+              alt=""
+              width={32}
+              height={32}
+              className="size-7 rounded-md ring-1 ring-line-strong"
+              priority
+            />
+            <span className="text-[15px] font-semibold tracking-tight text-ink">
+              Composer
+            </span>
           </Link>
-          <a
-            className="inline-flex h-8 items-center justify-center rounded-full bg-[#172033] px-3.5 leading-none text-white transition hover:bg-[#2a354c]"
-            href="/api/download"
-            aria-label="Download Composer for your current platform"
-          >
-            Download
-          </a>
-        </nav>
+          <nav className="flex items-center gap-5 text-sm font-medium">
+            <Link className="text-ink-soft transition-colors hover:text-ink" href="/blog">
+              Blog
+            </Link>
+            <a
+              className="inline-flex h-8 items-center justify-center rounded-full bg-ink px-4 leading-none text-paper transition-colors hover:bg-ink/85"
+              href="/api/download"
+              aria-label="Download Composer for your current platform"
+            >
+              Download
+            </a>
+          </nav>
+        </div>
       </header>
 
-      <section className="mx-auto w-full max-w-6xl px-5 pb-20 pt-16 sm:px-8 sm:pb-28 sm:pt-24">
+      <section className="mx-auto w-full max-w-6xl px-5 pb-24 pt-16 sm:px-8 sm:pb-32 sm:pt-24">
         <div className="max-w-3xl">
-          <p className="font-mono text-sm text-[#657188]">Changelog</p>
-          <h1 className="mt-4 text-4xl font-semibold tracking-tight text-balance sm:text-6xl">
+          <p className="eyebrow flex items-center gap-2 text-accent">
+            <span className="inline-block h-px w-6 bg-accent" aria-hidden="true" />
+            Changelog
+          </p>
+          <h1 className="mt-4 text-[2rem] font-semibold tracking-[-0.02em] text-balance sm:text-[2.6rem]">
             Product updates for Composer.
           </h1>
         </div>
 
-        <div className="mt-14 border-t border-[#d8dee8]">
+        <div className="mt-14 border-t border-line">
           {changelogEntries.map((entry) => (
             <article
               key={entry.version}
-              className="grid gap-7 border-b border-[#d8dee8] py-10 md:grid-cols-[180px_1fr]"
+              className="grid gap-7 border-b border-line py-10 md:grid-cols-[180px_1fr]"
             >
-              <div className="font-mono text-sm text-[#657188]">
-                <div>v{entry.version}</div>
+              <div className="font-mono text-[13px] text-ink-soft">
+                <div className="text-accent">v{entry.version}</div>
                 <time dateTime={entry.date}>{formatDate(entry.date)}</time>
               </div>
               <div>
-                <h2 className="text-3xl font-semibold tracking-tight text-balance">
+                <h2 className="text-2xl font-semibold tracking-[-0.01em] text-balance sm:text-[1.75rem]">
                   {entry.title}
                 </h2>
                 <div className="mt-8 grid gap-8">
                   {entry.sections.map((section) => (
                     <section key={section.heading}>
-                      <h3 className="text-lg font-semibold tracking-tight">
+                      <h3 className="text-[15px] font-semibold tracking-tight text-ink">
                         {section.heading}
                       </h3>
                       {section.body ? (
-                        <p className="mt-3 max-w-2xl text-sm leading-6 text-[#465267]">
+                        <p className="mt-3 max-w-2xl text-[14px] leading-6 text-ink-soft">
                           {section.body}
                         </p>
                       ) : null}
-                      <ul className="mt-4 grid gap-3 text-sm leading-6 text-[#465267]">
+                      <ul className="mt-4 grid gap-3 text-[14px] leading-6 text-ink-soft">
                         {section.items.map((change) => (
                           <li key={change} className="flex gap-3">
                             <span
-                              className="mt-2 size-1.5 shrink-0 rounded-full bg-[#172033]"
+                              className="mt-2 size-1.5 shrink-0 rounded-full bg-accent"
                               aria-hidden="true"
                             />
                             <span>{change}</span>

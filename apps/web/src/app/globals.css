@@ -1,25 +1,27 @@
 @import "tailwindcss";
 
 /* ----------------------------------------------------------------------
-   Visual identity: "warm ink on paper" — an editorial developer-tool look.
-   The accent (terracotta) echoes the Claude mark inside the dark app mocks,
-   so the specimens feel native to the page rather than dropped onto SaaS gray.
+   Visual identity: warm-accent dark — an editorial developer-tool look.
+   Near-black canvas so the dark app mocks read as lit specimens against
+   warm-gradient feature panels; terracotta accent echoes the Claude mark.
+   Token names are kept semantic (paper = surface, ink = text) so the whole
+   page themes from these values.
 ---------------------------------------------------------------------- */
 :root {
-  color-scheme: light;
+  color-scheme: dark;
 
-  --paper: #f7f4ee;
-  --paper-2: #f1ede3;
-  --paper-3: #ebe5d8;
-  --ink: #191b20;
-  --ink-soft: #595d68;
-  --ink-faint: #8d909b;
-  --line: #e5dfd3;
-  --line-strong: #d9d1c2;
-  --accent: #cf5b34;
-  --accent-deep: #b1481f;
-  --accent-soft: #f0d6c8;
-  --paper-dark: #181511;
+  --paper: #0c0b09;
+  --paper-2: #131110;
+  --paper-3: #1c1815;
+  --ink: #f1ece3;
+  --ink-soft: #a39d92;
+  --ink-faint: #6e6a61;
+  --line: rgba(255, 255, 255, 0.1);
+  --line-strong: rgba(255, 255, 255, 0.17);
+  --accent: #e0673c;
+  --accent-deep: #c8521f;
+  --accent-soft: rgba(224, 103, 60, 0.22);
+  --paper-dark: #080706;
 
   --background: var(--paper);
   --foreground: var(--ink);
@@ -68,20 +70,20 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(52% 42% at 16% 26%, rgba(207, 91, 52, 0.12), transparent 66%),
-    radial-gradient(46% 40% at 94% 30%, rgba(73, 96, 168, 0.07), transparent 70%),
-    radial-gradient(80% 55% at 50% 108%, rgba(207, 91, 52, 0.06), transparent 72%);
+    radial-gradient(50% 42% at 14% 18%, rgba(224, 103, 60, 0.16), transparent 62%),
+    radial-gradient(46% 42% at 92% 26%, rgba(86, 110, 190, 0.1), transparent 68%),
+    radial-gradient(85% 55% at 50% 112%, rgba(224, 103, 60, 0.08), transparent 72%);
 }
 
-/* Fine film grain so flat areas read as paper, not plastic. */
+/* Fine film grain so flat areas read as surface, not flat black. */
 body::after {
   content: "";
   position: fixed;
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.04;
-  mix-blend-mode: multiply;
+  opacity: 0.05;
+  mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
@@ -91,7 +93,7 @@ a {
 
 ::selection {
   background: var(--accent-soft);
-  color: var(--accent-deep);
+  color: var(--ink);
 }
 
 /* Mono eyebrow / index labels — a true monospace adds technical texture
@@ -106,11 +108,30 @@ a {
 /* Faint blueprint grid used behind the hero specimen. */
 .blueprint-grid {
   background-image:
-    linear-gradient(to right, rgba(25, 27, 32, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(25, 27, 32, 0.05) 1px, transparent 1px);
+    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 48px 48px;
   mask-image: radial-gradient(70% 70% at 50% 40%, #000 35%, transparent 78%);
   -webkit-mask-image: radial-gradient(70% 70% at 50% 40%, #000 35%, transparent 78%);
+}
+
+/* Warm-gradient panel that frames a product mock in the feature rows. */
+.feature-stage {
+  position: relative;
+  border-radius: 26px;
+  border: 1px solid var(--line);
+  background:
+    radial-gradient(95% 130% at 50% -12%, rgba(224, 103, 60, 0.26), transparent 58%),
+    linear-gradient(158deg, #1b1411 0%, #0d0b09 72%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    0 40px 80px -50px rgba(0, 0, 0, 0.9);
+}
+
+.feature-stage--cool {
+  background:
+    radial-gradient(95% 130% at 50% -12%, rgba(86, 110, 190, 0.24), transparent 58%),
+    linear-gradient(158deg, #14151d 0%, #0b0b0e 72%);
 }
 
 /* ---- Motion: one orchestrated load + scroll-driven section reveals ---- */

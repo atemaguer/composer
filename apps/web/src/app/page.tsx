@@ -150,7 +150,7 @@ export default function Home() {
         </p>
         <div className="load-up load-3 mt-8 flex flex-col items-center gap-3 sm:flex-row">
           <a
-            className="inline-flex h-11 items-center justify-center bg-ink px-6 text-[13.5px] font-semibold leading-none text-paper transition-colors duration-200 hover:bg-accent-deep"
+            className="inline-flex h-11 items-center justify-center bg-ink px-6 text-[13.5px] font-semibold leading-none text-paper transition-colors duration-200 hover:bg-ink/85"
             href="/api/download"
             aria-label="Download Composer for your current platform"
           >
@@ -175,54 +175,62 @@ export default function Home() {
 
       <section
         id="use-cases"
-        className="relative border-y border-line bg-paper-2 px-5 py-20 text-ink sm:px-8 sm:py-28"
+        className="relative px-5 py-24 text-ink sm:px-8 sm:py-32"
       >
         <div className="mx-auto w-full max-w-6xl">
-          <div className="grid gap-8 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-end">
-            <div className="reveal">
-              <p className="eyebrow flex items-center gap-2 text-accent">
-                <span className="inline-block h-px w-6 bg-accent" aria-hidden="true" />
-                Workflows
-              </p>
-              <h2 className="mt-4 max-w-2xl text-2xl font-semibold leading-tight tracking-[-0.01em] text-balance sm:text-[2rem]">
-                The handoffs people already do by hand.
-              </h2>
-            </div>
-            <p className="reveal max-w-md text-[14px] leading-6 text-ink-soft sm:text-[15px] lg:justify-self-end">
+          <div className="reveal mx-auto max-w-2xl text-center">
+            <p className="eyebrow inline-flex items-center gap-2 text-accent">
+              <span className="inline-block h-px w-6 bg-accent" aria-hidden="true" />
+              Workflows
+            </p>
+            <h2 className="mt-4 text-2xl font-semibold leading-tight tracking-[-0.01em] text-balance sm:text-[2.1rem]">
+              The handoffs people already do by hand.
+            </h2>
+            <p className="mt-4 text-[15px] leading-7 text-ink-soft">
               Composer turns the copy-paste relay between Claude and Codex
               terminals into one continuous agent thread.
             </p>
           </div>
 
-          <div className="mt-14 grid gap-5 md:grid-cols-2">
-            {WORKFLOWS.map((item) => (
-              <article
-                key={item.title}
-                className="reveal group flex flex-col gap-5 rounded-2xl border border-line bg-paper p-5 shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_18px_40px_-30px_rgba(24,21,17,0.4)] transition duration-300 hover:-translate-y-0.5 hover:border-line-strong hover:shadow-[0_1px_0_rgba(255,255,255,0.6)_inset,0_28px_55px_-28px_rgba(24,21,17,0.45)]"
-              >
-                <div className="flex items-center gap-3">
-                  <span className="eyebrow text-accent">{item.step}</span>
-                  <span className="h-3 w-px bg-line-strong" aria-hidden="true" />
-                  <span className="text-[15px] font-semibold tracking-tight text-ink">
-                    {item.title}
-                  </span>
-                </div>
-                {item.parallel ? (
-                  <ParallelMock />
-                ) : (
-                  <WorkflowMock steps={item.steps ?? []} />
-                )}
-                <div className="mt-auto">
-                  <p className="max-w-xl text-[14px] leading-6 text-ink-soft">
-                    {item.description}
-                  </p>
-                  <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-line-strong bg-paper-2 px-3 py-1.5 font-mono text-[12px] text-ink-soft">
-                    <span className="size-1 rounded-full bg-accent" aria-hidden="true" />
-                    {item.outcome}
+          <div className="mt-20 flex flex-col gap-20 sm:mt-28 sm:gap-28">
+            {WORKFLOWS.map((item, index) => {
+              const reversed = index % 2 === 1;
+              return (
+                <div
+                  key={item.title}
+                  className="reveal grid items-center gap-10 lg:grid-cols-2 lg:gap-16"
+                >
+                  <div className={reversed ? "lg:order-2" : ""}>
+                    <span className="eyebrow text-accent">{item.step}</span>
+                    <h3 className="mt-3 text-[1.6rem] font-semibold leading-[1.1] tracking-[-0.01em] text-ink sm:text-[1.95rem]">
+                      {item.title}
+                    </h3>
+                    <p className="mt-4 max-w-md text-[15px] leading-7 text-ink-soft">
+                      {item.description}
+                    </p>
+                    <div className="mt-6 flex items-center gap-2.5 text-[14px] font-medium text-accent">
+                      <span className="h-px w-7 bg-accent" aria-hidden="true" />
+                      {item.outcome}
+                    </div>
+                  </div>
+                  <div className={reversed ? "lg:order-1" : ""}>
+                    <div
+                      className={`feature-stage p-6 sm:p-9${
+                        reversed ? " feature-stage--cool" : ""
+                      }`}
+                    >
+                      <div className="relative [filter:drop-shadow(0_24px_44px_rgba(0,0,0,0.55))]">
+                        {item.parallel ? (
+                          <ParallelMock />
+                        ) : (
+                          <WorkflowMock steps={item.steps ?? []} />
+                        )}
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </article>
-            ))}
+              );
+            })}
           </div>
         </div>
       </section>
@@ -283,7 +291,12 @@ export default function Home() {
             />
             <FooterColumn
               title="[Connect]"
-              links={[{ label: "Email", href: "mailto:atemjohn@stanford.edu" }]}
+              links={[
+                {
+                  label: "Discord",
+                  href: "https://discord.com/invite/mqq6NwczPw"
+                }
+              ]}
             />
           </div>
         </div>
@@ -347,7 +360,7 @@ function LandingHeader() {
         <div className="flex shrink-0 items-center gap-2 font-medium">
           <MobileNav links={NAV_LINKS} />
           <a
-            className="inline-flex h-8 items-center justify-center rounded-full bg-ink px-4 leading-none text-paper transition-colors hover:bg-accent-deep"
+            className="inline-flex h-8 items-center justify-center rounded-full bg-ink px-4 leading-none text-paper transition-colors hover:bg-ink/85"
             href="/api/download"
             aria-label="Download Composer for your current platform"
           >
@@ -421,15 +434,21 @@ function FooterColumn({ title, links }: FooterColumnProps) {
         {title}
       </h2>
       <nav className="mt-5 grid gap-3" aria-label={title}>
-        {links.map((link) => (
-          <a
-            key={`${link.href}-${link.label}`}
-            className="w-fit font-mono text-[13px] text-[#cdc6bb] transition-colors hover:text-[#f4efe6]"
-            href={link.href}
-          >
-            {link.label}
-          </a>
-        ))}
+        {links.map((link) => {
+          const external = link.href.startsWith("http");
+          return (
+            <a
+              key={`${link.href}-${link.label}`}
+              className="w-fit font-mono text-[13px] text-[#cdc6bb] transition-colors hover:text-[#f4efe6]"
+              href={link.href}
+              {...(external
+                ? { target: "_blank", rel: "noopener noreferrer" }
+                : {})}
+            >
+              {link.label}
+            </a>
+          );
+        })}
       </nav>
     </div>
   );

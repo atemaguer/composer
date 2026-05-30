@@ -29,7 +29,7 @@ export function MobileNav({ links }: { links: NavLink[] }) {
     <div className="md:hidden">
       <button
         type="button"
-        className="inline-flex size-8 items-center justify-center rounded-full border border-[#c9d2df] bg-white text-[#172033] transition hover:border-[#9aa8bb]"
+        className="inline-flex size-8 items-center justify-center rounded-full border border-line-strong bg-paper/60 text-ink backdrop-blur transition hover:border-ink"
         aria-label={open ? "Close menu" : "Open menu"}
         aria-expanded={open}
         aria-controls="mobile-menu"
@@ -58,20 +58,20 @@ export function MobileNav({ links }: { links: NavLink[] }) {
         <>
           <button
             type="button"
-            className="fixed inset-0 z-30 cursor-default bg-[#101010]/20"
+            className="fixed inset-0 z-30 cursor-default bg-black/50"
             aria-label="Close menu"
             onClick={() => setOpen(false)}
           />
           <div
             id="mobile-menu"
-            className="absolute inset-x-3 top-[64px] z-40 grid gap-1 rounded-2xl border border-[#d8dee8] bg-white p-2 shadow-xl shadow-[#172033]/10 sm:inset-x-8"
+            className="absolute inset-x-3 top-[64px] z-40 grid gap-1 rounded-2xl border border-line bg-paper-2 p-2 shadow-[0_20px_45px_-20px_rgba(0,0,0,0.7)] sm:inset-x-8"
           >
             {links.map((link) =>
               link.href.startsWith("/") && !link.href.startsWith("/api/") ? (
                 <Link
                   key={link.href}
                   href={link.href}
-                  className="rounded-xl px-3 py-2.5 text-sm font-medium text-[#4c586d] transition hover:bg-[#f5f7fb] hover:text-[#172033]"
+                  className="rounded-xl px-3 py-2.5 text-sm font-medium text-ink-soft transition hover:bg-paper-3 hover:text-ink"
                   onClick={() => setOpen(false)}
                 >
                   {link.label}
@@ -80,7 +80,7 @@ export function MobileNav({ links }: { links: NavLink[] }) {
                 <a
                   key={link.href}
                   href={link.href}
-                  className="rounded-xl px-3 py-2.5 text-sm font-medium text-[#4c586d] transition hover:bg-[#f5f7fb] hover:text-[#172033]"
+                  className="rounded-xl px-3 py-2.5 text-sm font-medium text-ink-soft transition hover:bg-paper-3 hover:text-ink"
                   onClick={() => setOpen(false)}
                 >
                   {link.label}
