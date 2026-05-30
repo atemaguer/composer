@@ -203,16 +203,12 @@ export function readComposerSessionRegistry(
 ): ComposerSessionRegistry {
   const db = openRegistryDatabase(options);
 
-  try {
-    return {
-      version: 1,
-      sessions: readSessionRecords(db),
-      providerSessions: readProviderSessionRecords(db),
-      events: readSessionEvents(db)
-    };
-  } finally {
-    db.close();
-  }
+  return {
+    version: 1,
+    sessions: readSessionRecords(db),
+    providerSessions: readProviderSessionRecords(db),
+    events: readSessionEvents(db)
+  };
 }
 
 export function writeComposerSessionRegistry(
@@ -221,11 +217,7 @@ export function writeComposerSessionRegistry(
 ) {
   const db = openRegistryDatabase(options);
 
-  try {
-    replaceRegistry(db, trimRegistry(registry));
-  } finally {
-    db.close();
-  }
+  replaceRegistry(db, trimRegistry(registry));
 }
 
 export function upsertComposerSessionFromRuntime(
@@ -235,67 +227,63 @@ export function upsertComposerSessionFromRuntime(
   const db = openRegistryDatabase(options);
   const now = new Date().toISOString();
 
-  try {
-    transaction(db, () => {
-      const existing = readSessionRecord(db, session.id);
-      const sourceCwd = session.displayCwd ?? existing?.sourceCwd ?? session.cwd;
-      const activeCwd = session.cwd ?? existing?.activeCwd;
+  transaction(db, () => {
+    const existing = readSessionRecord(db, session.id);
+    const sourceCwd = session.displayCwd ?? existing?.sourceCwd ?? session.cwd;
+    const activeCwd = session.cwd ?? existing?.activeCwd;
 
-      upsertSessionRecord(db, {
-        id: session.id,
-        title: session.title ?? existing?.title,
-        sourceCwd,
-        displayCwd: session.displayCwd ?? sourceCwd,
-        activeCwd,
-        currentProvider: session.provider ?? existing?.currentProvider,
-        lastProvider: session.lastProvider ?? existing?.lastProvider,
-        renderMode: session.renderMode ?? existing?.renderMode,
-        hybridMode: isCompareAgentsModel(session.model)
-          ? "parallel-initial"
-          : existing?.hybridMode,
-        parallelAdoptedProvider:
-          session.parallelAdoptedProvider ?? existing?.parallelAdoptedProvider,
-        status: session.runtimeStatus ?? existing?.status,
-        createdAt: existing?.createdAt ?? now,
+    upsertSessionRecord(db, {
+      id: session.id,
+      title: session.title ?? existing?.title,
+      sourceCwd,
+      displayCwd: session.displayCwd ?? sourceCwd,
+      activeCwd,
+      currentProvider: session.provider ?? existing?.currentProvider,
+      lastProvider: session.lastProvider ?? existing?.lastProvider,
+      renderMode: session.renderMode ?? existing?.renderMode,
+      hybridMode: isCompareAgentsModel(session.model)
+        ? "parallel-initial"
+        : existing?.hybridMode,
+      parallelAdoptedProvider:
+        session.parallelAdoptedProvider ?? existing?.parallelAdoptedProvider,
+      status: session.runtimeStatus ?? existing?.status,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: session.updatedAt ?? now
+    });
+
+    for (const provider of ["codex", "claude"] as const) {
+      const state = session.providerSessions?.[provider];
+      const providerSessionId =
+        state?.sessionId ??
+        (session.provider === provider ? session.providerSessionId : undefined);
+
+      if (!providerSessionId) {
+        continue;
+      }
+
+      const existingProviderRecord = readProviderSessionRecord(
+        db,
+        provider,
+        providerSessionId
+      );
+
+      upsertProviderSessionRecord(db, {
+        composerSessionId: session.id,
+        provider,
+        providerSessionId,
+        lifecycle: existingProviderRecord?.lifecycle ??
+          (session.parallelAdoptedProvider === provider ? "adopted" : "active"),
+        cwd: state?.cwd ?? (session.provider === provider ? session.cwd : undefined),
+        worktreePath: state?.worktreePath,
+        worktreeBranch: state?.worktreeBranch,
+        originalCwd: state?.originalCwd,
+        originalBranch: state?.originalBranch,
+        originalHead: state?.originalHead,
+        lastContextVersion: state?.lastContextVersion,
         updatedAt: session.updatedAt ?? now
       });
-
-      for (const provider of ["codex", "claude"] as const) {
-        const state = session.providerSessions?.[provider];
-        const providerSessionId =
-          state?.sessionId ??
-          (session.provider === provider ? session.providerSessionId : undefined);
-
-        if (!providerSessionId) {
-          continue;
-        }
-
-        const existingProviderRecord = readProviderSessionRecord(
-          db,
-          provider,
-          providerSessionId
-        );
-
-        upsertProviderSessionRecord(db, {
-          composerSessionId: session.id,
-          provider,
-          providerSessionId,
-          lifecycle: existingProviderRecord?.lifecycle ??
-            (session.parallelAdoptedProvider === provider ? "adopted" : "active"),
-          cwd: state?.cwd ?? (session.provider === provider ? session.cwd : undefined),
-          worktreePath: state?.worktreePath,
-          worktreeBranch: state?.worktreeBranch,
-          originalCwd: state?.originalCwd,
-          originalBranch: state?.originalBranch,
-          originalHead: state?.originalHead,
-          lastContextVersion: state?.lastContextVersion,
-          updatedAt: session.updatedAt ?? now
-        });
-      }
-    });
-  } finally {
-    db.close();
-  }
+    }
+  });
 }
 
 function isCompareAgentsModel(model?: string) {
@@ -313,35 +301,31 @@ export function upsertComposerProviderSessions(
   const db = openRegistryDatabase(options);
   const updatedAt = new Date().toISOString();
 
-  try {
-    transaction(db, () => {
-      for (const record of records) {
-        upsertSessionRecord(db, {
-          id: record.composerSessionId,
-          updatedAt
-        });
-        upsertProviderSessionRecord(db, {
-          ...record,
+  transaction(db, () => {
+    for (const record of records) {
+      upsertSessionRecord(db, {
+        id: record.composerSessionId,
+        updatedAt
+      });
+      upsertProviderSessionRecord(db, {
+        ...record,
+        lifecycle: record.lifecycle ?? lifecycleForMode(record.mode),
+        updatedAt
+      });
+      appendEvent(db, {
+        composerSessionId: record.composerSessionId,
+        type: "provider_session_attached",
+        provider: record.provider,
+        providerSessionId: record.providerSessionId,
+        data: {
+          mode: record.mode,
+          role: record.role,
           lifecycle: record.lifecycle ?? lifecycleForMode(record.mode),
-          updatedAt
-        });
-        appendEvent(db, {
-          composerSessionId: record.composerSessionId,
-          type: "provider_session_attached",
-          provider: record.provider,
-          providerSessionId: record.providerSessionId,
-          data: {
-            mode: record.mode,
-            role: record.role,
-            lifecycle: record.lifecycle ?? lifecycleForMode(record.mode),
-            cwd: record.cwd
-          }
-        });
-      }
-    });
-  } finally {
-    db.close();
-  }
+          cwd: record.cwd
+        }
+      });
+    }
+  });
 }
 
 export function adoptComposerParallelProvider({
@@ -353,49 +337,45 @@ export function adoptComposerParallelProvider({
   const db = openRegistryDatabase(options);
   const now = new Date().toISOString();
 
-  try {
-    transaction(db, () => {
-      const providerRecords = db.prepare(
-        "SELECT provider, provider_session_id, mode, lifecycle FROM provider_sessions WHERE composer_session_id = ?"
-      ).all(composerSessionId) as ProviderSessionRow[];
+  transaction(db, () => {
+    const providerRecords = db.prepare(
+      "SELECT provider, provider_session_id, mode, lifecycle FROM provider_sessions WHERE composer_session_id = ?"
+    ).all(composerSessionId) as ProviderSessionRow[];
 
-      for (const record of providerRecords) {
-        if (
-          record.provider === provider &&
-          (!providerSessionId || record.provider_session_id === providerSessionId)
-        ) {
-          db.prepare(
-            "UPDATE provider_sessions SET lifecycle = 'adopted', cwd = COALESCE(?, cwd), updated_at = ? WHERE provider = ? AND provider_session_id = ?"
-          ).run(activeCwd ?? null, now, provider, record.provider_session_id);
-        } else if (record.mode === "parallel-initial" || record.lifecycle === "active") {
-          db.prepare(
-            "UPDATE provider_sessions SET lifecycle = 'discarded', updated_at = ? WHERE provider = ? AND provider_session_id = ?"
-          ).run(now, record.provider, record.provider_session_id);
-        }
+    for (const record of providerRecords) {
+      if (
+        record.provider === provider &&
+        (!providerSessionId || record.provider_session_id === providerSessionId)
+      ) {
+        db.prepare(
+          "UPDATE provider_sessions SET lifecycle = 'adopted', cwd = COALESCE(?, cwd), updated_at = ? WHERE provider = ? AND provider_session_id = ?"
+        ).run(activeCwd ?? null, now, provider, record.provider_session_id);
+      } else if (record.mode === "parallel-initial" || record.lifecycle === "active") {
+        db.prepare(
+          "UPDATE provider_sessions SET lifecycle = 'discarded', updated_at = ? WHERE provider = ? AND provider_session_id = ?"
+        ).run(now, record.provider, record.provider_session_id);
       }
+    }
 
-      db.prepare(
-        `UPDATE composer_sessions
-         SET current_provider = ?,
-             last_provider = ?,
-             render_mode = 'single',
-             parallel_adopted_provider = ?,
-             active_cwd = COALESCE(?, active_cwd),
-             updated_at = ?
-         WHERE id = ?`
-      ).run(provider, provider, provider, activeCwd ?? null, now, composerSessionId);
+    db.prepare(
+      `UPDATE composer_sessions
+       SET current_provider = ?,
+           last_provider = ?,
+           render_mode = 'single',
+           parallel_adopted_provider = ?,
+           active_cwd = COALESCE(?, active_cwd),
+           updated_at = ?
+       WHERE id = ?`
+    ).run(provider, provider, provider, activeCwd ?? null, now, composerSessionId);
 
-      appendEvent(db, {
-        composerSessionId,
-        type: "parallel_provider_adopted",
-        provider,
-        providerSessionId,
-        data: { activeCwd }
-      });
+    appendEvent(db, {
+      composerSessionId,
+      type: "parallel_provider_adopted",
+      provider,
+      providerSessionId,
+      data: { activeCwd }
     });
-  } finally {
-    db.close();
-  }
+  });
 }
 
 export function archiveComposerSession(
@@ -405,31 +385,27 @@ export function archiveComposerSession(
   const db = openRegistryDatabase(options);
   const now = new Date().toISOString();
 
-  try {
-    let changed = false;
+  let changed = false;
 
-    transaction(db, () => {
-      const existing = readSessionRecord(db, composerSessionId);
+  transaction(db, () => {
+    const existing = readSessionRecord(db, composerSessionId);
 
-      if (!existing || existing.status === "archived") {
-        return;
-      }
+    if (!existing || existing.status === "archived") {
+      return;
+    }
 
-      db.prepare(
-        "UPDATE composer_sessions SET status = 'archived', updated_at = ? WHERE id = ?"
-      ).run(now, composerSessionId);
-      appendEvent(db, {
-        composerSessionId,
-        type: "session_archived",
-        data: { previousStatus: existing.status }
-      });
-      changed = true;
+    db.prepare(
+      "UPDATE composer_sessions SET status = 'archived', updated_at = ? WHERE id = ?"
+    ).run(now, composerSessionId);
+    appendEvent(db, {
+      composerSessionId,
+      type: "session_archived",
+      data: { previousStatus: existing.status }
     });
+    changed = true;
+  });
 
-    return changed;
-  } finally {
-    db.close();
-  }
+  return changed;
 }
 
 export function composerDelegateProviderSessionKeys(
@@ -449,11 +425,7 @@ export function readComposerProviderSessionFile(
 ): ComposerProviderSessionFileRecord | undefined {
   const db = openRegistryDatabase(options);
 
-  try {
-    return readProviderSessionFileRecord(db, provider, providerSessionId);
-  } finally {
-    db.close();
-  }
+  return readProviderSessionFileRecord(db, provider, providerSessionId);
 }
 
 export function upsertComposerProviderSessionFile(
@@ -473,15 +445,11 @@ export function upsertComposerProviderSessionFiles(
 
   const db = openRegistryDatabase(options);
 
-  try {
-    transaction(db, () => {
-      for (const record of records) {
-        upsertProviderSessionFileRecord(db, record);
-      }
-    });
-  } finally {
-    db.close();
-  }
+  transaction(db, () => {
+    for (const record of records) {
+      upsertProviderSessionFileRecord(db, record);
+    }
+  });
 }
 
 export function deleteComposerProviderSessionFile(
@@ -491,13 +459,9 @@ export function deleteComposerProviderSessionFile(
 ) {
   const db = openRegistryDatabase(options);
 
-  try {
-    db.prepare(
-      "DELETE FROM provider_session_files WHERE provider = ? AND provider_session_id = ?"
-    ).run(provider, providerSessionId);
-  } finally {
-    db.close();
-  }
+  db.prepare(
+    "DELETE FROM provider_session_files WHERE provider = ? AND provider_session_id = ?"
+  ).run(provider, providerSessionId);
 }
 
 export function providerSessionKey(
@@ -925,13 +889,42 @@ function eventFromRow(row: EventRow): ComposerSessionEvent {
   };
 }
 
+// Long-lived connections keyed by resolved store path. Opening a fresh
+// connection (PRAGMAs + ensureSchema) on every read/write is expensive, so we
+// reuse a single connection per path and run ensureSchema exactly once when the
+// connection is first created.
+const registryConnections = new Map<string, DatabaseSync>();
+
 function openRegistryDatabase(options?: ComposerSessionRegistryStoreOptions) {
   const storePath = composerSessionRegistryPath(options);
+
+  const cached = registryConnections.get(storePath);
+  if (cached) {
+    return cached;
+  }
+
   fs.mkdirSync(path.dirname(storePath), { recursive: true });
   const db = new DatabaseSync(storePath);
   db.exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;");
   ensureSchema(db);
+  registryConnections.set(storePath, db);
   return db;
+}
+
+/**
+ * Close all cached registry connections. Intended for app shutdown. Safe to
+ * call when no connections are open. Subsequent reads/writes will lazily
+ * reopen connections as needed.
+ */
+export function closeComposerSessionRegistry() {
+  for (const db of registryConnections.values()) {
+    try {
+      db.close();
+    } catch {
+      // Ignore close failures during shutdown.
+    }
+  }
+  registryConnections.clear();
 }
 
 function ensureSchema(db: DatabaseSync) {

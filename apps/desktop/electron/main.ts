@@ -18,7 +18,6 @@ import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 import {
   loadLocalSessionContent,
   loadLocalSessionList,
-  loadLocalSessions,
   updateLocalSessionVisibility
 } from "./session-loader.js";
 import { configureAutoUpdates } from "./auto-updater.js";
@@ -84,7 +83,7 @@ ipcMain.handle("composer:update-session-visibility", async (_event, request: unk
     throw new Error("Expected sessionId and action");
   }
 
-  const snapshot = await loadLocalSessions();
+  const snapshot = await loadLocalSessionList();
   const session = snapshot.sessions[sessionId];
 
   if (!session) {

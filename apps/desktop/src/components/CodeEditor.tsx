@@ -6,7 +6,7 @@ import { json } from "@codemirror/lang-json";
 import { markdown } from "@codemirror/lang-markdown";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import type { Extension } from "@codemirror/state";
-import { EditorState } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 import { basicSetup } from "codemirror";
@@ -23,8 +23,15 @@ export function CodeEditor({ className, path, value }: CodeEditorProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const valueRef = useRef(value);
+  const pathRef = useRef(path);
+  // Compartment lets us swap the per-language extension via reconfigure rather
+  // than tearing down and rebuilding the entire EditorView when the file (and
+  // therefore its language) changes.
+  const languageCompartmentRef = useRef<Compartment | null>(null);
   const language = useMemo(() => languageForPath(path), [path]);
 
+  // Create the EditorView once on mount; the document and language are updated
+  // in place by the effects below.
   useEffect(() => {
     const container = containerRef.current;
 
@@ -32,13 +39,16 @@ export function CodeEditor({ className, path, value }: CodeEditorProps) {
       return undefined;
     }
 
+    const languageCompartment = new Compartment();
+    languageCompartmentRef.current = languageCompartment;
+
     const view = new EditorView({
       parent: container,
       state: EditorState.create({
         doc: valueRef.current,
         extensions: [
           basicSetup,
-          language,
+          languageCompartment.of(languageForPath(pathRef.current)),
           EditorState.readOnly.of(true),
           EditorView.editable.of(false),
           EditorView.lineWrapping,
@@ -51,9 +61,27 @@ export function CodeEditor({ className, path, value }: CodeEditorProps) {
 
     return () => {
       viewRef.current = null;
+      languageCompartmentRef.current = null;
       view.destroy();
     };
-  }, [language]);
+  }, []);
+
+  // Reconfigure the language extension in place when the file's language
+  // changes, keeping the existing EditorView (and its document/scroll state).
+  useEffect(() => {
+    pathRef.current = path;
+
+    const view = viewRef.current;
+    const languageCompartment = languageCompartmentRef.current;
+
+    if (!view || !languageCompartment) {
+      return;
+    }
+
+    view.dispatch({
+      effects: languageCompartment.reconfigure(language)
+    });
+  }, [language, path]);
 
   useEffect(() => {
     const view = viewRef.current;

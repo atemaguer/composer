@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useInsertionEffect,
   useMemo,
   useRef,
   useState,
@@ -19,10 +20,12 @@ import {
   X
 } from "lucide-react";
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
+import { useShallow } from "zustand/react/shallow";
 
 import { AppChrome } from "./components/AppChrome";
 import {
   Composer,
+  type PromptComposerControls,
   type PromptComposerFooterItem,
   type PromptComposerFooterOption
 } from "./components/Composer";
@@ -60,8 +63,7 @@ import {
 } from "./state/ui-store";
 import {
   mergeWorkspaceOptions,
-  useWorkspaceStore,
-  workspaceOptionsFromSessions
+  useWorkspaceStore
 } from "./state/workspace-store";
 import type {
   ApprovalDecision,
@@ -138,7 +140,27 @@ export default function App() {
   const selectedThread = useSessionStore((state) => state.selectedThread);
   const setSelectedThread = useSessionStore((state) => state.setSelectedThread);
   const projects = useSessionStore((state) => state.projects);
-  const sessions = useSessionStore((state) => state.sessions);
+  // Subscribe only to the active session rather than the entire sessions map so
+  // agent events for other (or background) sessions don't re-render App.
+  const activeSession = useSessionStore((state) =>
+    state.selectedThread ? state.sessions[state.selectedThread] : undefined
+  );
+  // Membership-based set of running session ids. The selector recomputes per
+  // event, but useShallow keeps the same reference (and skips a render) unless
+  // the actual set of running ids changes.
+  const runningSessionIds = useSessionStore(
+    useShallow((state) => collectRunningSessionIds(state.sessions))
+  );
+  // Distinct session cwds, shallow-compared so this only changes when the set
+  // of workspace folders backing sessions actually changes (not on every token).
+  const sessionWorkspaceCwds = useSessionStore(
+    useShallow((state) => collectSessionWorkspaceCwds(state.sessions))
+  );
+  // Primitive existence flag so route effects that only care whether the
+  // selected thread is present in the store don't depend on the whole map.
+  const selectedThreadLoaded = useSessionStore((state) =>
+    selectedThread ? Boolean(state.sessions[selectedThread]) : false
+  );
   const setSessions = useSessionStore((state) => state.setSessions);
   const setSessionSnapshot = useSessionStore((state) => state.setSnapshot);
   const upsertSession = useSessionStore((state) => state.upsertSession);
@@ -170,7 +192,10 @@ export default function App() {
     [agentServer]
   );
 
-  const prompt = useComposerStore((state) => state.prompt);
+  // NOTE: App intentionally does NOT subscribe to `prompt`. Composer owns the
+  // controlled draft text directly from the store, so keystrokes re-render only
+  // Composer, not this 2800-line root. App reads the latest value lazily at
+  // submit time via useComposerStore.getState().prompt.
   const setPrompt = useComposerStore((state) => state.setPrompt);
   const permission = useComposerStore((state) => state.permission);
   const setPermission = useComposerStore((state) => state.setPermission);
@@ -249,6 +274,10 @@ export default function App() {
     provider: SessionProvider;
   } | null>(null);
   const loadingSessionIdsRef = useRef<Set<string>>(new Set());
+  // Holds the original File for each image attachment so we can defer the
+  // base64 (readAsDataURL) encode to submit time instead of doing it eagerly
+  // just to render a preview (previews use a cheap object URL).
+  const imageAttachmentFilesRef = useRef<Map<string, File>>(new Map());
   const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(
     () => new Set()
@@ -304,10 +333,17 @@ export default function App() {
   const workspaceFilesRequestIdRef = useRef(0);
   const filePreviewRequestIdRef = useRef(0);
 
-  const activeSession = selectedThread ? sessions[selectedThread] : undefined;
+  const activeSessionItems = activeSession?.items ?? emptyConversationItems;
+  // Re-key the backward scan on the items array reference: every mutating branch
+  // of applyLiveSessionEvent (incl. tool.completed) assigns a NEW items array
+  // while no-op branches reuse it, and the no-session case falls back to the
+  // shared emptyConversationItems constant. So this recomputes exactly when the
+  // timeline changes (a length+last-item key missed an in-place tool.completed
+  // after a trailing assistant message) without re-rendering App for other
+  // sessions' events.
   const activeSessionLastTurnReviewFiles = useMemo(
-    () => latestReviewFilesFromItems(activeSession?.items ?? []) ?? null,
-    [activeSession]
+    () => latestReviewFilesFromItems(activeSessionItems) ?? null,
+    [activeSessionItems]
   );
   const lastTurnReviewFiles =
     lastTurnReviewFilesOverride ?? activeSessionLastTurnReviewFiles;
@@ -323,6 +359,10 @@ export default function App() {
     setLastTurnReviewFilesOverride(null);
   }, [selectedThread]);
 
+  const sessionWorkspaceOptions = useMemo(
+    () => workspaceOptionsFromCwds(sessionWorkspaceCwds),
+    [sessionWorkspaceCwds]
+  );
   const allWorkspaceOptions = useMemo(
     () =>
       mergeWorkspaceOptions([
@@ -335,9 +375,9 @@ export default function App() {
             }
           : undefined,
         ...workspaceOptions,
-        ...workspaceOptionsFromSessions(sessions)
+        ...sessionWorkspaceOptions
       ]),
-    [agentServer, sessions, workspaceOptions]
+    [agentServer, sessionWorkspaceOptions, workspaceOptions]
   );
   const selectedWorkspace =
     allWorkspaceOptions.find((option) => option.id === selectedWorkspaceId) ??
@@ -420,15 +460,6 @@ export default function App() {
     selectedWorkspace?.label ??
     agentServer?.workspaceName ??
     (currentCwd ? basename(currentCwd) : "Workspace");
-  const runningSessionIds = useMemo(
-    () =>
-      new Set(
-        Object.values(sessions).flatMap((session) =>
-          isSessionRunning(session) ? [session.id] : []
-        )
-      ),
-    [sessions]
-  );
   const threadTabs = useMemo(
     () =>
       createThreadTabs({
@@ -689,7 +720,7 @@ export default function App() {
     threadId: string,
     options: { updateRoute?: boolean } = {}
   ) {
-    const session = sessions[threadId];
+    const session = useSessionStore.getState().sessions[threadId];
 
     setSelectedThread(threadId);
     setActiveNav("New session");
@@ -716,7 +747,7 @@ export default function App() {
   }
 
   function ensureSessionLoaded(threadId: string) {
-    const session = sessions[threadId];
+    const session = useSessionStore.getState().sessions[threadId];
 
     if (!session || session.contentLoaded || loadingSessionIdsRef.current.has(threadId)) {
       return;
@@ -819,7 +850,12 @@ export default function App() {
 
     setSelectedThread("");
     setActiveNav("New session");
-  }, [location.pathname, pendingNewRequestId, sessions]);
+    // Deps must NOT include any selectedThread-derived value. This effect syncs
+    // route -> state and reads the session map via getState(); if it re-ran when
+    // selectedThread was cleared, it would fire mid-navigation (while pathname is
+    // still the old /sessions/X during the router transition) and re-select that
+    // thread via the route.kind === "session" branch, bouncing the user off /new.
+  }, [location.pathname, pendingNewRequestId]);
 
   useEffect(() => {
     const route = appRouteFromPathname(location.pathname);
@@ -828,13 +864,13 @@ export default function App() {
       return;
     }
 
-    if (!sessions[selectedThread]) {
+    if (!selectedThreadLoaded) {
       return;
     }
 
     setActiveNav("New session");
     navigateAppRoute(sessionRoute(selectedThread), { replace: true });
-  }, [location.pathname, pendingNewRequestId, selectedThread, sessions]);
+  }, [location.pathname, pendingNewRequestId, selectedThread, selectedThreadLoaded]);
 
   function setClampedSidebarWidth(value: number) {
     setSidebarWidth(clampSidebarWidth(value));
@@ -919,7 +955,7 @@ export default function App() {
   }
 
   async function submitPrompt() {
-    const body = prompt.trim();
+    const body = useComposerStore.getState().prompt.trim();
     const promptWithComments = formatPromptWithReviewComments(
       body,
       reviewCommentAttachments
@@ -948,7 +984,36 @@ export default function App() {
       setPendingNewRequestId(requestId);
     }
 
+    // Snapshot the Files for the attachments being submitted before clearing,
+    // so the encode (below) is unaffected by the object-URL revocation and ref
+    // cleanup that clearComposer triggers.
+    const submittingAttachments = imageAttachments.map((attachment) => ({
+      attachment,
+      file: imageAttachmentFilesRef.current.get(attachment.id)
+    }));
+
+    for (const attachment of imageAttachments) {
+      imageAttachmentFilesRef.current.delete(attachment.id);
+    }
+
+    // Clear the composer immediately for a responsive UI, then perform the
+    // deferred (expensive) base64 encode from the captured Files.
     clearComposer();
+
+    const submittedImageAttachments = await Promise.all(
+      submittingAttachments.map(async ({ attachment, file }) => {
+        const dataUrl =
+          attachment.dataUrl ??
+          (file ? await readFileAsDataUrl(file) : undefined);
+
+        return {
+          name: attachment.name,
+          mediaType: attachment.mediaType,
+          dataUrl,
+          path: attachment.path
+        };
+      })
+    );
 
     try {
       await agentClient.chat({
@@ -978,12 +1043,7 @@ export default function App() {
                 }
               }
             : undefined,
-        imageAttachments: imageAttachments.map((attachment) => ({
-          name: attachment.name,
-          mediaType: attachment.mediaType,
-          dataUrl: attachment.dataUrl,
-          path: attachment.path
-        }))
+        imageAttachments: submittedImageAttachments
       }, applyAgentEvent);
     } catch (error) {
       if (!sessionId) {
@@ -1023,7 +1083,7 @@ export default function App() {
   }
 
   async function archiveThread(sessionId: string) {
-    const session = sessions[sessionId];
+    const session = useSessionStore.getState().sessions[sessionId];
 
     if (!session) {
       return;
@@ -1125,12 +1185,18 @@ export default function App() {
     navigateAppRoute(sessionRoute(id));
   }
 
-  async function addImageAttachments(files: File[]) {
-    const attachments = await Promise.all(files.map(fileToAttachment));
+  function addImageAttachments(files: File[]) {
+    const attachments = files.map((file) => {
+      const id = createId();
+      imageAttachmentFilesRef.current.set(id, file);
+
+      return fileToAttachment(id, file);
+    });
     addComposerImageAttachments(attachments);
   }
 
   function removeImageAttachment(id: string) {
+    imageAttachmentFilesRef.current.delete(id);
     removeComposerImageAttachment(id);
   }
 
@@ -1728,6 +1794,62 @@ export default function App() {
     setFilePreviewLoading(false);
   }
 
+  // Stable handler identities so memoized children (Composer/Sidebar/etc.) can
+  // bail out of re-rendering. Each wrapper always calls the latest closure, so
+  // behavior is identical to calling the function declaration directly.
+  const onSubmitStable = useStableCallback(() => void submitPrompt());
+  const onStopStable = useStableCallback(() => void stopActiveRun());
+  const onAddImageAttachmentsStable = useStableCallback((files: File[]) =>
+    addImageAttachments(files)
+  );
+  const onRemoveImageAttachmentStable = useStableCallback((id: string) =>
+    removeImageAttachment(id)
+  );
+  const onRemoveReviewCommentAttachmentStable = useStableCallback(
+    (id: string) => removeReviewCommentAttachment(id)
+  );
+  const onResolveApprovalStable = useStableCallback(
+    (approvalId: string, decision: ApprovalDecision) =>
+      resolveApproval(approvalId, decision)
+  );
+  const selectComposerBranchStable = useStableCallback(
+    (option: PromptComposerFooterOption) => void selectComposerBranch(option)
+  );
+  const loadReviewBranchesStable = useStableCallback(
+    () => void loadReviewBranches()
+  );
+  const setNewSessionWorkTargetLocal = useStableCallback(() =>
+    setNewSessionWorkTarget("local")
+  );
+  const setNewSessionWorkTargetWorktree = useStableCallback(() =>
+    setNewSessionWorkTarget("worktree")
+  );
+  const onAdoptParallelThreadStable = useStableCallback(
+    (delegateProvider: DelegateSessionProvider) =>
+      void adoptParallelThread(delegateProvider)
+  );
+  const onOpenFileStable = useStableCallback(
+    (filePath: string, options?: { recordHistory?: boolean }) =>
+      void openFile(filePath, options ?? {})
+  );
+  const onReviewChangesStable = useStableCallback(
+    (request?: { filePath?: string; files?: ReviewDiffFile[] }) =>
+      void openReview(request ?? {})
+  );
+
+  const parallelAdoption = useMemo(
+    () => ({
+      required: activeSessionNeedsParallelAdoption,
+      selectedProvider: activeSession?.parallelAdoptedProvider,
+      onAdopt: onAdoptParallelThreadStable
+    }),
+    [
+      activeSession?.parallelAdoptedProvider,
+      activeSessionNeedsParallelAdoption,
+      onAdoptParallelThreadStable
+    ]
+  );
+
   const branchFooterOptions = useMemo<PromptComposerFooterOption[]>(
     () =>
       reviewBranchRefs
@@ -1746,104 +1868,171 @@ export default function App() {
     workspaceGitAvailable === false
       ? "No branch"
       : selectedComposerBranchRef ?? currentBranchRef ?? "Branch";
-  const sessionBranchFooterItem: PromptComposerFooterItem = {
-    icon: GitBranch,
-    optionIcon: GitBranch,
-    label: branchFooterLabel,
-    options: branchFooterOptions,
-    selectedOptionId: selectedComposerBranchRef ?? currentBranchRef ?? undefined,
-    searchPlaceholder: "Search branches",
-    showOptionDetails: true,
-    emptyLabel:
-      workspaceGitAvailable === false
-        ? "This folder is not a git repository"
-        : "No local branches found",
-    loading: reviewBranchRefsLoading && workspaceGitAvailable !== false,
-    error:
-      workspaceGitAvailable === false
-        ? "This folder is not a git repository."
-        : reviewBranchRefsError,
-    menuPlacement: "up",
-    onSelect: selectComposerBranch,
-    onOpen: () => void loadReviewBranches()
-  };
-  const newSessionBranchFooterItem: PromptComposerFooterItem = {
-    ...sessionBranchFooterItem,
-    menuPlacement: "down"
-  };
-  const newSessionWorkTargetFooterItem: PromptComposerFooterItem = {
-    icon:
-      resolvedNewSessionWorkTarget === "worktree"
-        ? GitPullRequestCreateArrow
-        : Laptop,
-    label:
-      resolvedNewSessionWorkTarget === "worktree"
-        ? "New worktree"
-        : "Work locally",
-    menuTitle: "Start in",
-    menuPlacement: "down",
-    menuItems: [
-      {
-        icon: Laptop,
-        label: "Work locally",
-        checked: resolvedNewSessionWorkTarget === "local",
-        onSelect: () => setNewSessionWorkTarget("local")
-      },
-      {
-        icon: GitPullRequestCreateArrow,
-        label: "New worktree",
-        checked: resolvedNewSessionWorkTarget === "worktree",
-        disabled: workspaceGitAvailable === false,
-        onSelect: () => setNewSessionWorkTarget("worktree")
-      }
+  const sessionBranchFooterItem = useMemo<PromptComposerFooterItem>(
+    () => ({
+      icon: GitBranch,
+      optionIcon: GitBranch,
+      label: branchFooterLabel,
+      options: branchFooterOptions,
+      selectedOptionId:
+        selectedComposerBranchRef ?? currentBranchRef ?? undefined,
+      searchPlaceholder: "Search branches",
+      showOptionDetails: true,
+      emptyLabel:
+        workspaceGitAvailable === false
+          ? "This folder is not a git repository"
+          : "No local branches found",
+      loading: reviewBranchRefsLoading && workspaceGitAvailable !== false,
+      error:
+        workspaceGitAvailable === false
+          ? "This folder is not a git repository."
+          : reviewBranchRefsError,
+      menuPlacement: "up",
+      onSelect: selectComposerBranchStable,
+      onOpen: loadReviewBranchesStable
+    }),
+    [
+      branchFooterLabel,
+      branchFooterOptions,
+      currentBranchRef,
+      loadReviewBranchesStable,
+      reviewBranchRefsError,
+      reviewBranchRefsLoading,
+      selectComposerBranchStable,
+      selectedComposerBranchRef,
+      workspaceGitAvailable
     ]
-  };
+  );
+  const newSessionBranchFooterItem = useMemo<PromptComposerFooterItem>(
+    () => ({
+      ...sessionBranchFooterItem,
+      menuPlacement: "down"
+    }),
+    [sessionBranchFooterItem]
+  );
+  const newSessionWorkTargetFooterItem = useMemo<PromptComposerFooterItem>(
+    () => ({
+      icon:
+        resolvedNewSessionWorkTarget === "worktree"
+          ? GitPullRequestCreateArrow
+          : Laptop,
+      label:
+        resolvedNewSessionWorkTarget === "worktree"
+          ? "New worktree"
+          : "Work locally",
+      menuTitle: "Start in",
+      menuPlacement: "down",
+      menuItems: [
+        {
+          icon: Laptop,
+          label: "Work locally",
+          checked: resolvedNewSessionWorkTarget === "local",
+          onSelect: setNewSessionWorkTargetLocal
+        },
+        {
+          icon: GitPullRequestCreateArrow,
+          label: "New worktree",
+          checked: resolvedNewSessionWorkTarget === "worktree",
+          disabled: workspaceGitAvailable === false,
+          onSelect: setNewSessionWorkTargetWorktree
+        }
+      ]
+    }),
+    [
+      resolvedNewSessionWorkTarget,
+      setNewSessionWorkTargetLocal,
+      setNewSessionWorkTargetWorktree,
+      workspaceGitAvailable
+    ]
+  );
 
-  const composerControls = {
-    permission,
-    setPermission,
-    model: activeModel,
-    setModel: setActiveModel,
-    composeAgentModels: {
-      codex: modelByProvider.codex,
-      claude: modelByProvider.claude
-    },
-    setComposeAgentModel: setModelForProvider,
-    intelligence: activeIntelligence,
-    setIntelligence: setActiveIntelligence,
-    composeAgentIntelligence: {
-      codex: intelligenceByProvider.codex,
-      claude: intelligenceByProvider.claude
-    },
-    setComposeAgentIntelligence: setIntelligenceForProvider,
-    permissionOpen,
-    setPermissionOpen,
-    intelligenceOpen,
-    setIntelligenceOpen,
-    permissionMenuId: "composer-permission-menu",
-    intelligenceMenuId: "composer-intelligence-menu",
-    provider: activeProvider,
-    setProvider,
-    value: prompt,
-    setValue: setPrompt,
-    onSubmit: submitPrompt,
-    onStop: stopActiveRun,
-    submitMode,
-    submitDisabled:
-      submitMode === "send" &&
-      (activeSessionNeedsParallelAdoption ||
-        (!prompt.trim() && reviewCommentAttachments.length === 0)),
-    imageAttachments,
-    reviewCommentAttachments,
-    onAddImageAttachments: addImageAttachments,
-    onRemoveImageAttachment: removeImageAttachment,
-    onRemoveReviewCommentAttachment: removeReviewCommentAttachment,
-    approvals: approvals.filter((approval) =>
-      activeSession ? approval.sessionId === activeSession.id : true
-    ),
-    onResolveApproval: resolveApproval,
-    branchFooterItem: sessionBranchFooterItem
-  };
+  const composerApprovals = useMemo(
+    () =>
+      approvals.filter((approval) =>
+        activeSession ? approval.sessionId === activeSession.id : true
+      ),
+    [approvals, activeSession]
+  );
+
+  const composerControls = useMemo<PromptComposerControls>(
+    () => ({
+      permission,
+      setPermission,
+      model: activeModel,
+      setModel: setActiveModel,
+      composeAgentModels: {
+        codex: modelByProvider.codex,
+        claude: modelByProvider.claude
+      },
+      setComposeAgentModel: setModelForProvider,
+      intelligence: activeIntelligence,
+      setIntelligence: setActiveIntelligence,
+      composeAgentIntelligence: {
+        codex: intelligenceByProvider.codex,
+        claude: intelligenceByProvider.claude
+      },
+      setComposeAgentIntelligence: setIntelligenceForProvider,
+      permissionOpen,
+      setPermissionOpen,
+      intelligenceOpen,
+      setIntelligenceOpen,
+      permissionMenuId: "composer-permission-menu",
+      intelligenceMenuId: "composer-intelligence-menu",
+      provider: activeProvider,
+      setProvider,
+      // value/setValue intentionally omitted: Composer reads the draft text
+      // from useComposerStore itself so keystrokes don't re-render App.
+      onSubmit: onSubmitStable,
+      onStop: onStopStable,
+      submitMode,
+      // The empty-prompt portion of the disabled check is evaluated inside
+      // Composer (which subscribes to the prompt). App only contributes the
+      // parts that don't depend on per-keystroke prompt text.
+      submitDisabled: submitMode === "send" && activeSessionNeedsParallelAdoption,
+      requireNonEmptyPrompt:
+        submitMode === "send" && reviewCommentAttachments.length === 0,
+      imageAttachments,
+      reviewCommentAttachments,
+      onAddImageAttachments: onAddImageAttachmentsStable,
+      onRemoveImageAttachment: onRemoveImageAttachmentStable,
+      onRemoveReviewCommentAttachment: onRemoveReviewCommentAttachmentStable,
+      approvals: composerApprovals,
+      onResolveApproval: onResolveApprovalStable,
+      branchFooterItem: sessionBranchFooterItem
+    }),
+    [
+      activeIntelligence,
+      activeModel,
+      activeProvider,
+      activeSessionNeedsParallelAdoption,
+      composerApprovals,
+      imageAttachments,
+      intelligenceByProvider.claude,
+      intelligenceByProvider.codex,
+      intelligenceOpen,
+      modelByProvider.claude,
+      modelByProvider.codex,
+      onAddImageAttachmentsStable,
+      onRemoveImageAttachmentStable,
+      onRemoveReviewCommentAttachmentStable,
+      onResolveApprovalStable,
+      onStopStable,
+      onSubmitStable,
+      permission,
+      permissionOpen,
+      reviewCommentAttachments,
+      sessionBranchFooterItem,
+      setActiveIntelligence,
+      setActiveModel,
+      setIntelligenceForProvider,
+      setIntelligenceOpen,
+      setModelForProvider,
+      setPermission,
+      setPermissionOpen,
+      setProvider,
+      submitMode
+    ]
+  );
 
   if (settingsOpen) {
     return <SettingsPage onBack={() => setSettingsOpen(false)} />;
@@ -2033,13 +2222,9 @@ export default function App() {
                   loadingSessionIds.has(activeSession.id)
                 }
                 composer={composerControls}
-                parallelAdoption={{
-                  required: activeSessionNeedsParallelAdoption,
-                  selectedProvider: activeSession.parallelAdoptedProvider,
-                  onAdopt: adoptParallelThread
-                }}
-                onOpenFile={openFile}
-                onReviewChanges={(request) => void openReview(request)}
+                parallelAdoption={parallelAdoption}
+                onOpenFile={onOpenFileStable}
+                onReviewChanges={onReviewChangesStable}
               />
             ) : (
               <NewSessionPage
@@ -2535,6 +2720,49 @@ function displayWorkspaceCwd(cwd?: string) {
   return normalized;
 }
 
+const emptyConversationItems: ConversationItem[] = [];
+
+// Distinct, order-preserving list of session cwds. Used (shallow-compared) to
+// derive workspace options without depending on the whole sessions map.
+function collectSessionWorkspaceCwds(
+  sessions: Record<string, SessionContent>
+): string[] {
+  const seen = new Set<string>();
+  const cwds: string[] = [];
+
+  for (const session of Object.values(sessions)) {
+    if (session.cwd && !seen.has(session.cwd)) {
+      seen.add(session.cwd);
+      cwds.push(session.cwd);
+    }
+  }
+
+  return cwds;
+}
+
+function workspaceOptionsFromCwds(cwds: string[]) {
+  return cwds.map((cwd) => ({
+    id: cwd,
+    label: basename(cwd),
+    cwd,
+    detail: cwd
+  }));
+}
+
+function collectRunningSessionIds(
+  sessions: Record<string, SessionContent>
+): Set<string> {
+  const ids = new Set<string>();
+
+  for (const session of Object.values(sessions)) {
+    if (isSessionRunning(session)) {
+      ids.add(session.id);
+    }
+  }
+
+  return ids;
+}
+
 function latestReviewFilesFromItems(items: ConversationItem[]): ReviewDiffFile[] | null {
   for (let index = items.length - 1; index >= 0; index -= 1) {
     const item = items[index];
@@ -2810,21 +3038,22 @@ function routerHistoryIndex() {
   return typeof index === "number" ? index : 0;
 }
 
-function fileToAttachment(file: File): Promise<ComposerImageAttachment> {
+function fileToAttachment(id: string, file: File): ComposerImageAttachment {
+  // Cheap, synchronous preview via an object URL. The expensive base64 encode
+  // is deferred to submit time (see readFileAsDataUrl).
+  return {
+    id,
+    name: file.name,
+    mediaType: file.type || "image/png",
+    previewUrl: URL.createObjectURL(file)
+  };
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
 
-    reader.onload = () => {
-      const dataUrl = String(reader.result ?? "");
-
-      resolve({
-        id: createId(),
-        name: file.name,
-        mediaType: file.type || "image/png",
-        previewUrl: dataUrl,
-        dataUrl
-      });
-    };
+    reader.onload = () => resolve(String(reader.result ?? ""));
     reader.onerror = () => reject(reader.error);
     reader.readAsDataURL(file);
   });
@@ -2883,4 +3112,20 @@ function basename(filePath: string) {
 
 function createId() {
   return globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`;
+}
+
+// Returns a referentially-stable function that always invokes the latest
+// version of `callback`. Lets us pass handlers to memoized children without
+// re-deriving exhaustive dependency lists for each (which would risk stale
+// closures and behavior changes).
+function useStableCallback<Args extends unknown[], Result>(
+  callback: (...args: Args) => Result
+): (...args: Args) => Result {
+  const callbackRef = useRef(callback);
+
+  useInsertionEffect(() => {
+    callbackRef.current = callback;
+  });
+
+  return useCallback((...args: Args) => callbackRef.current(...args), []);
 }

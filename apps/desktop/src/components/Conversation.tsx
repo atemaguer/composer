@@ -1,7 +1,8 @@
 import {
   Fragment,
+  memo,
+  useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -9,6 +10,8 @@ import {
   type MouseEvent,
   type ReactNode
 } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { create } from "zustand";
 import {
   Anchor,
   ArrowDown,
@@ -65,6 +68,35 @@ import { TooltipButton } from "./ui/tooltip-button";
 
 const markdownLinkText = "text-[#b7c3ff] hover:text-[#cbd4ff]";
 
+// Persistent expand/collapse state keyed by a stable item/detail id. It lives
+// OUTSIDE the component tree so a row's disclosure survives unmount/remount
+// under list virtualization (P1-1) — collapsing/expanding a tool group, detail
+// row or file-change card no longer snaps back to its default when the row
+// scrolls out of and back into the virtualized viewport. Per-id selectors mean
+// only the toggled row re-renders.
+const useDisclosureStore = create<{
+  overrides: Record<string, boolean>;
+  toggle: (id: string, current: boolean) => void;
+}>((set) => ({
+  overrides: {},
+  toggle: (id, current) =>
+    set((state) => ({ overrides: { ...state.overrides, [id]: !current } }))
+}));
+
+function usePersistentDisclosure(
+  id: string,
+  defaultOpen: boolean
+): [boolean, () => void] {
+  const stored = useDisclosureStore((state) => state.overrides[id]);
+  const open = stored ?? defaultOpen;
+  const toggle = useCallback(
+    () => useDisclosureStore.getState().toggle(id, open),
+    [id, open]
+  );
+
+  return [open, toggle];
+}
+
 type ConversationProps = {
   className?: string;
   cwd?: string;
@@ -100,14 +132,20 @@ export function Conversation({
   onOpenFile,
   onReviewChanges
 }: ConversationProps) {
+  const stableGroupCacheRef = useRef<Map<string, StableGroupCacheEntry>>(
+    new Map()
+  );
   const timelineItems = useMemo(
     () =>
-      groupParallelThreadActivity(
-        groupConsecutiveToolActivity(
-          items.filter(
-            (item) => item.type !== "jump_marker" && !isParallelSupervisorMessage(item)
+      stabilizeTimelineItems(
+        groupParallelThreadActivity(
+          groupConsecutiveToolActivity(
+            items.filter(
+              (item) => item.type !== "jump_marker" && !isParallelSupervisorMessage(item)
+            )
           )
-        )
+        ),
+        stableGroupCacheRef.current
       ),
     [items]
   );
@@ -135,11 +173,17 @@ export function Conversation({
       ),
     [timelineItems]
   );
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const scrollerRef = useRef<HTMLElement | null>(null);
+  const jumpRafRef = useRef<number | null>(null);
   const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
-  const updateJumpVisibility = () => {
-    const scroller = scrollRef.current;
+  const hasPendingWork = pendingItems.length > 0;
+  const showThinkingIndicator =
+    hasPendingWork && !hasRunningHandoff && !hasOutputAfterLatestUser(items);
+
+  const updateJumpVisibility = useCallback(() => {
+    const scroller = scrollerRef.current;
 
     if (!scroller) {
       setShowJumpToLatest(false);
@@ -151,25 +195,96 @@ export function Conversation({
     const threshold = Math.min(700, Math.max(360, scroller.clientHeight * 0.55));
 
     setShowJumpToLatest(distanceFromBottom > threshold);
-  };
+  }, []);
 
-  useLayoutEffect(() => {
-    const scroller = scrollRef.current;
-
-    if (!scroller) {
+  // rAF-coalesce scroll-driven layout reads (P2-2): keep the isAtBottom ref in
+  // sync and only flip the jump-to-latest control once per frame.
+  const handleScroll = useCallback(() => {
+    if (jumpRafRef.current !== null) {
       return;
     }
 
-    scroller.scrollTop = scroller.scrollHeight;
-    updateJumpVisibility();
-  }, [timelineItems.length, pendingItems.length]);
+    jumpRafRef.current = requestAnimationFrame(() => {
+      jumpRafRef.current = null;
+      updateJumpVisibility();
+    });
+  }, [updateJumpVisibility]);
 
-  const scrollToLatest = () => {
-    scrollRef.current?.scrollTo({
-      top: scrollRef.current.scrollHeight,
+  useEffect(
+    () => () => {
+      if (jumpRafRef.current !== null) {
+        cancelAnimationFrame(jumpRafRef.current);
+      }
+    },
+    []
+  );
+
+  const handleAtBottomStateChange = useCallback(() => {
+    updateJumpVisibility();
+  }, [updateJumpVisibility]);
+
+  // Only stick to the bottom while the user is pinned there (P1-4); Virtuoso
+  // passes the current pinned state, so a scrolled-up user is never yanked down.
+  // Use "auto" (instant) rather than "smooth": during token streaming the
+  // smooth animation can't keep up with rapid appends and visibly lags/fights
+  // the updates. The explicit Jump-to-latest button keeps its smooth behavior.
+  const followOutput = useCallback(
+    (atBottom: boolean): "auto" | false => (atBottom ? "auto" : false),
+    []
+  );
+
+  const scrollToLatest = useCallback(() => {
+    virtuosoRef.current?.scrollToIndex({
+      index: "LAST",
+      align: "end",
       behavior: "smooth"
     });
-  };
+  }, []);
+
+  const renderItem = useCallback(
+    (index: number, item: ConversationItem) => (
+      <div className="px-5">
+        <div
+          data-conversation-content
+          className={cn(
+            "mx-auto w-full max-w-[820px]",
+            index === 0 ? "pt-7" : "pt-5"
+          )}
+        >
+          <ConversationItemView
+            item={item}
+            cwd={cwd}
+            activeToolLabels={activeToolLabels}
+            activeToolId={activeToolId}
+            hasPendingWork={hasPendingWork}
+            parallelAdoption={parallelAdoption}
+            onOpenFile={onOpenFile}
+            onReviewChanges={onReviewChanges}
+          />
+        </div>
+      </div>
+    ),
+    [
+      cwd,
+      activeToolLabels,
+      activeToolId,
+      hasPendingWork,
+      parallelAdoption,
+      onOpenFile,
+      onReviewChanges
+    ]
+  );
+
+  const Footer = useCallback(
+    () => (
+      <div className="px-5 pb-[220px]">
+        <div className="mx-auto w-full max-w-[820px]">
+          {showThinkingIndicator && <ThinkingIndicator />}
+        </div>
+      </div>
+    ),
+    [showThinkingIndicator]
+  );
 
   return (
     <section
@@ -182,33 +297,43 @@ export function Conversation({
       <div className="relative min-h-0">
         <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-gradient-to-b from-app-shell via-app-shell/70 to-app-shell/0" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-9 bg-gradient-to-t from-app-shell via-app-shell/70 to-app-shell/0" />
-        <div
-          ref={scrollRef}
-          className="thin-scrollbar h-full overflow-auto px-5 pb-[220px] pt-4"
-          onScroll={updateJumpVisibility}
-        >
-          <ConversationTimeline
-            items={timelineItems}
-            cwd={cwd}
-            activeToolLabels={activeToolLabels}
-            activeToolId={activeToolId}
-            hasPendingWork={pendingItems.length > 0}
-            parallelAdoption={parallelAdoption}
-            onOpenFile={onOpenFile}
-            onReviewChanges={onReviewChanges}
+        {timelineItems.length === 0 ? (
+          <div className="thin-scrollbar h-full overflow-auto px-5 pb-[220px] pt-4">
+            <div data-conversation-content className="mx-auto w-full max-w-[820px]">
+              {transcriptLoading && <TranscriptLoadingState />}
+              {showThinkingIndicator && <ThinkingIndicator />}
+            </div>
+          </div>
+        ) : (
+          <Virtuoso
+            ref={virtuosoRef}
+            data={timelineItems}
+            initialTopMostItemIndex={Math.max(0, timelineItems.length - 1)}
+            className="thin-scrollbar h-full"
+            scrollerRef={(element) => {
+              scrollerRef.current =
+                element instanceof HTMLElement ? element : null;
+            }}
+            computeItemKey={(_index, item) => item.id}
+            itemContent={renderItem}
+            components={{ Footer }}
+            followOutput={followOutput}
+            // The Footer reserves 220px of composer clearance INSIDE the scroller,
+            // so it counts toward scrollHeight. The threshold must exceed that
+            // clearance, otherwise Virtuoso never considers the last real item
+            // "at bottom" and followOutput stops sticking during streaming. 240px
+            // = 220px footer + headroom for the thinking indicator.
+            atBottomThreshold={240}
+            atBottomStateChange={handleAtBottomStateChange}
+            onScroll={handleScroll}
+            increaseViewportBy={{ top: 1200, bottom: 1200 }}
           />
-          {transcriptLoading && timelineItems.length === 0 && (
-            <TranscriptLoadingState />
-          )}
-          {pendingItems.length > 0 &&
-            !hasRunningHandoff &&
-            !hasOutputAfterLatestUser(items) && <ThinkingIndicator />}
-        </div>
+        )}
       </div>
 
       {showJumpToLatest && (
         <JumpToLatestOverlay
-          hasPendingWork={pendingItems.length > 0}
+          hasPendingWork={hasPendingWork}
           onJump={scrollToLatest}
         />
       )}
@@ -218,6 +343,44 @@ export function Conversation({
 }
 
 type ToolGroupItem = Extract<ConversationItem, { type: "tool_group" }>;
+
+type StableGroupCacheEntry = {
+  signature: string;
+  value: ConversationItem;
+};
+
+// Grouping (groupConsecutiveToolActivity / groupParallelThreadActivity) rebuilds
+// merged objects on every `items` change, handing each grouped item a brand new
+// identity even when its source content is unchanged. That defeats the
+// React.memo on the row components and forces every Streamdown instance to
+// re-render. Re-use the previous object whenever a freshly grouped item is
+// structurally identical to what we produced last time, so unchanged history
+// keeps a stable reference and only the streaming tail recomputes. (P1-3)
+function stabilizeTimelineItems(
+  grouped: ConversationItem[],
+  cache: Map<string, StableGroupCacheEntry>
+): ConversationItem[] {
+  const nextCache = new Map<string, StableGroupCacheEntry>();
+  const stabilized = grouped.map((item) => {
+    const signature = JSON.stringify(item);
+    const previous = cache.get(item.id);
+
+    if (previous && previous.signature === signature) {
+      nextCache.set(item.id, previous);
+      return previous.value;
+    }
+
+    nextCache.set(item.id, { signature, value: item });
+    return item;
+  });
+
+  cache.clear();
+  for (const [id, entry] of nextCache) {
+    cache.set(id, entry);
+  }
+
+  return stabilized;
+}
 
 function TranscriptLoadingState() {
   return (
@@ -824,7 +987,7 @@ export function ConversationTimeline({
   );
 }
 
-function ConversationItemView({
+const ConversationItemView = memo(function ConversationItemView({
   item,
   cwd,
   activeToolLabels = [],
@@ -921,7 +1084,7 @@ function ConversationItemView({
   }
 
   return <NoticeRow label={item.label} />;
-}
+});
 
 function HandoffTimelineMarker({ item }: { item: ToolGroupItem }) {
   const running = item.status === "running";
@@ -945,7 +1108,7 @@ function HandoffTimelineMarker({ item }: { item: ToolGroupItem }) {
   );
 }
 
-function ParallelThreadGroup({
+const ParallelThreadGroup = memo(function ParallelThreadGroup({
   item,
   cwd,
   activeToolLabels = [],
@@ -965,11 +1128,22 @@ function ParallelThreadGroup({
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   const hasSelection = Boolean(parallelAdoption?.selectedProvider);
+  // Precompute grouped column items and the config label once per column instead
+  // of re-scanning on every render (P2-19). `item` carries a stable identity
+  // (P1-3), so this only recomputes when the group actually changes.
+  const columns = useMemo(
+    () =>
+      item.columns.map((column) => ({
+        column,
+        columnItems: parallelColumnItems(column.items),
+        config: parallelColumnConfig(column.provider, column.items)
+      })),
+    [item.columns]
+  );
 
   return (
     <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] lg:gap-x-5">
-        {item.columns.map((column) => {
-          const columnItems = parallelColumnItems(column.items);
+        {columns.map(({ column, columnItems, config }) => {
           const showColumnThinking = hasPendingWork && columnItems.length === 0;
 
           return (
@@ -998,9 +1172,9 @@ function ParallelThreadGroup({
                       {providerLabel(column.provider)}
                     </span>
                   </div>
-                  {parallelColumnConfig(column.provider, column.items) && (
+                  {config && (
                     <span className="truncate text-[11px] font-normal text-app-dim">
-                      {parallelColumnConfig(column.provider, column.items)}
+                      {config}
                     </span>
                   )}
                 </div>
@@ -1044,7 +1218,7 @@ function ParallelThreadGroup({
         })}
     </div>
   );
-}
+});
 
 function parallelColumnConfig(provider: SessionProvider, items: ConversationItem[]) {
   for (const item of items) {
@@ -1193,7 +1367,7 @@ export function TurnStatusDivider({ label }: { label: string }) {
   );
 }
 
-export function UserMessageBubble({
+export const UserMessageBubble = memo(function UserMessageBubble({
   body,
   timestamp,
   steered,
@@ -1239,9 +1413,9 @@ export function UserMessageBubble({
       </div>
     </div>
   );
-}
+});
 
-export function AssistantMessageBlock({
+export const AssistantMessageBlock = memo(function AssistantMessageBlock({
   item,
   onOpenFile,
   onReviewChanges
@@ -1264,7 +1438,7 @@ export function AssistantMessageBlock({
       ))}
     </div>
   );
-}
+});
 
 export function AttachmentGroup({
   item
@@ -1636,7 +1810,7 @@ function MarkdownCode({
   );
 }
 
-export function ToolActivityGroup({
+export const ToolActivityGroup = memo(function ToolActivityGroup({
   item,
   cwd,
   activeToolLabels = [],
@@ -1651,7 +1825,10 @@ export function ToolActivityGroup({
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
-  const [open, setOpen] = useState(item.defaultOpen ?? true);
+  const [open, toggleOpen] = usePersistentDisclosure(
+    item.id,
+    item.defaultOpen ?? true
+  );
   const active =
     item.status === "running" ||
     item.id === activeToolId ||
@@ -1672,7 +1849,7 @@ export function ToolActivityGroup({
             ? "grid-cols-[16px_18px_minmax(0,1fr)_18px]"
             : "grid-cols-[18px_minmax(0,1fr)_18px]"
         )}
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         aria-expanded={open}
         tooltip={open ? "Collapse tool activity" : "Expand tool activity"}
       >
@@ -1719,7 +1896,7 @@ export function ToolActivityGroup({
       )}
     </div>
   );
-}
+});
 
 type ToolDetailRenderItem = {
   id: string;
@@ -1868,7 +2045,7 @@ function ToolDetailRow({
     (detail.kind === "call" &&
       detail.action !== "read" &&
       Boolean(detail.args && Object.keys(detail.args).length > 0));
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, toggleOpen] = usePersistentDisclosure(detail.id, defaultOpen);
   const rowLabel = formatToolDetailLabel(detail);
   const filePath = resolveToolDetailFilePath(detail, cwd);
   const tooltip = rowLabel || detail.label;
@@ -1891,7 +2068,7 @@ function ToolDetailRow({
       <div className="grid gap-2">
         <TooltipButton
           className="grid min-w-0 grid-cols-[minmax(0,1fr)_18px] items-center gap-2 text-left text-app-muted transition-colors hover:text-app-text"
-          onClick={() => setOpen(!open)}
+          onClick={toggleOpen}
           aria-expanded={open}
           tooltip={tooltip}
         >
@@ -1950,6 +2127,7 @@ function ToolDetailRow({
 }
 
 function ToolReviewDetail({
+  detail,
   files,
   cwd,
   defaultOpen,
@@ -1963,7 +2141,7 @@ function ToolReviewDetail({
   active?: boolean;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, toggleOpen] = usePersistentDisclosure(detail.id, defaultOpen);
   const summary = reviewFilesSummary(files);
   const openReview = () => {
     onReviewChanges?.({ files });
@@ -1976,7 +2154,7 @@ function ToolReviewDetail({
           className="min-w-0 truncate text-left text-app-muted transition-colors hover:text-app-text"
           type="button"
           tooltip={open ? "Collapse edit diff" : "Expand edit diff"}
-          onClick={() => setOpen(!open)}
+          onClick={toggleOpen}
         >
           {active ? (
             <Shimmer as="span" className="truncate" duration={1.35} spread={3}>
@@ -2004,7 +2182,7 @@ function ToolReviewDetail({
           aria-label={open ? "Collapse edit diff" : "Expand edit diff"}
           aria-expanded={open}
           tooltip={open ? "Collapse edit diff" : "Expand edit diff"}
-          onClick={() => setOpen(!open)}
+          onClick={toggleOpen}
         >
           <ChevronDown
             className={cn("text-app-dim transition-transform", !open && "-rotate-90")}
@@ -2336,14 +2514,17 @@ export function RunningToolCard({
   );
 }
 
-export function FileChangeSummaryCard({
+export const FileChangeSummaryCard = memo(function FileChangeSummaryCard({
   item,
   onReviewChanges
 }: {
   item: Extract<ConversationItem, { type: "file_change_summary" }>;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
-  const [open, setOpen] = useState(Boolean(item.defaultOpen));
+  const [open, toggleOpen] = usePersistentDisclosure(
+    item.id,
+    Boolean(item.defaultOpen)
+  );
 
   return (
     <div className="max-w-[820px] overflow-hidden rounded-lg border border-app-line bg-app-panel/94 shadow-[0_14px_34px_color-mix(in_srgb,var(--color-app-bg)_24%,transparent)]">
@@ -2377,7 +2558,7 @@ export function FileChangeSummaryCard({
             aria-label={open ? "Collapse file changes" : "Expand file changes"}
             aria-expanded={open}
             tooltip={open ? "Collapse file changes" : "Expand file changes"}
-            onClick={() => setOpen(!open)}
+            onClick={toggleOpen}
           >
             <ChevronDown
               size={15}
@@ -2407,7 +2588,7 @@ export function FileChangeSummaryCard({
       )}
     </div>
   );
-}
+});
 
 function FileChangeRowView({
   file,
