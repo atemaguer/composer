@@ -1,6 +1,7 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
+import { siteConfig } from "@/lib/site";
 
 const cursorGothic = localFont({
   variable: "--font-cursor-gothic",
@@ -30,9 +31,61 @@ const cursorGothic = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "Composer | Agent-native desktop workspace",
-  description:
-    "Composer is a focused desktop workspace for steering coding agents through real project work.",
+  metadataBase: new URL(siteConfig.url),
+  title: {
+    default: siteConfig.title,
+    template: `%s · ${siteConfig.name}`,
+  },
+  description: siteConfig.description,
+  applicationName: siteConfig.name,
+  keywords: [
+    "Composer",
+    "Claude Code",
+    "Codex",
+    "coding agent",
+    "agent handoff",
+    "multi-agent",
+    "AI pair programming",
+    "developer tools",
+  ],
+  authors: [{ name: "Composer" }],
+  creator: "Composer",
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    type: "website",
+    siteName: siteConfig.name,
+    title: siteConfig.title,
+    description: siteConfig.description,
+    url: siteConfig.url,
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: siteConfig.title,
+    description: siteConfig.description,
+    creator: siteConfig.twitter,
+  },
+  icons: {
+    icon: "/composer-icon.png",
+    apple: "/composer-icon.png",
+  },
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+      "max-snippet": -1,
+    },
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#f5f7fb",
+  colorScheme: "light",
 };
 
 export default function RootLayout({

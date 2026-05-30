@@ -12,11 +12,11 @@
   --font-mono: CursorGothic, "CursorGothic Fallback", system-ui, "Helvetica Neue", Helvetica, Arial, sans-serif;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* The marketing site is intentionally a single light theme; the app mock
+   carries its own dark "window" surface, so we pin color-scheme to light to
+   keep form controls, scrollbars, and OS theming consistent. */
+:root {
+  color-scheme: light;
 }
 
 body {
@@ -55,5 +55,89 @@ a {
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+/* App-mock motion primitives */
+@keyframes mockItemIn {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes mockCaretBlink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0;
+  }
+}
+
+.mock-item-in {
+  animation: mockItemIn 0.32s ease both;
+}
+
+.mock-caret {
+  display: inline-block;
+  width: 0.55ch;
+  margin-left: 1px;
+  background: currentColor;
+  animation: mockCaretBlink 1s steps(1) infinite;
+}
+
+@keyframes mockShimmer {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+
+  50% {
+    opacity: 1;
+  }
+}
+
+.mock-shimmer {
+  animation: mockShimmer 1.6s ease-in-out infinite;
+}
+
+/* Thin scrollbar for the mock's scrollable transcript (matches the app). */
+.mock-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(212, 212, 216, 0.22) transparent;
+}
+
+.mock-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+
+.mock-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mock-scroll::-webkit-scrollbar-thumb {
+  background: rgba(212, 212, 216, 0.18);
+  border-radius: 9999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mock-item-in,
+  .mock-shimmer {
+    animation: none;
+  }
+
+  .mock-caret {
+    animation: none;
+    opacity: 0;
   }
 }
