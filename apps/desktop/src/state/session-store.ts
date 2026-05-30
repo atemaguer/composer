@@ -258,7 +258,13 @@ export const useSessionStore = create<SessionStore>((set) => ({
         ? event.sessionId
         : event.type === "approval.requested"
           ? event.approval.sessionId
-          : undefined;
+          : event.type === "session.started" || event.type === "session.updated"
+            ? // These full-rebuild events identify their session via event.session
+              // (not event.sessionId) and REPLACE the stored session wholesale, so
+              // their buffered deltas must be flushed first or the deferred rAF
+              // flush would replay stale tokens onto the rebuilt session.
+              event.session.id
+            : undefined;
 
     // A removed session should discard any pending buffered deltas rather than
     // flush them onto a session that is about to be deleted.
@@ -269,7 +275,26 @@ export const useSessionStore = create<SessionStore>((set) => ({
     set((state) => {
       let working = state;
 
-      if (
+      if (event.type === "sessions.snapshot") {
+        // A snapshot replaces the entire sessions map, so flush EVERY buffered
+        // session first (targetSessionId is single-valued and can't cover this).
+        // applyBufferedDeltasForSession deletes each buffer entry, so the
+        // deferred rAF flush finds nothing to replay onto the new map.
+        let sessions = working.sessions;
+
+        for (const id of Array.from(deltaBuffers.keys())) {
+          const flushed = applyBufferedDeltasForSession(
+            { ...working, sessions },
+            id
+          );
+
+          if (flushed?.sessions) {
+            sessions = flushed.sessions;
+          }
+        }
+
+        working = sessions === working.sessions ? working : { ...working, sessions };
+      } else if (
         targetSessionId &&
         event.type !== "session.removed" &&
         deltaBuffers.has(targetSessionId)
@@ -917,9 +942,11 @@ function upsertApprovalState(
 }
 
 // Rebuild the projects array only when the session's project-relevant thread
-// metadata actually changed. relativeAge is intentionally excluded because it
-// is time-derived and would otherwise always differ. Returns the original
-// projects reference unchanged when nothing the sidebar cares about changed.
+// metadata actually changed. We compare the displayed age BUCKET (not the raw
+// timestamp) so the steady-state short-circuit still holds within a bucket but
+// a rebuild fires exactly when the sidebar's age label would change — otherwise
+// the label goes stale on updatedAt-only events. Returns the original projects
+// reference unchanged when nothing the sidebar cares about changed.
 export function upsertSessionProjectIfChanged(
   projects: Project[],
   session: SessionContent
@@ -938,7 +965,8 @@ export function upsertSessionProjectIfChanged(
       existingThread.model === session.model &&
       existingThread.cwd === session.cwd &&
       existingThread.parentSessionId === session.parentSessionId &&
-      existingThread.subagent === session.subagent
+      existingThread.subagent === session.subagent &&
+      existingThread.age === relativeAge(session.updatedAt)
     ) {
       return projects;
     }

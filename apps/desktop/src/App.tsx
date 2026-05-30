@@ -334,12 +334,16 @@ export default function App() {
   const filePreviewRequestIdRef = useRef(0);
 
   const activeSessionItems = activeSession?.items ?? emptyConversationItems;
-  // Re-key the backward scan on a content-aware key (item count + identity of
-  // the last review-bearing item) instead of the whole session, so it doesn't
-  // re-scan every item on every streamed token.
+  // Re-key the backward scan on the items array reference: every mutating branch
+  // of applyLiveSessionEvent (incl. tool.completed) assigns a NEW items array
+  // while no-op branches reuse it, and the no-session case falls back to the
+  // shared emptyConversationItems constant. So this recomputes exactly when the
+  // timeline changes (a length+last-item key missed an in-place tool.completed
+  // after a trailing assistant message) without re-rendering App for other
+  // sessions' events.
   const activeSessionLastTurnReviewFiles = useMemo(
     () => latestReviewFilesFromItems(activeSessionItems) ?? null,
-    [activeSessionItems.length, lastReviewBearingItem(activeSessionItems)]
+    [activeSessionItems]
   );
   const lastTurnReviewFiles =
     lastTurnReviewFilesOverride ?? activeSessionLastTurnReviewFiles;
@@ -846,7 +850,12 @@ export default function App() {
 
     setSelectedThread("");
     setActiveNav("New session");
-  }, [location.pathname, pendingNewRequestId, selectedThreadLoaded]);
+    // Deps must NOT include any selectedThread-derived value. This effect syncs
+    // route -> state and reads the session map via getState(); if it re-ran when
+    // selectedThread was cleared, it would fire mid-navigation (while pathname is
+    // still the old /sessions/X during the router transition) and re-select that
+    // thread via the route.kind === "session" branch, bouncing the user off /new.
+  }, [location.pathname, pendingNewRequestId]);
 
   useEffect(() => {
     const route = appRouteFromPathname(location.pathname);
@@ -2752,28 +2761,6 @@ function collectRunningSessionIds(
   }
 
   return ids;
-}
-
-// Identity of the last item that can contribute review files. Used as a memo
-// key so the O(items) backward scan only re-runs when a review-bearing item is
-// appended or replaced, not on every streamed token elsewhere in the timeline.
-function lastReviewBearingItem(
-  items: ConversationItem[]
-): ConversationItem | undefined {
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-
-    if (
-      item.type === "tool_group" ||
-      item.type === "assistant_message" ||
-      item.type === "file_change_summary" ||
-      item.type === "parallel_thread_group"
-    ) {
-      return item;
-    }
-  }
-
-  return undefined;
 }
 
 function latestReviewFilesFromItems(items: ConversationItem[]): ReviewDiffFile[] | null {

@@ -11,6 +11,7 @@ import {
   type ReactNode
 } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
+import { create } from "zustand";
 import {
   Anchor,
   ArrowDown,
@@ -66,6 +67,35 @@ import {
 import { TooltipButton } from "./ui/tooltip-button";
 
 const markdownLinkText = "text-[#b7c3ff] hover:text-[#cbd4ff]";
+
+// Persistent expand/collapse state keyed by a stable item/detail id. It lives
+// OUTSIDE the component tree so a row's disclosure survives unmount/remount
+// under list virtualization (P1-1) — collapsing/expanding a tool group, detail
+// row or file-change card no longer snaps back to its default when the row
+// scrolls out of and back into the virtualized viewport. Per-id selectors mean
+// only the toggled row re-renders.
+const useDisclosureStore = create<{
+  overrides: Record<string, boolean>;
+  toggle: (id: string, current: boolean) => void;
+}>((set) => ({
+  overrides: {},
+  toggle: (id, current) =>
+    set((state) => ({ overrides: { ...state.overrides, [id]: !current } }))
+}));
+
+function usePersistentDisclosure(
+  id: string,
+  defaultOpen: boolean
+): [boolean, () => void] {
+  const stored = useDisclosureStore((state) => state.overrides[id]);
+  const open = stored ?? defaultOpen;
+  const toggle = useCallback(
+    () => useDisclosureStore.getState().toggle(id, open),
+    [id, open]
+  );
+
+  return [open, toggle];
+}
 
 type ConversationProps = {
   className?: string;
@@ -195,8 +225,11 @@ export function Conversation({
 
   // Only stick to the bottom while the user is pinned there (P1-4); Virtuoso
   // passes the current pinned state, so a scrolled-up user is never yanked down.
+  // Use "auto" (instant) rather than "smooth": during token streaming the
+  // smooth animation can't keep up with rapid appends and visibly lags/fights
+  // the updates. The explicit Jump-to-latest button keeps its smooth behavior.
   const followOutput = useCallback(
-    (atBottom: boolean): "smooth" | false => (atBottom ? "smooth" : false),
+    (atBottom: boolean): "auto" | false => (atBottom ? "auto" : false),
     []
   );
 
@@ -285,7 +318,12 @@ export function Conversation({
             itemContent={renderItem}
             components={{ Footer }}
             followOutput={followOutput}
-            atBottomThreshold={4}
+            // The Footer reserves 220px of composer clearance INSIDE the scroller,
+            // so it counts toward scrollHeight. The threshold must exceed that
+            // clearance, otherwise Virtuoso never considers the last real item
+            // "at bottom" and followOutput stops sticking during streaming. 240px
+            // = 220px footer + headroom for the thinking indicator.
+            atBottomThreshold={240}
             atBottomStateChange={handleAtBottomStateChange}
             onScroll={handleScroll}
             increaseViewportBy={{ top: 1200, bottom: 1200 }}
@@ -1787,7 +1825,10 @@ export const ToolActivityGroup = memo(function ToolActivityGroup({
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
-  const [open, setOpen] = useState(item.defaultOpen ?? true);
+  const [open, toggleOpen] = usePersistentDisclosure(
+    item.id,
+    item.defaultOpen ?? true
+  );
   const active =
     item.status === "running" ||
     item.id === activeToolId ||
@@ -1808,7 +1849,7 @@ export const ToolActivityGroup = memo(function ToolActivityGroup({
             ? "grid-cols-[16px_18px_minmax(0,1fr)_18px]"
             : "grid-cols-[18px_minmax(0,1fr)_18px]"
         )}
-        onClick={() => setOpen(!open)}
+        onClick={toggleOpen}
         aria-expanded={open}
         tooltip={open ? "Collapse tool activity" : "Expand tool activity"}
       >
@@ -2004,7 +2045,7 @@ function ToolDetailRow({
     (detail.kind === "call" &&
       detail.action !== "read" &&
       Boolean(detail.args && Object.keys(detail.args).length > 0));
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, toggleOpen] = usePersistentDisclosure(detail.id, defaultOpen);
   const rowLabel = formatToolDetailLabel(detail);
   const filePath = resolveToolDetailFilePath(detail, cwd);
   const tooltip = rowLabel || detail.label;
@@ -2027,7 +2068,7 @@ function ToolDetailRow({
       <div className="grid gap-2">
         <TooltipButton
           className="grid min-w-0 grid-cols-[minmax(0,1fr)_18px] items-center gap-2 text-left text-app-muted transition-colors hover:text-app-text"
-          onClick={() => setOpen(!open)}
+          onClick={toggleOpen}
           aria-expanded={open}
           tooltip={tooltip}
         >
@@ -2086,6 +2127,7 @@ function ToolDetailRow({
 }
 
 function ToolReviewDetail({
+  detail,
   files,
   cwd,
   defaultOpen,
@@ -2099,7 +2141,7 @@ function ToolReviewDetail({
   active?: boolean;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
-  const [open, setOpen] = useState(defaultOpen);
+  const [open, toggleOpen] = usePersistentDisclosure(detail.id, defaultOpen);
   const summary = reviewFilesSummary(files);
   const openReview = () => {
     onReviewChanges?.({ files });
@@ -2112,7 +2154,7 @@ function ToolReviewDetail({
           className="min-w-0 truncate text-left text-app-muted transition-colors hover:text-app-text"
           type="button"
           tooltip={open ? "Collapse edit diff" : "Expand edit diff"}
-          onClick={() => setOpen(!open)}
+          onClick={toggleOpen}
         >
           {active ? (
             <Shimmer as="span" className="truncate" duration={1.35} spread={3}>
@@ -2140,7 +2182,7 @@ function ToolReviewDetail({
           aria-label={open ? "Collapse edit diff" : "Expand edit diff"}
           aria-expanded={open}
           tooltip={open ? "Collapse edit diff" : "Expand edit diff"}
-          onClick={() => setOpen(!open)}
+          onClick={toggleOpen}
         >
           <ChevronDown
             className={cn("text-app-dim transition-transform", !open && "-rotate-90")}
@@ -2479,7 +2521,10 @@ export const FileChangeSummaryCard = memo(function FileChangeSummaryCard({
   item: Extract<ConversationItem, { type: "file_change_summary" }>;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
-  const [open, setOpen] = useState(Boolean(item.defaultOpen));
+  const [open, toggleOpen] = usePersistentDisclosure(
+    item.id,
+    Boolean(item.defaultOpen)
+  );
 
   return (
     <div className="max-w-[820px] overflow-hidden rounded-lg border border-app-line bg-app-panel/94 shadow-[0_14px_34px_color-mix(in_srgb,var(--color-app-bg)_24%,transparent)]">
@@ -2513,7 +2558,7 @@ export const FileChangeSummaryCard = memo(function FileChangeSummaryCard({
             aria-label={open ? "Collapse file changes" : "Expand file changes"}
             aria-expanded={open}
             tooltip={open ? "Collapse file changes" : "Expand file changes"}
-            onClick={() => setOpen(!open)}
+            onClick={toggleOpen}
           >
             <ChevronDown
               size={15}
