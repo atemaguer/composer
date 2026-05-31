@@ -39,6 +39,13 @@ export class ClaudeProvider implements AgentProvider {
     const compactToolId = `${request.sessionId}-claude-handoff-compact-${Date.now()}`;
     let recordedSummary = false;
     let latestCompaction: SessionCompactionSummary | undefined;
+    // The `compact_boundary` system message carries only token metadata (no
+    // summary text); the real summary arrives via the PostCompact hook. Track
+    // the metadata so we can attach it to the captured summary regardless of
+    // which arrives first.
+    let boundaryMeta:
+      | { trigger: "manual" | "auto"; preTokens?: number; postTokens?: number }
+      | undefined;
 
     request.emit({
       id: randomUUID(),
@@ -71,13 +78,21 @@ export class ClaudeProvider implements AgentProvider {
           {
             hooks: [
               async (input: HookInput) => {
-                if (input.hook_event_name === "PostCompact") {
+                // PostCompact delivers the real, model-produced summary (see
+                // PostCompactHookInput.compact_summary). This is the content the
+                // next provider needs for the handoff.
+                if (
+                  input.hook_event_name === "PostCompact" &&
+                  input.compact_summary.trim()
+                ) {
                   recordedSummary = true;
                   latestCompaction = recordClaudeCompaction(request.session, {
                     id: `${request.session.id}-claude-compact-${Date.now()}`,
                     contextVersion: request.session.contextVersion ?? 0,
                     trigger: input.trigger,
-                    summary: input.compact_summary
+                    summary: input.compact_summary,
+                    preTokens: boundaryMeta?.preTokens,
+                    postTokens: boundaryMeta?.postTokens
                   });
                 }
 
@@ -115,14 +130,18 @@ export class ClaudeProvider implements AgentProvider {
         }
 
         if (message.type === "system" && message.subtype === "compact_boundary") {
-          latestCompaction = recordClaudeCompaction(request.session, {
-            id: `${request.session.id}-claude-boundary-${Date.now()}`,
-            contextVersion: request.session.contextVersion ?? 0,
+          // Record only the token metadata. Do NOT overwrite the real summary
+          // with a placeholder — that previously clobbered the PostCompact
+          // summary, so the next provider received an empty handoff context.
+          boundaryMeta = {
             trigger: message.compact_metadata.trigger,
             preTokens: message.compact_metadata.pre_tokens,
-            postTokens: message.compact_metadata.post_tokens,
-            summary: "Claude compacted its provider-local context for handoff."
-          });
+            postTokens: message.compact_metadata.post_tokens
+          };
+          if (latestCompaction) {
+            latestCompaction.preTokens = boundaryMeta.preTokens;
+            latestCompaction.postTokens = boundaryMeta.postTokens;
+          }
         }
 
         if (message.type === "result" && message.subtype !== "success") {
@@ -131,10 +150,14 @@ export class ClaudeProvider implements AgentProvider {
       }
 
       if (!recordedSummary) {
+        // Only reached when the model produced no usable summary (e.g. the
+        // session was too short to compact). Fall back to a metadata note.
         latestCompaction = recordClaudeCompaction(request.session, {
           id: `${request.session.id}-claude-compact-fallback-${Date.now()}`,
           contextVersion: request.session.contextVersion ?? 0,
-          trigger: "manual",
+          trigger: boundaryMeta?.trigger ?? "manual",
+          preTokens: boundaryMeta?.preTokens,
+          postTokens: boundaryMeta?.postTokens,
           summary: `Claude compacted its provider-local context for ${request.reason}.`
         });
       }

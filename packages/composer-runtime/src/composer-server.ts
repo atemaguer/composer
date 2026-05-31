@@ -188,6 +188,11 @@ export function createComposerServer({
         return;
       }
 
+      if (request.method === "POST" && url.pathname === "/api/sessions/compact") {
+        await handleSessionCompactRequest(request, response);
+        return;
+      }
+
       writeJson(response, 404, { error: "Not found" });
     } catch (error) {
       writeJson(response, 500, {
@@ -389,6 +394,47 @@ export function createComposerServer({
       provider
     );
     writeJson(response, 200, { ok: true, snapshot });
+  }
+
+  async function handleSessionCompactRequest(
+    request: IncomingMessage,
+    response: ServerResponse
+  ) {
+    const body = await readJson(request);
+    const sessionId =
+      typeof body.sessionId === "string" ? body.sessionId : undefined;
+
+    if (!sessionId) {
+      writeJson(response, 400, { error: "Missing sessionId" });
+      return;
+    }
+
+    const provider = parseProvider(body.provider);
+    const settings: AgentSettings = {
+      permissionMode:
+        body.permissionMode === "Default permissions" ||
+        body.permissionMode === "Auto-review" ||
+        body.permissionMode === "Full access"
+          ? body.permissionMode
+          : "Default permissions",
+      intelligence:
+        body.intelligence === "Low" ||
+        body.intelligence === "Medium" ||
+        body.intelligence === "High" ||
+        body.intelligence === "Extra High"
+          ? body.intelligence
+          : "High",
+      model: parseModel(body.model, provider)
+    };
+
+    try {
+      const compaction = await runtime.compactSession(sessionId, settings);
+      writeJson(response, 200, { ok: true, compaction });
+    } catch (error) {
+      writeJson(response, 400, {
+        error: error instanceof Error ? error.message : String(error)
+      });
+    }
   }
 
   async function handleSessionLoadRequest(url: URL, response: ServerResponse) {

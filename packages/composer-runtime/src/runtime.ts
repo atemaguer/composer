@@ -521,6 +521,50 @@ export class AgentRuntime {
     return this.snapshot();
   }
 
+  /**
+   * Manually compact a session's active provider context. Mirrors the
+   * provider-handoff compaction, but driven by the user (`/compact`) rather than
+   * a cross-provider switch. Compaction tool events broadcast to all connected
+   * clients; the resulting summary is persisted on the session.
+   */
+  async compactSession(
+    sessionId: string,
+    settings: AgentSettings
+  ): Promise<SessionCompactionSummary | undefined> {
+    const session =
+      (await this.loadSessionContent(sessionId)) ?? this.sessions[sessionId];
+
+    if (!session) {
+      throw new Error(`Unknown session ${sessionId}`);
+    }
+
+    const provider = session.lastProvider ?? session.provider;
+
+    if (!isRuntimeProvider(provider)) {
+      throw new Error(`Session ${sessionId} has no compactable provider.`);
+    }
+
+    const impl = this.providers[provider];
+
+    if (!impl.compact) {
+      throw new Error(`${providerLabel(provider)} does not support compaction.`);
+    }
+
+    const providerSession = sessionForProvider(session, provider);
+    const compaction = await impl.compact({
+      sessionId,
+      session: providerSession,
+      settings,
+      reason: "manual compaction",
+      emit: (event) => this.broadcast(stampToolEventProvider(event, provider))
+    });
+
+    syncProviderState(session, provider, providerSession, this.persistence);
+    this.apply({ id: randomUUID(), type: "session.updated", session });
+
+    return compaction;
+  }
+
   resolveApproval(id: string, decision: ApprovalDecision) {
     const resolver = this.approvals.get(id);
 

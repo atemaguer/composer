@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import path from "node:path";
 import { createCliRenderer } from "@opentui/core";
 import { createRoot } from "@opentui/react";
 import { startSidecar, type Sidecar } from "../connection.js";
@@ -18,7 +20,12 @@ async function main(): Promise<void> {
   let sidecar: Sidecar | null = null;
 
   try {
-    sidecar = await startSidecar(cwd);
+    // The sidecar's stdout/stderr would corrupt the rendered screen, so run it
+    // silently and tee its logs to a file for debugging.
+    sidecar = await startSidecar(cwd, {
+      silent: true,
+      logFile: path.join(homedir(), ".composer", "logs", "server.log")
+    });
 
     const renderer = await createCliRenderer({ exitOnCtrlC: false });
 

@@ -10,17 +10,44 @@ import type {
 } from "@composer/client";
 
 /**
- * Which transient overlay (if any) is currently capturing keyboard focus.
- * Everything outside of `none` renders a modal picker on top of the chat.
+ * A single modal picker on the dialog stack. Everything except the base
+ * conversation lives here; the top entry owns the keyboard while it is open.
+ *
+ * Phase 1 ships the provider/model/intelligence/permission pickers, the
+ * session list, the command palette, the approval prompt, and the read-only
+ * help/status panels. Phase 3 adds review/branch/capabilities/confirm.
  */
-export type OverlayMode =
-  | { kind: "none" }
+export type Dialog =
   | { kind: "sessions" }
   | { kind: "provider" }
   | { kind: "model" }
   | { kind: "intelligence" }
   | { kind: "permission" }
+  | { kind: "help" }
+  | { kind: "status" }
+  | { kind: "review" }
+  | { kind: "branch" }
+  | { kind: "capabilities" }
+  | { kind: "archive" }
+  | { kind: "adopt" }
   | { kind: "approval"; approval: ApprovalRequest };
+
+/** Which top-level screen the conversation pane renders. */
+export type RouteMode = "home" | "session";
+
+/**
+ * Transient state for the slash/`@` autocomplete popup that floats above the
+ * prompt input. The candidate list itself is derived purely from `input` +
+ * `provider` (see `commands/registry.ts`), so only the cursor and open flag
+ * need to live in the store.
+ */
+export type AutocompleteState = {
+  open: boolean;
+  /** Which trigger opened the popup. `/` = slash commands. */
+  trigger: "/";
+  /** Highlighted candidate index. */
+  index: number;
+};
 
 /**
  * The complete TUI state. Mirrors the desktop's session-store + composer-store
@@ -35,6 +62,8 @@ export type TuiState = {
   projects: Project[];
   /** Id of the session currently shown in the conversation pane. */
   selectedThread: string | null;
+  /** Which screen is shown — `home` (no/!selected thread) or `session`. */
+  route: RouteMode;
   /**
    * When a brand-new conversation is in flight we optimistically render a
    * synthetic session keyed by this request id until `session.started` arrives
@@ -51,13 +80,18 @@ export type TuiState = {
   permission: PermissionMode;
 
   // UI ---------------------------------------------------------------------
-  overlay: OverlayMode;
+  /** Modal dialog stack; the last entry is the focused, top-most dialog. */
+  dialogs: Dialog[];
+  /** Slash-command autocomplete popup state. */
+  autocomplete: AutocompleteState;
   /** Current text in the prompt input. */
   input: string;
   /** True while an agent request is streaming. */
   busy: boolean;
   /** Last fatal/transient error to surface in the status bar. */
   error: string | null;
+  /** Transient toast/notice line shown in the status bar (auto-driven by UI). */
+  notice: string | null;
 };
 
 /**
@@ -73,15 +107,26 @@ export type TuiAction =
     }
   | { type: "upsertSession"; session: SessionContent }
   | { type: "selectThread"; sessionId: string | null }
+  | { type: "newSession" }
   | { type: "removeApproval"; approvalId: string }
   | { type: "setProvider"; provider: SessionProvider }
   | { type: "setModel"; model: AgentModel }
   | { type: "setIntelligence"; intelligence: IntelligenceMode }
   | { type: "setPermission"; permission: PermissionMode }
-  | { type: "setOverlay"; overlay: OverlayMode }
+  // Dialog stack -----------------------------------------------------------
+  | { type: "pushDialog"; dialog: Dialog }
+  | { type: "popDialog" }
+  | { type: "clearDialogs" }
+  // Autocomplete -----------------------------------------------------------
+  | { type: "openAutocomplete" }
+  | { type: "closeAutocomplete" }
+  | { type: "moveAutocomplete"; delta: number; count: number }
+  | { type: "setAutocompleteIndex"; index: number }
+  // Input / status ---------------------------------------------------------
   | { type: "setInput"; value: string }
   | { type: "setBusy"; busy: boolean }
   | { type: "setError"; error: string | null }
+  | { type: "setNotice"; notice: string | null }
   /**
    * Optimistically append a user message. `sessionId` is the active session,
    * or `requestId` for a not-yet-started new conversation (the synthetic id).
@@ -113,4 +158,37 @@ export function activeModel(state: TuiState): AgentModel {
 
 export function activeIntelligence(state: TuiState): IntelligenceMode {
   return state.intelligenceByProvider[state.provider];
+}
+
+/**
+ * True when the active session is a finished, unadopted Compose (parallel)
+ * session — i.e. both agents ran and the user must pick one thread to continue.
+ * Gated on `runtimeStatus` so the prompt only appears once both agents settle
+ * (the meta provider emits a single turn.completed after both delegates).
+ */
+export function needsParallelAdoption(session: SessionContent | null): boolean {
+  if (!session || session.parallelAdoptedProvider) {
+    return false;
+  }
+  if (session.runtimeStatus === "running") {
+    return false;
+  }
+  return (
+    session.provider === "meta" &&
+    session.renderMode === "hybrid" &&
+    Boolean(session.providerSessions?.codex?.sessionId) &&
+    Boolean(session.providerSessions?.claude?.sessionId)
+  );
+}
+
+/** The focused, top-most dialog (or null when the stack is empty). */
+export function topDialog(state: TuiState): Dialog | null {
+  return state.dialogs.length > 0
+    ? state.dialogs[state.dialogs.length - 1]
+    : null;
+}
+
+/** True when any modal is capturing the keyboard. */
+export function anyDialogOpen(state: TuiState): boolean {
+  return state.dialogs.length > 0;
 }
