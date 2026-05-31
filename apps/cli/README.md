@@ -1,95 +1,136 @@
-# Composer CLI MVP
+# Composer CLI
 
-The Composer CLI is the first non-desktop interface on top of the shared
-Composer server and `ComposerClient` API. It is intentionally non-interactive in
-this pass: it can start a loopback server and run a single prompt, but it does
-not provide a TUI or approval flow.
+## Install
 
-## Commands
+```sh
+curl -fsSL https://getcomposer.dev/install.sh | bash
+# or
+brew install https://getcomposer.dev/homebrew/composer.rb
+```
+
+Requires Node.js >= 20; the interactive TUI also needs [Bun](https://bun.sh).
+
+---
+
+The Composer CLI is the terminal interface on top of the shared Composer
+runtime server and `ComposerClient` API — the same runtime the desktop app
+drives. It has two faces:
+
+- An **interactive TUI** (the default) — a slash-command-first terminal UI.
+- A set of **non-interactive commands** for scripting (`run`, `session`,
+  `review`, …).
+
+Composer is an orchestration frontend over the real **Codex** and **Claude
+Code** engines: your input is routed to the selected provider, and the
+slash-command menu is provider-aware so the experience mirrors launching that
+provider's CLI directly.
+
+## Interactive TUI
+
+```sh
+composer            # launch the TUI in a terminal
+composer tui        # launch it explicitly
+composer --cwd <path>
+```
+
+The TUI requires [Bun](https://bun.sh) (it hosts the `@opentui/react` renderer).
+
+### Navigation
+
+Navigation is **slash commands, arrow keys, and Esc** — no chord soup.
+
+| Key | Action |
+|---|---|
+| `/` | Open the slash-command autocomplete (provider-aware) |
+| `↑` / `↓` | Move the autocomplete selection, or recall prompt history |
+| `Tab` / `Enter` | Accept the highlighted command |
+| `Enter` | Submit the message (or run a typed `/command`) |
+| `Ctrl+J` / `Shift+Enter` | Insert a newline (multiline prompts) |
+| `Esc` | Close the popup → clear the draft → interrupt a running turn |
+| `Esc Esc` | Recall the previous prompt (when the draft is empty) |
+| `Shift+Tab` | Cycle the permission mode |
+| `Ctrl+C` | Interrupt while busy, otherwise quit |
+
+While a dialog/picker is open it owns the arrows + Enter; Esc closes it.
+
+### Slash commands
+
+The menu adapts to the active provider. Core commands:
+
+- `/new`, `/clear` — start a fresh conversation
+- `/sessions` (`/resume`) — open the session list
+- `/provider` — switch Codex / Claude / Compose
+- `/model`, `/effort`, `/permissions` — provider settings
+- `/diff` — working-tree diff viewer
+- `/branch` — list and check out a git branch
+- `/skills` — browse installed skills and plugins
+- `/compact` — summarize the conversation to free context
+- `/review`, `/init` — passthrough to the active provider
+- `/archive`, `/stop`, `/status`, `/help`, `/quit`
+- `/adopt` — Compose mode only: continue with one parallel provider
+
+## Non-interactive commands
 
 ```sh
 composer serve [--port <n>]
 composer run [options] [message...]
+composer session <list|show <id>|archive <id>> [--json]
+composer review [--scope <s>] [--cwd <path>] [--json]
+composer branches [--cwd <path>] [--json]
+composer capabilities [--json]
+composer models [--provider <p>] [--json]
 ```
 
-## Serve
+### serve
 
 `composer serve` starts the Composer server on `127.0.0.1`.
 
-- `--port <n>` selects the listen port.
-- `--port 0` asks the OS for a free port and is the default.
-- The command prints the existing server readiness banner:
-  `COMPOSER_AGENT_SERVER_READY <port>`.
-- The command also prints a CLI-friendly URL banner:
+- `--port <n>` selects the listen port (`--port 0`, the default, asks the OS).
+- Prints `COMPOSER_AGENT_SERVER_READY <port>` and a CLI URL banner
   `COMPOSER_CLI_SERVER_READY http://127.0.0.1:<port>`.
 
-The v1 server is loopback-only and has no authentication. Non-loopback serving
-and auth are out of scope for this MVP.
+The server is loopback-only with no authentication.
 
-## Run
+### run
 
-`composer run` sends one prompt, streams the response, and exits.
-
-By default, `run` starts a sidecar Composer server on a free loopback port,
-waits for readiness, sends the prompt, then stops the sidecar on success, error,
-or interrupt.
-
-Use `--server http://127.0.0.1:<port>` to attach to an existing server. Attach
-mode never stops the remote server.
-
-Prompt input rules:
-
-- Message arguments are joined with spaces.
-- If stdin is piped, stdin is used as prompt input.
-- If both message arguments and stdin are present, Composer concatenates the
-  arguments, a newline, then stdin.
-- Empty prompts fail before contacting the server.
-
-Run options:
+`composer run` sends one prompt, streams the response, and exits. By default it
+starts a sidecar server on a free loopback port and stops it when done.
 
 ```sh
 --server <url>                 Attach to an existing loopback server.
 --provider codex|claude|meta   Select a provider.
 --model <id>                   Select a provider model.
 --cwd <path>                   Run from a working directory.
+--session <id>                 Continue a specific session.
+--continue                     Continue the most recent session.
 --permission-mode <mode>       default, auto-review, or full-access.
 --intelligence <mode>          low, medium, high, or extra-high.
 --json                         Emit raw LiveAgentEvent JSONL.
 ```
 
-Defaults:
+Prompt input: message args are joined with spaces; piped stdin is appended.
+Empty prompts fail before contacting the server.
 
-- Provider defaults to `codex`.
-- Model and intelligence defaults come from the shared provider registry.
-- Permission mode defaults to `full-access` for non-interactive runs.
+### Read commands
+
+`session`, `review`, `branches`, `capabilities`, and `models` start (or attach
+to, via `--server`) a server, query it, and print results. Pass `--json` for
+machine-readable output; human output goes to stdout and diagnostics to stderr.
+`models` is fully static and needs no server.
 
 ## Output
 
-Default mode:
+- Default mode: assistant text → stdout; session/turn/tool/approval/error
+  summaries → stderr.
+- `--json`: one `LiveAgentEvent` (or one JSON document for read commands) per
+  line on stdout.
 
-- Assistant text is written to stdout.
-- Session, turn, tool, approval, and error summaries are written to stderr.
+Approval requests are not interactive in `run`: the CLI prints a summary,
+interrupts the request, and exits with guidance to use the TUI or
+`--permission-mode full-access`.
 
-JSON mode:
-
-- `--json` writes each `LiveAgentEvent` as one JSON object per stdout line.
-- Stderr remains reserved for process/server diagnostics.
-
-Approval requests are not interactive in this MVP. If the runtime requests
-approval, the CLI prints a status summary, interrupts the request, and exits with
-an error explaining that the user should rerun with `--permission-mode
-full-access` or continue in the desktop app.
-
-## Server Entrypoint
+## Server entrypoint
 
 The packaged CLI expects a bundled server entrypoint at
-`dist-server/server/index.js` inside the `@composer/cli` package. This keeps the
-CLI from resolving desktop build output at runtime. Local tests can override the
-entrypoint with `COMPOSER_SERVER_ENTRYPOINT=/path/to/server.js`.
-
-## Non-Goals
-
-- No interactive TUI.
-- No interactive approval handling.
-- No OpenCode provider implementation.
-- No remote serving or authentication.
+`dist-server/server/index.js` inside `@composer/cli`. Tests and local runs can
+override it with `COMPOSER_SERVER_ENTRYPOINT=/path/to/server.js`.

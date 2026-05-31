@@ -7,6 +7,9 @@ dist-server/
 out/
 release/
 
+# npm pack / release artifacts
+*.tgz
+
 # Electron Builder artifacts
 *.blockmap
 *.dmg

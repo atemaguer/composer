@@ -1,5 +1,7 @@
 import { once } from "node:events";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { appendFileSync, mkdirSync } from "node:fs";
+import path from "node:path";
 import type { Readable } from "node:stream";
 import { resolveServerEntrypoint } from "./server-entrypoint.js";
 
@@ -76,20 +78,57 @@ export async function waitForReadyPort(
   );
 }
 
+export type StartSidecarOptions = {
+  /**
+   * When true, do not forward the server's stdout/stderr to this process's
+   * stderr. The TUI must set this — otherwise the server's logs (session
+   * loader, provider subprocess output, MCP errors) corrupt the rendered
+   * screen. The non-interactive `run`/`serve` paths leave it off for
+   * diagnostics.
+   */
+  silent?: boolean;
+  /** Append the server's stdout/stderr to this file (created if needed). */
+  logFile?: string;
+};
+
 /**
  * Spawn the Node runtime server as a sidecar and resolve once it reports its
  * port. Shared by the non-interactive `run` command and the interactive TUI.
  */
-export async function startSidecar(cwd: string = process.cwd()): Promise<Sidecar> {
+export async function startSidecar(
+  cwd: string = process.cwd(),
+  options: StartSidecarOptions = {}
+): Promise<Sidecar> {
   const entrypoint = await resolveServerEntrypoint();
   const child = spawnServer(entrypoint, 0, cwd);
   let stdoutBuffer = "";
   let stderrBuffer = "";
 
+  if (options.logFile) {
+    try {
+      mkdirSync(path.dirname(options.logFile), { recursive: true });
+    } catch {
+      // best effort — logging is non-essential
+    }
+  }
+
+  const forward = (text: string) => {
+    if (options.logFile) {
+      try {
+        appendFileSync(options.logFile, text);
+      } catch {
+        // ignore log write failures
+      }
+    }
+    if (!options.silent) {
+      process.stderr.write(text);
+    }
+  };
+
   child.stderr.on("data", (chunk: Buffer) => {
     const text = chunk.toString("utf8");
     stderrBuffer += text;
-    process.stderr.write(text);
+    forward(text);
   });
 
   child.stdout.on("data", (chunk: Buffer) => {
@@ -98,7 +137,7 @@ export async function startSidecar(cwd: string = process.cwd()): Promise<Sidecar
 
     for (const line of text.split(/\r?\n/)) {
       if (line && !READY_PATTERN.test(line)) {
-        process.stderr.write(`${line}\n`);
+        forward(`${line}\n`);
       }
     }
   });

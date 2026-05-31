@@ -71,12 +71,12 @@ test("package metadata includes the bundled server output", async () => {
   assert.equal(packageJson.bin.composer, "./dist/index.js");
   assert.equal(packageJson.files.includes("dist"), true);
   assert.equal(packageJson.files.includes("dist-server"), true);
-  assert.deepEqual(packageJson.bundleDependencies, [
-    "@composer/client",
-    "@composer/runtime"
-  ]);
+  // Only @composer/client is bundled — the TUI imports it at runtime. The
+  // runtime is inlined into the bundled server (dist-server/server/index.js),
+  // so it is neither a dependency nor a bundled dependency.
+  assert.deepEqual(packageJson.bundleDependencies, ["@composer/client"]);
   assert.equal(packageJson.dependencies["@composer/client"], "0.1.0");
-  assert.equal(packageJson.dependencies["@composer/runtime"], "0.1.0");
+  assert.equal(packageJson.dependencies["@composer/runtime"], undefined);
 });
 
 test("npm pack includes bundled server output when it is present", async () => {

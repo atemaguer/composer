@@ -50,6 +50,7 @@ export type {
   ToolStatus
 } from "./types.js";
 export type { LiveAgentEvent } from "./types.js";
+import type { SessionCompactionSummary } from "./types.js";
 
 export type BaseLiveAgentEvent = {
   id: string;
@@ -317,6 +318,14 @@ export type ComposerInterruptRequest =
   | { sessionId: string; requestId?: never }
   | { requestId: string; sessionId?: never };
 
+export type ComposerCompactRequest = {
+  sessionId: string;
+  provider?: SessionProvider;
+  model?: AgentModel;
+  permissionMode?: PermissionMode;
+  intelligence?: IntelligenceMode;
+};
+
 export type ReviewDiffRequest = {
   cwd: string;
   scope: "unstaged" | "staged" | "commit" | "branch";
@@ -428,6 +437,16 @@ export class ComposerClient<
 
   async interrupt(request: ComposerInterruptRequest) {
     await this.postJson("/api/interrupt", request, "Agent interrupt failed");
+  }
+
+  async compactSession(
+    request: ComposerCompactRequest
+  ): Promise<{ ok: boolean; compaction?: SessionCompactionSummary }> {
+    return this.postJson(
+      "/api/sessions/compact",
+      request,
+      "Session compaction failed"
+    );
   }
 
   async updateSessionVisibility(

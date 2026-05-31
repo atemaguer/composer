@@ -2,12 +2,18 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   ComposerClient,
   type ApprovalDecision,
+  type ComposerCapabilityCatalog,
   type ComposerEventSocket,
+  type DelegateSessionProvider,
   type LiveAgentEvent,
-  type SessionContent
+  type ReviewBranchList,
+  type ReviewDiff,
+  type ReviewDiffScope,
+  type SessionContent,
+  type SessionSnapshot
 } from "@composer/client";
 import { useTui } from "./store.js";
-import type { TuiState } from "./types.js";
+import { activeSession, type TuiState } from "./types.js";
 
 /**
  * Imperative surface the React UI calls into. Every method is fire-and-forget
@@ -24,6 +30,23 @@ export type RuntimeApi = {
   loadSession: (sessionId: string) => void;
   /** Ask the server for a fresh session snapshot. */
   refreshSessions: () => void;
+  /** Load a working-tree diff for the review viewer. */
+  loadReviewDiff: (scope?: ReviewDiffScope) => Promise<ReviewDiff | null>;
+  /** List local/remote branches for the active working directory. */
+  loadReviewBranches: () => Promise<ReviewBranchList | null>;
+  /** Check out a branch in the active working directory. */
+  checkoutBranch: (branch: string) => Promise<ReviewBranchList | null>;
+  /** Load the skills/plugins capability catalog. */
+  loadCapabilities: () => Promise<ComposerCapabilityCatalog | null>;
+  /** Manually compact the active session's provider context. */
+  compactSession: (sessionId: string) => void;
+  /** Archive (hide) a session. */
+  archiveSession: (sessionId: string) => void;
+  /** In Compose/meta mode, adopt one provider's parallel thread to continue. */
+  adoptParallel: (
+    sessionId: string,
+    provider: DelegateSessionProvider
+  ) => void;
 };
 
 export function useRuntime(connection: {
@@ -39,7 +62,13 @@ export function useRuntime(connection: {
 
   const client = useMemo(
     () =>
-      new ComposerClient<LiveAgentEvent>({
+      new ComposerClient<
+        LiveAgentEvent,
+        SessionSnapshot,
+        ReviewDiff,
+        ReviewBranchList,
+        ComposerCapabilityCatalog
+      >({
         httpUrl: connection.httpUrl,
         wsUrl: connection.wsUrl
       }),
@@ -199,14 +228,121 @@ export function useRuntime(connection: {
     socketRef.current?.requestSnapshot();
   }, []);
 
+  // The working directory to run git/review operations in: prefer the active
+  // session's cwd, falling back to the server's launch directory.
+  const reviewCwd = useCallback(() => {
+    const current = stateRef.current;
+    return activeSession(current)?.cwd ?? current.cwd;
+  }, []);
+
+  const loadReviewDiff = useCallback(
+    async (scope: ReviewDiffScope = "unstaged") => {
+      try {
+        const requestScope = scope === "last-turn" ? "unstaged" : scope;
+        return await client.loadReviewDiff({
+          cwd: reviewCwd(),
+          scope: requestScope
+        });
+      } catch (err) {
+        dispatch({ type: "setError", error: String(err) });
+        return null;
+      }
+    },
+    [client, dispatch, reviewCwd]
+  );
+
+  const loadReviewBranches = useCallback(async () => {
+    try {
+      return await client.loadReviewBranches(reviewCwd());
+    } catch (err) {
+      dispatch({ type: "setError", error: String(err) });
+      return null;
+    }
+  }, [client, dispatch, reviewCwd]);
+
+  const checkoutBranch = useCallback(
+    async (branch: string) => {
+      try {
+        return await client.checkoutBranch(reviewCwd(), branch);
+      } catch (err) {
+        dispatch({ type: "setError", error: String(err) });
+        return null;
+      }
+    },
+    [client, dispatch, reviewCwd]
+  );
+
+  const loadCapabilities = useCallback(async () => {
+    try {
+      return await client.loadCapabilities();
+    } catch (err) {
+      dispatch({ type: "setError", error: String(err) });
+      return null;
+    }
+  }, [client, dispatch]);
+
+  const compactSession = useCallback(
+    (sessionId: string) => {
+      const current = stateRef.current;
+      void client
+        .compactSession({
+          sessionId,
+          provider: current.provider,
+          model: current.modelByProvider[current.provider],
+          permissionMode: current.permission,
+          intelligence: current.intelligenceByProvider[current.provider]
+        })
+        .catch((err) => dispatch({ type: "setError", error: String(err) }));
+    },
+    [client, dispatch]
+  );
+
+  const archiveSession = useCallback(
+    (sessionId: string) => {
+      void client
+        .updateSessionVisibility(sessionId, "archive")
+        .catch((err) => dispatch({ type: "setError", error: String(err) }));
+    },
+    [client, dispatch]
+  );
+
+  const adoptParallel = useCallback(
+    (sessionId: string, provider: DelegateSessionProvider) => {
+      void client
+        .adoptParallelThread(sessionId, provider)
+        .catch((err) => dispatch({ type: "setError", error: String(err) }));
+    },
+    [client, dispatch]
+  );
+
   return useMemo(
     () => ({
       sendPrompt,
       interrupt,
       resolveApproval,
       loadSession,
-      refreshSessions
+      refreshSessions,
+      loadReviewDiff,
+      loadReviewBranches,
+      checkoutBranch,
+      loadCapabilities,
+      compactSession,
+      archiveSession,
+      adoptParallel
     }),
-    [sendPrompt, interrupt, resolveApproval, loadSession, refreshSessions]
+    [
+      sendPrompt,
+      interrupt,
+      resolveApproval,
+      loadSession,
+      refreshSessions,
+      loadReviewDiff,
+      loadReviewBranches,
+      checkoutBranch,
+      loadCapabilities,
+      compactSession,
+      archiveSession,
+      adoptParallel
+    ]
   );
 }

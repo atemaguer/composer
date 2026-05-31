@@ -1,7 +1,7 @@
 {
   "name": "@composer/cli",
   "version": "0.1.0",
-  "description": "Composer non-interactive CLI",
+  "description": "Composer CLI and interactive TUI",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -9,24 +9,22 @@
     "dist",
     "dist-server",
     "src/tui",
+    "src/connection.ts",
+    "src/server-entrypoint.ts",
     "README.md"
   ],
   "bin": {
     "composer": "./dist/index.js"
   },
   "bundleDependencies": [
-    "@composer/client",
-    "@composer/runtime"
+    "@composer/client"
   ],
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.128",
     "@composer/client": "0.1.0",
-    "@composer/runtime": "0.1.0",
     "@opentui/core": "^0.3.0",
     "@opentui/react": "^0.3.0",
-    "ai": "^6.0.174",
-    "react": "^19.2.0",
-    "ws": "^8.20.0"
+    "react": "^19.2.0"
   },
   "devDependencies": {
     "@types/node": "^25.6.0",
@@ -35,10 +33,12 @@
   },
   "scripts": {
     "build:bin": "npm --workspace @composer/client run build && tsc -p tsconfig.json",
-    "build": "npm --workspace @composer/runtime run build && npm run build:bin && tsc -p tsconfig.server.json",
+    "build:server": "bun build src-server/server/index.ts --target=node --format=esm --external @anthropic-ai/claude-agent-sdk --outfile dist-server/server/index.js",
+    "build": "npm --workspace @composer/runtime run build && npm run build:bin && npm run build:server",
     "prepack": "npm run build && node scripts/prepare-package.mjs",
     "postpack": "node scripts/prepare-package.mjs --clean",
     "typecheck": "npm --workspace @composer/runtime run build && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.server.json --noEmit && tsc -p tsconfig.tui.json --noEmit",
-    "test": "npm run build:bin && node --test test/*.test.mjs"
+    "test": "npm run build:bin && node --test test/*.test.mjs && npm run test:commands",
+    "test:commands": "bun test test/slash-commands.test.ts"
   }
 }

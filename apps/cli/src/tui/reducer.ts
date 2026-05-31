@@ -10,7 +10,7 @@ import type {
   ToolDetail
 } from "@composer/client";
 
-import type { OverlayMode, RootReducer, TuiInit, TuiState } from "./types.js";
+import type { Dialog, RootReducer, TuiInit, TuiState } from "./types.js";
 
 // ---------------------------------------------------------------------------
 // Local helpers (ported from the desktop session-store)
@@ -271,7 +271,25 @@ function mergeSnapshotSessions(
   const merged: Record<string, SessionContent> = { ...existing };
 
   for (const [id, session] of Object.entries(incoming)) {
-    merged[id] = normalizeSession(session);
+    const prev = merged[id];
+
+    // A snapshot is metadata-only. Never clobber a session whose full content
+    // we've already loaded — just refresh its lightweight metadata. For unseen
+    // sessions, mark them not-content-loaded so resuming fetches the real
+    // transcript (and the session's provider) instead of showing an empty pane.
+    if (prev?.contentLoaded) {
+      merged[id] = {
+        ...prev,
+        title: session.title ?? prev.title,
+        updatedAt: session.updatedAt ?? prev.updatedAt,
+        provider: session.provider ?? prev.provider,
+        lastProvider: session.lastProvider ?? prev.lastProvider,
+        model: session.model ?? prev.model,
+        runtimeStatus: session.runtimeStatus ?? prev.runtimeStatus
+      };
+    } else {
+      merged[id] = { ...normalizeSession(session), contentLoaded: false };
+    }
   }
 
   return merged;
@@ -342,17 +360,29 @@ export function initialState(init: TuiInit): TuiState {
     sessions: {},
     projects: [],
     selectedThread: null,
+    route: "home",
     pendingNewRequestId: null,
     approvals: [],
     provider: init.provider ?? "codex",
     modelByProvider: { ...defaultModelsByProvider },
     intelligenceByProvider: { ...defaultIntelligenceByProvider },
     permission: "Default permissions",
-    overlay: { kind: "none" },
+    dialogs: [],
+    autocomplete: { open: false, trigger: "/", index: 0 },
     input: "",
     busy: false,
-    error: null
+    error: null,
+    notice: null
   };
+}
+
+/** Pop the top dialog only when it matches the given approval id. */
+function popApprovalDialog(dialogs: Dialog[], approvalId: string): Dialog[] {
+  const top = dialogs[dialogs.length - 1];
+  if (top?.kind === "approval" && top.approval.id === approvalId) {
+    return dialogs.slice(0, -1);
+  }
+  return dialogs;
 }
 
 // ---------------------------------------------------------------------------
@@ -392,14 +422,16 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
           ...state,
           sessions,
           selectedThread: normalized.id,
-          pendingNewRequestId: null
+          pendingNewRequestId: null,
+          route: "session"
         };
       }
 
       return {
         ...state,
         sessions: putSession(state.sessions, normalized),
-        selectedThread: state.selectedThread ?? normalized.id
+        selectedThread: state.selectedThread ?? normalized.id,
+        route: "session"
       };
     }
 
@@ -416,24 +448,23 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
         event.approval.sessionId,
         event
       );
+      // Surface the prompt on top of everything else. Avoid stacking a second
+      // entry if this same approval is already the focused dialog.
+      const top = state.dialogs[state.dialogs.length - 1];
+      const alreadyTop =
+        top?.kind === "approval" && top.approval.id === event.approval.id;
+      const dialogs = alreadyTop
+        ? state.dialogs
+        : [...state.dialogs, { kind: "approval" as const, approval: event.approval }];
 
-      return {
-        ...state,
-        approvals,
-        sessions,
-        overlay: { kind: "approval", approval: event.approval }
-      };
+      return { ...state, approvals, sessions, dialogs };
     }
 
     case "approval.resolved": {
       const approvals = state.approvals.filter(
         (approval) => approval.id !== event.approvalId
       );
-      const overlay: OverlayMode =
-        state.overlay.kind === "approval" &&
-        state.overlay.approval.id === event.approvalId
-          ? { kind: "none" }
-          : state.overlay;
+      const dialogs = popApprovalDialog(state.dialogs, event.approvalId);
       // The wire event carries no sessionId; resolve via the dropped approval.
       const resolved = state.approvals.find(
         (approval) => approval.id === event.approvalId
@@ -444,7 +475,7 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
         event
       );
 
-      return { ...state, approvals, overlay, sessions };
+      return { ...state, approvals, dialogs, sessions };
     }
 
     case "error": {
@@ -454,7 +485,25 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
         event
       );
 
-      return { ...state, sessions, busy: false, error: event.message };
+      // A Compose session that needs a parallel thread adopted before it can
+      // continue — surface the adopt picker instead of leaving the user stuck.
+      const needsAdoption =
+        typeof event.message === "string" &&
+        /adopt/i.test(event.message) &&
+        Boolean(state.selectedThread);
+      const top = state.dialogs[state.dialogs.length - 1];
+      const dialogs =
+        needsAdoption && top?.kind !== "adopt"
+          ? [...state.dialogs, { kind: "adopt" as const }]
+          : state.dialogs;
+
+      return {
+        ...state,
+        sessions,
+        dialogs,
+        busy: false,
+        error: event.message
+      };
     }
 
     case "turn.completed": {
@@ -540,16 +589,16 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
       const sessions = { ...state.sessions };
       delete sessions[event.sessionId];
 
+      const wasActive = state.selectedThread === event.sessionId;
+
       return {
         ...state,
         sessions,
         approvals: state.approvals.filter(
           (approval) => approval.sessionId !== event.sessionId
         ),
-        selectedThread:
-          state.selectedThread === event.sessionId
-            ? null
-            : state.selectedThread,
+        selectedThread: wasActive ? null : state.selectedThread,
+        route: wasActive ? "home" : state.route,
         pendingNewRequestId:
           state.pendingNewRequestId === event.sessionId
             ? null
@@ -596,24 +645,51 @@ export const rootReducer: RootReducer = (state, action) => {
       };
     }
 
-    case "selectThread":
+    case "selectThread": {
+      // Sync the composer's provider/model to the resumed session so the status
+      // bar is accurate and provider-scoped commands (e.g. /adopt for Compose
+      // sessions) are available.
+      const session = action.sessionId
+        ? state.sessions[action.sessionId]
+        : null;
+      // Prefer the session's own provider so a Compose (meta) session shows
+      // "Compose" and an adopted session shows the adopted provider.
+      const provider =
+        session?.provider ?? session?.lastProvider ?? state.provider;
+      const modelByProvider = session?.model
+        ? { ...state.modelByProvider, [provider]: session.model }
+        : state.modelByProvider;
+
       return {
         ...state,
         selectedThread: action.sessionId,
-        overlay: { kind: "none" }
+        provider,
+        modelByProvider,
+        route: action.sessionId ? "session" : "home",
+        dialogs: []
+      };
+    }
+
+    case "newSession":
+      // Drop the active thread so the next prompt starts a fresh conversation,
+      // return to the home screen, and clear any open pickers / draft.
+      return {
+        ...state,
+        selectedThread: null,
+        route: "home",
+        dialogs: [],
+        input: "",
+        autocomplete: { ...state.autocomplete, open: false, index: 0 },
+        error: null
       };
 
     case "removeApproval": {
       const approvals = state.approvals.filter(
         (approval) => approval.id !== action.approvalId
       );
-      const overlay: OverlayMode =
-        state.overlay.kind === "approval" &&
-        state.overlay.approval.id === action.approvalId
-          ? { kind: "none" }
-          : state.overlay;
+      const dialogs = popApprovalDialog(state.dialogs, action.approvalId);
 
-      return { ...state, approvals, overlay };
+      return { ...state, approvals, dialogs };
     }
 
     case "setProvider": {
@@ -634,7 +710,7 @@ export const rootReducer: RootReducer = (state, action) => {
             state.intelligenceByProvider[provider] ??
             defaultIntelligenceByProvider[provider]
         },
-        overlay: { kind: "none" }
+        dialogs: state.dialogs.slice(0, -1)
       };
     }
 
@@ -645,7 +721,7 @@ export const rootReducer: RootReducer = (state, action) => {
           ...state.modelByProvider,
           [state.provider]: action.model
         },
-        overlay: { kind: "none" }
+        dialogs: state.dialogs.slice(0, -1)
       };
 
     case "setIntelligence":
@@ -655,18 +731,53 @@ export const rootReducer: RootReducer = (state, action) => {
           ...state.intelligenceByProvider,
           [state.provider]: action.intelligence
         },
-        overlay: { kind: "none" }
+        dialogs: state.dialogs.slice(0, -1)
       };
 
     case "setPermission":
       return {
         ...state,
         permission: action.permission,
-        overlay: { kind: "none" }
+        dialogs: state.dialogs.slice(0, -1)
       };
 
-    case "setOverlay":
-      return { ...state, overlay: action.overlay };
+    case "pushDialog":
+      return { ...state, dialogs: [...state.dialogs, action.dialog] };
+
+    case "popDialog":
+      return { ...state, dialogs: state.dialogs.slice(0, -1) };
+
+    case "clearDialogs":
+      return { ...state, dialogs: [] };
+
+    case "openAutocomplete":
+      return {
+        ...state,
+        autocomplete: { ...state.autocomplete, open: true, index: 0 }
+      };
+
+    case "closeAutocomplete":
+      return {
+        ...state,
+        autocomplete: { ...state.autocomplete, open: false }
+      };
+
+    case "moveAutocomplete": {
+      if (action.count <= 0) {
+        return state;
+      }
+      const next =
+        ((state.autocomplete.index + action.delta) % action.count +
+          action.count) %
+        action.count;
+      return { ...state, autocomplete: { ...state.autocomplete, index: next } };
+    }
+
+    case "setAutocompleteIndex":
+      return {
+        ...state,
+        autocomplete: { ...state.autocomplete, index: action.index }
+      };
 
     case "setInput":
       return { ...state, input: action.value };
@@ -676,6 +787,9 @@ export const rootReducer: RootReducer = (state, action) => {
 
     case "setError":
       return { ...state, error: action.error };
+
+    case "setNotice":
+      return { ...state, notice: action.notice };
 
     case "userMessage": {
       const userItem = {
@@ -700,6 +814,7 @@ export const rootReducer: RootReducer = (state, action) => {
           sessions: putSession(state.sessions, synthetic),
           selectedThread: action.sessionId,
           pendingNewRequestId: action.sessionId,
+          route: "session",
           busy: true
         };
       }

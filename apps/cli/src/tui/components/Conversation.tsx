@@ -1,9 +1,12 @@
+import { Fragment } from "react";
 import { TextAttributes } from "@opentui/core";
-import type {
-  ConversationItem,
-  PendingConversationItem,
-  ToolDetail,
-  ToolStatus
+import {
+  providerLabel,
+  type ConversationItem,
+  type PendingConversationItem,
+  type SessionProvider,
+  type ToolDetail,
+  type ToolStatus
 } from "@composer/client";
 import { useTui } from "../store.js";
 import { activeSession } from "../types.js";
@@ -30,6 +33,12 @@ function trimOutput(output: string): string {
     return output.trimEnd();
   }
   return lines.slice(-MAX_OUTPUT_LINES).join("\n").trimEnd();
+}
+
+function providerColor(provider: SessionProvider | undefined): string {
+  if (provider === "codex") return "#7dcfff";
+  if (provider === "claude") return "#bb9af7";
+  return "#7aa2f7";
 }
 
 function ToolDetailRow({ detail }: { detail: ToolDetail }) {
@@ -111,6 +120,159 @@ function ConversationRow({ item }: { item: ConversationItem }) {
   }
 }
 
+type ParallelColumn = {
+  provider: SessionProvider;
+  title: string;
+  items: ConversationItem[];
+};
+
+/** The layoutGroupId an item belongs to (only assistant/tool items carry one). */
+function itemLayoutGroupId(item: ConversationItem): string | undefined {
+  return item.type === "assistant_message" || item.type === "tool_group"
+    ? item.layoutGroupId
+    : undefined;
+}
+
+function itemProvider(item: ConversationItem): SessionProvider | undefined {
+  return item.type === "assistant_message" || item.type === "tool_group"
+    ? item.provider
+    : undefined;
+}
+
+function itemLayoutTitle(item: ConversationItem): string | undefined {
+  return item.type === "assistant_message" || item.type === "tool_group"
+    ? item.layoutTitle
+    : undefined;
+}
+
+/** Partition a batch of same-layoutGroup items into provider columns. */
+function partitionByProvider(batch: ConversationItem[]): ParallelColumn[] {
+  const order: SessionProvider[] = ["codex", "claude"];
+  const byProvider = new Map<SessionProvider, ConversationItem[]>();
+  const titles = new Map<SessionProvider, string>();
+
+  for (const item of batch) {
+    const provider = itemProvider(item) ?? "codex";
+    const list = byProvider.get(provider) ?? [];
+    list.push(item);
+    byProvider.set(provider, list);
+    const title = itemLayoutTitle(item);
+    if (title && !titles.has(provider)) {
+      titles.set(provider, title);
+    }
+  }
+
+  const providers = [
+    ...order.filter((provider) => byProvider.has(provider)),
+    ...[...byProvider.keys()].filter((provider) => !order.includes(provider))
+  ];
+
+  return providers.map((provider) => ({
+    provider,
+    title: titles.get(provider) ?? `${providerLabel(provider)} thread`,
+    items: byProvider.get(provider) ?? []
+  }));
+}
+
+type RenderNode =
+  | { kind: "item"; item: ConversationItem }
+  | { kind: "parallel"; id: string; columns: ParallelColumn[]; prompt?: string };
+
+/**
+ * Collapse the flat item list into render nodes. Server-persisted compose turns
+ * arrive as a single `parallel_thread_group`; live compose turns arrive as a run
+ * of items sharing a `layoutGroupId` (tagged per provider) — both become a
+ * side-by-side `parallel` node so live and resumed views render identically.
+ */
+function groupRenderNodes(items: ConversationItem[]): RenderNode[] {
+  const nodes: RenderNode[] = [];
+  let index = 0;
+
+  while (index < items.length) {
+    const item = items[index];
+
+    if (item.type === "parallel_thread_group") {
+      nodes.push({
+        kind: "parallel",
+        id: item.id,
+        columns: item.columns,
+        prompt: item.prompt
+      });
+      index += 1;
+      continue;
+    }
+
+    const groupId = itemLayoutGroupId(item);
+    if (!groupId) {
+      nodes.push({ kind: "item", item });
+      index += 1;
+      continue;
+    }
+
+    const batch: ConversationItem[] = [];
+    while (index < items.length && itemLayoutGroupId(items[index]) === groupId) {
+      batch.push(items[index]);
+      index += 1;
+    }
+    nodes.push({ kind: "parallel", id: groupId, columns: partitionByProvider(batch) });
+  }
+
+  return nodes;
+}
+
+/**
+ * The Compose split view: the Codex and Claude threads side by side. Adoption
+ * ("continue with…") is handled by the AdoptPrompt above the input once both
+ * agents finish, so the columns here are read-only.
+ */
+function ParallelThreadGroup({
+  columns,
+  prompt
+}: {
+  columns: ParallelColumn[];
+  prompt?: string;
+}) {
+  return (
+    <box style={{ flexDirection: "column", marginBottom: 1 }}>
+      {prompt ? (
+        <box style={{ marginBottom: 1 }}>
+          <text fg="#9ece6a">{`› ${prompt}`}</text>
+        </box>
+      ) : null}
+      <box style={{ flexDirection: "row" }}>
+        {columns.map((column, index) => (
+          <Fragment key={column.provider}>
+            {index > 0 ? (
+              <box style={{ width: 1, backgroundColor: "#414868" }} />
+            ) : null}
+            <box
+              style={{
+                flexDirection: "column",
+                flexGrow: 1,
+                flexBasis: 0,
+                minWidth: 0,
+                paddingX: 1
+              }}
+            >
+              <box style={{ marginBottom: 1 }}>
+                <text
+                  fg={providerColor(column.provider)}
+                  attributes={TextAttributes.BOLD}
+                >
+                  {column.title}
+                </text>
+              </box>
+              {column.items.map((columnItem) => (
+                <ConversationRow key={columnItem.id} item={columnItem} />
+              ))}
+            </box>
+          </Fragment>
+        ))}
+      </box>
+    </box>
+  );
+}
+
 function PendingRow({ item }: { item: PendingConversationItem }) {
   return (
     <text fg="#e0af68" attributes={TextAttributes.DIM}>
@@ -135,7 +297,7 @@ export function Conversation() {
       >
         <text fg="#c0caf5">Type a message to start.</text>
         <text attributes={TextAttributes.DIM}>
-          Ctrl+L sessions · Ctrl+P provider · Ctrl+C quit
+          / for commands · /help · /sessions · ctrl+c quit
         </text>
       </box>
     );
@@ -143,17 +305,29 @@ export function Conversation() {
 
   return (
     <scrollbox
-      focused={state.overlay.kind === "none"}
+      focused={false}
       style={{
         flexGrow: 1,
+        // Allow the scrollbox to shrink below its content height so it scrolls
+        // internally instead of pushing the composer + status bar off-screen.
+        flexShrink: 1,
+        minHeight: 0,
         stickyScroll: true,
         stickyStart: "bottom",
         padding: 1
       }}
     >
-      {session.items.map((item) => (
-        <ConversationRow key={item.id} item={item} />
-      ))}
+      {groupRenderNodes(session.items).map((node) =>
+        node.kind === "parallel" ? (
+          <ParallelThreadGroup
+            key={node.id}
+            columns={node.columns}
+            prompt={node.prompt}
+          />
+        ) : (
+          <ConversationRow key={node.item.id} item={node.item} />
+        )
+      )}
       {session.pendingItems.map((item) => (
         <PendingRow key={item.id} item={item} />
       ))}
