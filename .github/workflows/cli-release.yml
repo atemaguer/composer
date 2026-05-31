@@ -1,0 +1,187 @@
+name: CLI Release
+
+# Builds the Composer CLI tarball (the same artifact `scripts/build-release.sh`
+# produces locally) and publishes it — plus a `latest.json` manifest — to the
+# GCS release bucket. The website (getcomposer.dev) serves install.sh / the
+# Homebrew formula from that manifest.
+#
+# Triggers:
+#   - push a `cli-v*` tag        → publish the version in apps/cli/package.json
+#   - workflow_dispatch          → optionally bump the version, then publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version_bump:
+        description: Version bump to apply before building (none = rebuild current).
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+          - none
+        default: patch
+      channel:
+        description: GCS channel/path segment.
+        required: false
+        default: stable
+      publish:
+        description: Upload the release to the GCS bucket.
+        required: false
+        default: "true"
+  push:
+    tags:
+      - "cli-v*"
+
+permissions:
+  contents: write
+  id-token: write
+
+concurrency:
+  group: cli-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build and publish CLI
+    runs-on: ubuntu-latest
+    env:
+      CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
+      GCS_BUCKET: ${{ vars.GCP_UPDATES_BUCKET }}
+      GCS_PREFIX: composer/cli
+      PUBLISH_RELEASE: ${{ github.event.inputs.publish || 'true' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Resolve release version
+        id: version
+        shell: bash
+        env:
+          VERSION_BUMP: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump || 'none' }}
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${VERSION_BUMP}" != "none" ]]; then
+            if [[ "${GITHUB_REF_TYPE}" != "branch" ]]; then
+              echo "Version bumps can only run from a branch ref." >&2
+              exit 1
+            fi
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git pull --ff-only origin "${GITHUB_REF_NAME}"
+
+            npm version "${VERSION_BUMP}" --workspace @composer/cli --no-git-tag-version
+            npm install --package-lock-only --ignore-scripts
+
+            version="$(node -p "require('./apps/cli/package.json').version")"
+            tag="cli-v${version}"
+            if git rev-parse "${tag}" >/dev/null 2>&1; then
+              echo "Release tag ${tag} already exists." >&2
+              exit 1
+            fi
+
+            git add apps/cli/package.json package-lock.json
+            git commit -m "chore(cli): release v${version}"
+            git tag "${tag}"
+            git push origin "HEAD:${GITHUB_REF_NAME}" "${tag}"
+          else
+            version="$(node -p "require('./apps/cli/package.json').version")"
+          fi
+
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test the CLI
+        run: npm --workspace @composer/cli run test
+
+      - name: Build release tarball
+        run: bash scripts/build-release.sh
+
+      - name: Build release manifest
+        id: manifest
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+          tarball="apps/cli/composer-cli-${version}.tgz"
+          [[ -f "${tarball}" ]] || { echo "Missing ${tarball}" >&2; exit 1; }
+
+          sha="$(sha256sum "${tarball}" | awk '{print $1}')"
+          base="https://storage.googleapis.com/${GCS_BUCKET}/${GCS_PREFIX}/${CHANNEL}"
+
+          node <<NODE > apps/cli/latest.json
+          console.log(JSON.stringify({
+            version: "${version}",
+            tarball: "${base}/composer-cli-${version}.tgz",
+            tarballLatest: "${base}/composer-cli-latest.tgz",
+            sha256: "${sha}",
+            channel: "${CHANNEL}",
+            generatedAt: new Date().toISOString()
+          }, null, 2));
+          NODE
+
+          echo "sha256=${sha}" >> "$GITHUB_OUTPUT"
+          echo "Built composer-cli-${version}.tgz (sha256 ${sha})"
+          cat apps/cli/latest.json
+
+      - name: Authenticate to Google Cloud
+        if: env.PUBLISH_RELEASE == 'true'
+        uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        if: env.PUBLISH_RELEASE == 'true'
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Upload to GCS release bucket
+        if: env.PUBLISH_RELEASE == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GCS_BUCKET}" ]]; then
+            echo "GCP_UPDATES_BUCKET repository variable is required." >&2
+            exit 1
+          fi
+
+          version="${{ steps.version.outputs.version }}"
+          dest="gs://${GCS_BUCKET}/${GCS_PREFIX}/${CHANNEL}"
+
+          # Versioned tarball is immutable → long cache. The rolling "latest"
+          # tarball and manifest change every release → short cache.
+          gcloud storage cp --cache-control="public, max-age=31536000, immutable" \
+            "apps/cli/composer-cli-${version}.tgz" "${dest}/composer-cli-${version}.tgz"
+          gcloud storage cp --cache-control="public, max-age=60" \
+            "apps/cli/composer-cli-${version}.tgz" "${dest}/composer-cli-latest.tgz"
+          gcloud storage cp --cache-control="public, max-age=60" \
+            "apps/cli/latest.json" "${dest}/latest.json"
+
+          echo "Published Composer CLI v${version} to ${dest}"
+
+      - name: Upload workflow artifact
+        if: env.PUBLISH_RELEASE != 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: composer-cli-${{ steps.version.outputs.version }}
+          path: |
+            apps/cli/composer-cli-*.tgz
+            apps/cli/latest.json
+          if-no-files-found: error
+          retention-days: 14
