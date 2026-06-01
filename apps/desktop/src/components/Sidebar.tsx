@@ -136,14 +136,19 @@ export function Sidebar({
     (state) => state.showSubagentSessions
   );
   const filteredProjects = useMemo(() => {
-    // Subagent threads are nested as `children`; hide the whole subtree unless
-    // the user has opted into showing them.
+    // Hide subagent threads unless opted in. Subagent sessions also spin up their
+    // own cwd-keyed workspaces (subdirs/worktrees); once their threads are
+    // stripped those workspaces are empty, so drop them too — but keep a
+    // genuinely-empty user workspace (one that had no threads to begin with).
     const base = showSubagentSessions
       ? projects
-      : projects.map((project) => ({
-          ...project,
-          threads: stripSubagentThreads(project.threads)
-        }));
+      : projects.flatMap((project) => {
+          const threads = stripSubagentThreads(project.threads);
+          if (threads.length === 0 && project.threads.length > 0) {
+            return [];
+          }
+          return [{ ...project, threads }];
+        });
 
     return providerFilter === "all"
       ? base
