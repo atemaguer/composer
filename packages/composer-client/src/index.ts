@@ -50,6 +50,13 @@ export type {
   ToolStatus
 } from "./types.js";
 export type { LiveAgentEvent } from "./types.js";
+export {
+  applyLiveSessionEvent,
+  applyLiveSessionEvents,
+  settleRunningToolGroups,
+  toolDetail
+} from "./session-reducer.js";
+export type { ApplyEventOptions } from "./session-reducer.js";
 import type { SessionCompactionSummary } from "./types.js";
 
 export type BaseLiveAgentEvent = {

@@ -1,14 +1,16 @@
 import { create } from "zustand";
+import {
+  applyLiveSessionEvent,
+  applyLiveSessionEvents
+} from "@composer/client";
 
 import type {
   ApprovalRequest,
-  ConversationItem,
   LiveAgentEvent,
   Project,
   ProjectThread,
   SessionContent,
-  SessionSnapshot,
-  ToolDetail
+  SessionSnapshot
 } from "../types";
 
 type StateUpdater<T> = T | ((current: T) => T);
@@ -141,11 +143,7 @@ function applyBufferedDeltasForSession(
     return undefined;
   }
 
-  let updated = session;
-
-  for (const event of coalesceDeltas(buffered)) {
-    updated = applyLiveSessionEvent(updated, event);
-  }
+  const updated = applyLiveSessionEvents(session, coalesceDeltas(buffered));
 
   if (updated === session) {
     return undefined;
@@ -668,260 +666,6 @@ function applySessionPatch(
   }
 
   return changed ? next : session;
-}
-
-function applyLiveSessionEvent(
-  session: SessionContent,
-  event: LiveAgentEvent
-): SessionContent {
-  // Shallow clone with a fresh updatedAt. Arrays (items/pendingItems/
-  // providerSessions) are cloned lazily per-branch so high-frequency delta
-  // events only touch the one array they actually mutate.
-  const next: SessionContent = {
-    ...session,
-    updatedAt: new Date().toISOString()
-  };
-
-  if (event.type === "turn.started") {
-    next.runtimeStatus = "running";
-    next.pendingItems = [
-      {
-        id: `${next.id}-${event.turnId}-pending`,
-        type: "running_tool",
-        label: event.label ?? "Agent is working",
-        status: "running"
-      }
-    ];
-    return next;
-  }
-
-  if (event.type === "message.delta") {
-    const items = [...(session.items ?? [])];
-    const existingIndex = items.findIndex(
-      (item) => item.type === "assistant_message" && item.id === event.messageId
-    );
-
-    if (existingIndex >= 0) {
-      const existing = items[existingIndex];
-
-      if (existing.type === "assistant_message") {
-        items[existingIndex] = {
-          ...existing,
-          body: `${existing.body}${event.delta}`,
-          provider: event.provider ?? existing.provider,
-          layoutGroupId: event.layoutGroupId ?? existing.layoutGroupId,
-          layoutTitle: event.layoutTitle ?? existing.layoutTitle
-        };
-      }
-    } else {
-      items.push({
-        id: event.messageId,
-        type: "assistant_message",
-        body: event.delta,
-        provider: event.provider,
-        layoutGroupId: event.layoutGroupId,
-        layoutTitle: event.layoutTitle
-      });
-    }
-
-    next.items = items;
-    return next;
-  }
-
-  if (event.type === "message.completed") {
-    const items = [...(session.items ?? [])];
-    const existingIndex = items.findIndex(
-      (item) => item.type === "assistant_message" && item.id === event.messageId
-    );
-
-    if (existingIndex >= 0) {
-      const existing = items[existingIndex];
-
-      if (existing.type === "assistant_message") {
-        items[existingIndex] = {
-          ...existing,
-          body: event.body ?? existing.body,
-          provider: event.provider ?? existing.provider,
-          layoutGroupId: event.layoutGroupId ?? existing.layoutGroupId,
-          layoutTitle: event.layoutTitle ?? existing.layoutTitle
-        };
-      }
-    } else if (event.body) {
-      items.push({
-        id: event.messageId,
-        type: "assistant_message",
-        body: event.body,
-        provider: event.provider,
-        layoutGroupId: event.layoutGroupId,
-        layoutTitle: event.layoutTitle
-      });
-    }
-
-    next.items = items;
-    return next;
-  }
-
-  if (event.type === "tool.started") {
-    const sessionItems = session.items ?? [];
-
-    if (sessionItems.some((item) => item.type === "tool_group" && item.id === event.toolId)) {
-      next.items = sessionItems;
-      return next;
-    }
-
-    next.items = [
-      ...sessionItems,
-      {
-        id: event.toolId,
-        type: "tool_group",
-        summary: event.label,
-        details: [
-          {
-            ...(event.detail ?? toolDetail(event.toolId, event.label)),
-            status: "running"
-          }
-        ],
-        provider: event.provider,
-        layoutGroupId: event.layoutGroupId,
-        layoutTitle: event.layoutTitle,
-        defaultOpen: false,
-        status: "running"
-      }
-    ];
-    return next;
-  }
-
-  if (event.type === "tool.delta") {
-    const sessionItems = session.items ?? [];
-    const toolIndex = sessionItems.findIndex(
-      (item) => item.type === "tool_group" && item.id === event.toolId
-    );
-    const tool = sessionItems[toolIndex];
-
-    if (tool?.type !== "tool_group") {
-      next.items = sessionItems;
-      return next;
-    }
-
-    const output =
-      tool.details.find((detail) => detail.kind === "output") ??
-      toolDetail(`${event.toolId}-output`, "Output returned", "output");
-    const outputIndex = tool.details.findIndex((detail) => detail.id === output.id);
-    const nextOutput: ToolDetail = {
-      ...output,
-      output: `${output.output ?? ""}${event.delta}`,
-      status: "running"
-    };
-    nextOutput.label = nextOutput.output?.trim().split("\n").at(-1) || "Output returned";
-
-    const details = [...tool.details];
-
-    if (outputIndex >= 0) {
-      details[outputIndex] = nextOutput;
-    } else {
-      details.push(nextOutput);
-    }
-
-    const items = [...sessionItems];
-    items[toolIndex] = { ...tool, details };
-    next.items = items;
-    return next;
-  }
-
-  if (event.type === "tool.completed") {
-    const sessionItems = session.items ?? [];
-    const toolIndex = sessionItems.findIndex(
-      (item) => item.type === "tool_group" && item.id === event.toolId
-    );
-    const tool = sessionItems[toolIndex];
-
-    if (tool?.type === "tool_group") {
-      const items = [...sessionItems];
-      items[toolIndex] = {
-        ...tool,
-        status: event.detail?.status ?? "completed",
-        details: [
-          ...tool.details.map((detail) => ({
-            ...detail,
-            status: detail.status === "running" ? "completed" : detail.status
-          })),
-          ...(event.detail ? [event.detail] : [])
-        ]
-      };
-      next.items = items;
-    } else {
-      next.items = sessionItems;
-    }
-
-    return next;
-  }
-
-  if (event.type === "approval.requested") {
-    next.runtimeStatus = "awaiting_approval";
-    next.pendingItems = [
-      {
-        id: `${event.approval.id}-pending`,
-        type: "running_tool",
-        label: event.approval.title,
-        status: "running"
-      }
-    ];
-    return next;
-  }
-
-  if (event.type === "error") {
-    next.runtimeStatus = "error";
-    next.pendingItems = [];
-    const items = settleRunningToolGroups(session.items ?? []);
-    items.push({
-      id: `${next.id}-error-${Date.now()}`,
-      type: "notice",
-      label: `Agent failed: ${event.message}`
-    });
-    next.items = items;
-    return next;
-  }
-
-  if (event.type === "turn.completed") {
-    next.runtimeStatus = event.status;
-    next.pendingItems = [];
-    next.items = settleRunningToolGroups(session.items ?? []);
-  }
-
-  return next;
-}
-
-// Once a turn ends, nothing is running. Some providers (notably Claude) don't
-// always emit a tool.completed for every tool.started, which would otherwise
-// leave a tool group's status stuck at "running" and shimmering forever.
-function settleRunningToolGroups(items: ConversationItem[]): ConversationItem[] {
-  return items.map((item) => {
-    if (item.type !== "tool_group" || item.status !== "running") {
-      return item;
-    }
-
-    return {
-      ...item,
-      status: "completed",
-      details: item.details.map((detail) =>
-        detail.status === "running" ? { ...detail, status: "completed" } : detail
-      )
-    };
-  });
-}
-
-function toolDetail(
-  id: string,
-  label: string,
-  kind: "call" | "output" = "call"
-): ToolDetail {
-  return {
-    id,
-    label,
-    kind,
-    tone: kind === "output" ? "output" : "default",
-    action: "other"
-  };
 }
 
 function upsertApprovalState(

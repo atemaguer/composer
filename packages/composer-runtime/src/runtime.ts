@@ -14,6 +14,7 @@ import {
   type SessionWorktree
 } from "./session-worktrees.js";
 import {
+  applyLiveSessionEvent,
   isRuntimeProviderId,
   providerModelDisplayLabel,
   providerStatusLabel
@@ -31,8 +32,7 @@ import type {
   SessionContent,
   SessionCompactionSummary,
   SessionProvider,
-  SessionSnapshot,
-  ToolDetail
+  SessionSnapshot
 } from "@composer/client";
 
 export type EventSink = (event: LiveAgentEvent) => void;
@@ -798,7 +798,7 @@ export class AgentRuntime {
       const session = this.sessions[event.approval.sessionId];
 
       if (session) {
-        applySessionEvent(session, event);
+        applyLiveSessionEvent(session, event, { immutable: false, errorNotice: "none" });
         this.persistence.upsertSession(session);
         // The desktop store derives `awaiting_approval` plus the pending item
         // directly from `approval.requested`, so the full `session.updated`
@@ -824,7 +824,13 @@ export class AgentRuntime {
         return;
       }
 
-      applySessionEvent(session, event);
+      applyLiveSessionEvent(session, event, { immutable: false, errorNotice: "none" });
+      if (event.type === "error") {
+        // The shared reducer (errorNotice:"none") set status=error, cleared
+        // pendingItems, and settled running tool groups but pushed no notice.
+        // Append the runtime's richer provider-aware notice to match prior behavior.
+        appendErrorNotice(session, event.message);
+      }
       if (event.type === "turn.completed") {
         completeProviderTurn(session, this.activeRunProviders.get(event.sessionId));
         this.activeRunProviders.delete(event.sessionId);
@@ -1111,164 +1117,6 @@ function localSessionSourceFingerprint(session: SessionContent) {
   });
 }
 
-function applySessionEvent(session: SessionContent, event: LiveAgentEvent) {
-  session.updatedAt = new Date().toISOString();
-
-  if (event.type === "turn.started") {
-    session.runtimeStatus = "running";
-    session.pendingItems = [
-      {
-        id: `${session.id}-${event.turnId}-pending`,
-        type: "running_tool",
-        label: event.label ?? "Agent is working",
-        status: "running"
-      }
-    ];
-    return;
-  }
-
-  if (event.type === "message.delta") {
-    const existing = session.items.find(
-      (item) => item.type === "assistant_message" && item.id === event.messageId
-    );
-
-    if (existing?.type === "assistant_message") {
-      existing.body += event.delta;
-      existing.provider = event.provider ?? existing.provider;
-      existing.layoutGroupId = event.layoutGroupId ?? existing.layoutGroupId;
-      existing.layoutTitle = event.layoutTitle ?? existing.layoutTitle;
-    } else {
-      session.items.push({
-        id: event.messageId,
-        type: "assistant_message",
-        body: event.delta,
-        provider: event.provider,
-        layoutGroupId: event.layoutGroupId,
-        layoutTitle: event.layoutTitle
-      });
-    }
-    return;
-  }
-
-  if (event.type === "message.completed") {
-    const existing = session.items.find(
-      (item) => item.type === "assistant_message" && item.id === event.messageId
-    );
-
-    if (existing?.type === "assistant_message" && event.body) {
-      existing.body = event.body;
-      existing.provider = event.provider ?? existing.provider;
-      existing.layoutGroupId = event.layoutGroupId ?? existing.layoutGroupId;
-      existing.layoutTitle = event.layoutTitle ?? existing.layoutTitle;
-    }
-    return;
-  }
-
-  if (event.type === "tool.started") {
-    session.items.push({
-      id: event.toolId,
-      type: "tool_group",
-      summary: event.label,
-      details: [
-        {
-          ...(event.detail ?? toolDetail(event.toolId, event.label)),
-          status: "running"
-        }
-      ],
-      provider: event.provider,
-      layoutGroupId: event.layoutGroupId,
-      layoutTitle: event.layoutTitle,
-      defaultOpen: false,
-      status: "running"
-    });
-    return;
-  }
-
-  if (event.type === "tool.delta") {
-    const tool = session.items.find(
-      (item) => item.type === "tool_group" && item.id === event.toolId
-    );
-
-    if (tool?.type !== "tool_group") {
-      return;
-    }
-
-    const output =
-      tool.details.find((detail) => detail.kind === "output") ??
-      toolDetail(`${event.toolId}-output`, "Output returned", "output");
-
-    output.output = `${output.output ?? ""}${event.delta}`;
-    output.label = output.output.trim().split("\n").at(-1) || "Output returned";
-    output.status = "running";
-
-    if (!tool.details.includes(output)) {
-      tool.details.push(output);
-    }
-    return;
-  }
-
-  if (event.type === "tool.completed") {
-    const tool = session.items.find(
-      (item) => item.type === "tool_group" && item.id === event.toolId
-    );
-
-    if (tool?.type === "tool_group") {
-      tool.status = event.detail?.status ?? "completed";
-      tool.details = tool.details.map((detail) => ({
-        ...detail,
-        status: detail.status === "running" ? "completed" : detail.status
-      }));
-      if (event.detail) {
-        tool.details.push(event.detail);
-      }
-    }
-    return;
-  }
-
-  if (event.type === "approval.requested") {
-    session.runtimeStatus = "awaiting_approval";
-    session.pendingItems = [
-      {
-        id: `${event.approval.id}-pending`,
-        type: "running_tool",
-        label: event.approval.title,
-        status: "running"
-      }
-    ];
-    return;
-  }
-
-  if (event.type === "error") {
-    session.runtimeStatus = "error";
-    session.pendingItems = [];
-    settleRunningToolGroups(session.items);
-    appendErrorNotice(session, event.message);
-    return;
-  }
-
-  if (event.type === "turn.completed") {
-    session.runtimeStatus = event.status;
-    session.pendingItems = [];
-    settleRunningToolGroups(session.items);
-  }
-}
-
-// Once a turn ends, nothing is running. Some providers (notably Claude) don't
-// always emit a tool.completed for every tool.started, which would otherwise
-// leave the tool group's status stuck at "running" and shimmering forever.
-function settleRunningToolGroups(items: ConversationItem[]) {
-  for (const item of items) {
-    if (item.type !== "tool_group" || item.status !== "running") {
-      continue;
-    }
-
-    item.status = "completed";
-    item.details = item.details.map((detail) =>
-      detail.status === "running" ? { ...detail, status: "completed" } : detail
-    );
-  }
-}
-
 function appendErrorNotice(session: SessionContent, message: string) {
   const label = `${providerLabel(session.lastProvider ?? session.provider)} failed: ${formatErrorMessage(message)}`;
   const lastItem = session.items.at(-1);
@@ -1340,20 +1188,6 @@ async function prepareSessionWorkspace(
   return {
     cwd,
     worktree: undefined as SessionWorktree | undefined
-  };
-}
-
-function toolDetail(
-  id: string,
-  label: string,
-  kind: "call" | "output" = "call"
-): ToolDetail {
-  return {
-    id,
-    label,
-    kind,
-    tone: kind === "output" ? "output" : "default",
-    action: "other"
   };
 }
 
