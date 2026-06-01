@@ -157,7 +157,8 @@ jobs:
             git add apps/desktop/package.json package-lock.json
             git commit -m "chore(desktop): release v${desktop_version}"
             git tag "${release_tag}"
-            git push origin "HEAD:${GITHUB_REF_NAME}" "${release_tag}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            git push origin "${release_tag}"
 
             release_ref="${release_tag}"
           }

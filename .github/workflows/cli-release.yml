@@ -110,7 +110,8 @@ jobs:
             git add apps/cli/package.json package-lock.json
             git commit -m "chore(cli): release v${version}"
             git tag "${tag}"
-            git push origin "HEAD:${GITHUB_REF_NAME}" "${tag}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+            git push origin "${tag}"
           else
             version="$(node -p "require('./apps/cli/package.json').version")"
           fi
