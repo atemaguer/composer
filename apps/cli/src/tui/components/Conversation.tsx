@@ -1,5 +1,5 @@
 import { Fragment } from "react";
-import { TextAttributes } from "@opentui/core";
+import { TextAttributes, SyntaxStyle } from "@opentui/core";
 import {
   providerLabel,
   type ConversationItem,
@@ -12,6 +12,30 @@ import { useTui } from "../store.js";
 import { activeSession } from "../types.js";
 
 const MAX_OUTPUT_LINES = 10;
+
+/**
+ * Tokyo Night-flavored styling for the markdown renderer used to display
+ * assistant message bodies. Built once at module scope so every message shares
+ * the same SyntaxStyle instance instead of allocating one per render.
+ */
+const MARKDOWN_SYNTAX_STYLE = SyntaxStyle.fromStyles({
+  default: { fg: "#c0caf5" },
+  "markup.heading": { fg: "#7aa2f7", bold: true },
+  "markup.heading.1": { fg: "#7aa2f7", bold: true },
+  "markup.heading.2": { fg: "#7dcfff", bold: true },
+  "markup.heading.3": { fg: "#bb9af7", bold: true },
+  "markup.bold": { fg: "#c0caf5", bold: true },
+  "markup.italic": { fg: "#c0caf5", italic: true },
+  "markup.strikethrough": { fg: "#565f89", dim: true },
+  "markup.list": { fg: "#e0af68" },
+  "markup.quote": { fg: "#9aa5ce", italic: true },
+  "markup.raw": { fg: "#9ece6a" },
+  "markup.raw.inline": { fg: "#9ece6a" },
+  "markup.raw.block": { fg: "#9ece6a" },
+  "markup.link": { fg: "#7dcfff", underline: true },
+  "markup.link.url": { fg: "#7dcfff", underline: true },
+  "markup.link.label": { fg: "#7aa2f7" }
+});
 
 function statusGlyph(status: ToolStatus | undefined): string {
   switch (status) {
@@ -77,7 +101,7 @@ function ConversationRow({ item }: { item: ConversationItem }) {
     case "assistant_message":
       return (
         <box style={{ marginBottom: 1 }}>
-          <text>{item.body}</text>
+          <markdown content={item.body} syntaxStyle={MARKDOWN_SYNTAX_STYLE} />
         </box>
       );
 
