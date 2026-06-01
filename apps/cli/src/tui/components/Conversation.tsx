@@ -26,17 +26,28 @@ const MARKDOWN_SYNTAX_STYLE = SyntaxStyle.fromStyles({
   "markup.heading.1": { fg: "#7aa2f7", bold: true },
   "markup.heading.2": { fg: "#7dcfff", bold: true },
   "markup.heading.3": { fg: "#bb9af7", bold: true },
-  "markup.bold": { fg: "#c0caf5", bold: true },
+  "markup.heading.4": { fg: "#bb9af7", bold: true },
+  "markup.heading.5": { fg: "#bb9af7", bold: true },
+  "markup.heading.6": { fg: "#bb9af7", bold: true },
+  // Bold is the `markup.strong` scope in tree-sitter-markdown (not markup.bold).
+  "markup.strong": { fg: "#c0caf5", bold: true },
   "markup.italic": { fg: "#c0caf5", italic: true },
   "markup.strikethrough": { fg: "#565f89", dim: true },
-  "markup.list": { fg: "#e0af68" },
+  // List markers (•, 1.) and task-list boxes — give the gutter a distinct color.
+  "markup.list": { fg: "#7aa2f7" },
+  "markup.list.checked": { fg: "#9ece6a" },
+  "markup.list.unchecked": { fg: "#565f89" },
   "markup.quote": { fg: "#9aa5ce", italic: true },
   "markup.raw": { fg: "#9ece6a" },
-  "markup.raw.inline": { fg: "#9ece6a" },
   "markup.raw.block": { fg: "#9ece6a" },
   "markup.link": { fg: "#7dcfff", underline: true },
   "markup.link.url": { fg: "#7dcfff", underline: true },
-  "markup.link.label": { fg: "#7aa2f7" }
+  "markup.link.label": { fg: "#7aa2f7" },
+  // Thematic break (---) renders as a rule scoped `punctuation.special`; dim it
+  // (also covers table delimiters). Keep concealed markers out of the way.
+  "punctuation.special": { fg: "#414868" },
+  "punctuation.delimiter": { fg: "#565f89" },
+  conceal: { fg: "#414868" }
 });
 
 function providerColor(provider: SessionProvider | undefined): string {
