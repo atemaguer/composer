@@ -62,6 +62,7 @@ import { useComposerStore } from "../state/composer-store";
 import { Shimmer } from "@/components/ai-elements/shimmer";
 import { ProviderLogo } from "./ProviderLogo";
 import {
+  appActiveSurface,
   appDangerText,
   appHoverSurface,
   appInsetHighlight,
@@ -72,7 +73,6 @@ import {
   appWarningText,
   cardSurface,
   menuItem,
-  menuSurface,
   pillButton,
   primaryIconButton,
   primaryButton,
@@ -80,6 +80,7 @@ import {
   subtleIconButton,
   warningFocusRing
 } from "./style-tokens";
+import { GlassPanel } from "./liquid-glass/GlassPanel";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type ComposerProvider = SessionProvider;
@@ -772,7 +773,10 @@ const ComposerMenuSurface = forwardRef<
   HTMLDivElement,
   ComponentProps<"div">
 >(function ComposerMenuSurface({ className, ...props }, ref) {
-  return <div ref={ref} className={cn(menuSurface, className)} {...props} />;
+  // Routes the provider, permission, model-settings and footer menus through a
+  // glass surface when liquid glass is enabled; otherwise the `menu` default is
+  // the original `menuSurface` token, so the off-state is unchanged.
+  return <GlassPanel ref={ref} variant="menu" className={className} {...props} />;
 });
 
 const ComposerMenuButton = forwardRef<
@@ -784,9 +788,9 @@ const ComposerMenuButton = forwardRef<
       ref={ref}
       className={cn(
         menuItem,
-        "px-2",
+        "px-2 py-1",
         className,
-        selected && "text-app-text"
+        selected && `${appActiveSurface} text-app-text`
       )}
       {...props}
     />
@@ -823,7 +827,7 @@ function ProviderDropdown({
           {providerOptions.map(({ value, label }) => (
             <ComposerMenuButton
               key={value}
-              className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
+              className="grid min-h-7 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
               selected={visibleProvider === value}
               onClick={() => {
                 setProvider(value);
@@ -1460,7 +1464,7 @@ function ComposerFooterButton({
 
               <div className="min-h-0 flex-1 overflow-y-auto">
                 {loading && filteredOptions.length === 0 && (
-                  <div className="grid min-h-10 items-center px-2 text-[13px] text-app-dim">
+                  <div className="grid min-h-7 items-center px-2 text-[13px] text-app-dim">
                     Loading...
                   </div>
                 )}
@@ -1471,7 +1475,7 @@ function ComposerFooterButton({
                   return (
                     <ComposerMenuButton
                       key={option.id}
-                      className="grid min-h-10 w-full grid-cols-[24px_minmax(0,max-content)_20px] items-center gap-2 text-app-text"
+                      className="grid min-h-7 w-full grid-cols-[24px_minmax(0,max-content)_20px] items-center gap-2 text-app-text"
                       selected={selected}
                       onClick={() => {
                         onSelect?.(option);
@@ -1497,7 +1501,7 @@ function ComposerFooterButton({
                 })}
 
                 {!loading && filteredOptions.length === 0 && (
-                  <div className="grid min-h-10 items-center px-2 text-[13px] text-app-dim">
+                  <div className="grid min-h-7 items-center px-2 text-[13px] text-app-dim">
                     {emptyLabel}
                   </div>
                 )}
@@ -1513,7 +1517,7 @@ function ComposerFooterButton({
                     >
                       <ComposerMenuButton
                         ref={addProjectButtonRef}
-                        className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_18px] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+                        className="grid min-h-7 w-full grid-cols-[24px_minmax(0,1fr)_18px] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
                         disabled={creating || usingExistingFolder}
                         onClick={(event) =>
                           openCreateMenuFromElement(event.currentTarget)
@@ -1534,7 +1538,7 @@ function ComposerFooterButton({
                     </div>
                   ) : (
                     <ComposerMenuButton
-                      className="grid min-h-10 w-full shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+                      className="grid min-h-7 w-full shrink-0 grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
                       disabled={creating}
                       onClick={() => void handleCreate()}
                       tooltip={creating ? "Creating project" : createActionLabel}
@@ -1575,7 +1579,7 @@ function ComposerFooterButton({
             onMouseEnter={() => setCreateMenuOpen(true)}
           >
             <ComposerMenuButton
-              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+              className="grid min-h-7 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
               disabled={creating}
               onClick={() => void handleCreate()}
               tooltip={creating ? "Creating project" : "Start from scratch"}
@@ -1587,7 +1591,7 @@ function ComposerFooterButton({
               </span>
             </ComposerMenuButton>
             <ComposerMenuButton
-              className="grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
+              className="grid min-h-7 w-full grid-cols-[24px_minmax(0,1fr)] items-center gap-2 text-app-text disabled:cursor-not-allowed disabled:opacity-60"
               disabled={usingExistingFolder}
               onClick={() => void handleUseExistingFolder()}
               tooltip={
@@ -1633,7 +1637,7 @@ function ComposerFooterCustomMenu({
               {item.separatorBefore && <ComposerMenuDivider />}
               <ComposerMenuButton
                 className={cn(
-                  "grid min-h-10 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 text-[14px]",
+                  "grid min-h-7 w-full grid-cols-[24px_minmax(0,1fr)_20px] items-center gap-2 text-[14px]",
                   item.disabled
                     ? "cursor-not-allowed text-app-dim/60"
                     : "text-app-text hover:bg-app-text/[0.06]"
@@ -1699,7 +1703,7 @@ const PermissionMenu = forwardRef<HTMLDivElement, {
       {options.map(([label, Icon]) => (
         <ComposerMenuButton
           key={label}
-          className="grid min-h-9 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
+          className="grid min-h-7 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
           selected={permission === label}
           onClick={() => setPermission(label)}
           role="menuitemradio"
@@ -1784,7 +1788,7 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
         {models.map((option) => (
           <ComposerMenuButton
             key={option.value}
-            className="grid min-h-11 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
+            className="grid min-h-7 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
             selected={selectedModel.value === option.value}
             onClick={() => setModel(option.value)}
             role="menuitemradio"
@@ -1813,7 +1817,7 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
               return (
                 <ComposerMenuButton
                   key={agent}
-                  className="grid min-h-12 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
+                  className="grid min-h-7 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"
                   selected={activeComposeAgent === agent}
                   onClick={() => setActiveComposeAgent(agent)}
                   onFocus={() => setActiveComposeAgent(agent)}
@@ -1838,7 +1842,7 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
           efforts.map((label) => (
             <ComposerMenuButton
               key={label}
-              className="grid min-h-9 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
+              className="grid min-h-7 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
               selected={intelligence === label}
               onClick={() => setIntelligence(label)}
               role="menuitemradio"
@@ -1876,7 +1880,7 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
           {providerModelOptions(activeComposeAgent).map((option) => (
             <ComposerMenuButton
               key={option.value}
-              className="grid min-h-10 grid-cols-[minmax(0,1fr)_18px] items-center text-[14px] text-app-text"
+              className="grid min-h-7 grid-cols-[minmax(0,1fr)_18px] items-center text-[14px] text-app-text"
               selected={activeComposeModel.value === option.value}
               onClick={() => {
                 setComposeAgentModel(activeComposeAgent, option.value);
@@ -1908,7 +1912,7 @@ const ModelSettingsMenu = forwardRef<HTMLDivElement, {
           {activeComposeModel.efforts.map((label) => (
             <ComposerMenuButton
               key={label}
-              className="grid min-h-9 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
+              className="grid min-h-7 grid-cols-[minmax(0,max-content)_18px] items-center text-[14px] text-app-text"
               selected={activeComposeEffort === label}
               onClick={() =>
                 setComposeAgentIntelligence(activeComposeAgent, label)

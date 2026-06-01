@@ -110,6 +110,7 @@ export type AppearanceSettings = {
   uiFontSize: number;
   codeFontSize: number;
   fontSmoothing: boolean;
+  enableLiquidGlass: boolean;
 };
 
 export type ResolvedAppearanceTheme = {

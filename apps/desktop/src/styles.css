@@ -132,6 +132,14 @@ body {
   -webkit-font-smoothing: var(--app-font-smoothing);
 }
 
+/* Liquid glass: make the window backing transparent so the native macOS
+ * vibrancy material shows through. The opaque main content area re-establishes
+ * its own background (see App shell), so only the sidebar reads as frosted glass. */
+html[data-liquid-glass="true"],
+html[data-liquid-glass="true"] body {
+  background: transparent;
+}
+
 button,
 input,
 textarea,

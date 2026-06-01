@@ -35,6 +35,7 @@ import { ReviewPanel } from "./components/ReviewPanel";
 import { SearchModal } from "./components/SearchModal";
 import { SettingsPage } from "./components/SettingsPage";
 import { Sidebar } from "./components/Sidebar";
+import { useLiquidGlassEnabled } from "./components/liquid-glass/useLiquidGlass";
 import { ThreadTabs, type ThreadTabItem } from "./components/ThreadTabs";
 import { ComposerClient, type ComposerEventSocket } from "@composer/client";
 import { cn } from "./lib/cn";
@@ -96,6 +97,7 @@ export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
   const navigationType = useNavigationType();
+  const liquidGlass = useLiquidGlassEnabled();
   const sidebarOpen = useUiStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
   const sidebarWidth = useUiStore((state) => state.sidebarWidth);
@@ -2069,7 +2071,11 @@ export default function App() {
   return (
     <div
       className={cn(
-        "relative grid h-screen min-h-0 overflow-hidden bg-app-shell text-app-text motion-reduce:transition-none",
+        "relative grid h-screen min-h-0 overflow-hidden text-app-text motion-reduce:transition-none",
+        // Glass on: the shell is transparent so the native window vibrancy shows
+        // through the sidebar column; <main> below re-asserts the opaque surface
+        // so only the sidebar reads as glass. Off: the shell carries the surface.
+        liquidGlass ? "bg-transparent" : "bg-app-shell",
         sidebarResizing
           ? "transition-none"
           : "transition-[grid-template-columns] duration-[220ms] ease-in-out"
@@ -2135,6 +2141,9 @@ export default function App() {
       <main
         className={cn(
           "relative grid min-h-0 min-w-0 overflow-hidden motion-reduce:transition-none",
+          // Opaque content surface — re-established here so the transparent shell
+          // (glass mode) only reveals vibrancy under the sidebar, not the content.
+          liquidGlass && "bg-app-shell",
           inspectorResizing
             ? "transition-none"
             : "transition-[grid-template-columns] duration-[220ms] ease-in-out",

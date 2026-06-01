@@ -1,5 +1,16 @@
+/**
+ * Canonical geometry for a selectable list / menu row's background indicator,
+ * standardized on the workspace title accordion: compact `min-h-7` height,
+ * `rounded-md` fill, `px-2 py-1` padding, `text-[13px]`. Callers add their own
+ * layout (grid columns, gaps) and pair this with the hover/active surfaces
+ * (`appHoverSurfaceSubtle` / `appActiveSurface`) so every list row reads the
+ * same. Keep new list/menu rows on this token rather than re-deriving sizes.
+ */
+export const listRow =
+  "min-h-7 rounded-md px-2 py-1 text-left text-[13px] transition-colors";
+
 export const sidebarItem =
-  "grid min-h-7 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors hover:bg-app-text/[0.06]";
+  "grid min-h-7 w-full grid-cols-[18px_minmax(0,1fr)_auto] items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted/85 transition-colors hover:bg-app-text/[0.05]";
 
 export const mutedIcon = "text-app-muted/80";
 
@@ -75,7 +86,7 @@ export const menuSurface =
   `rounded-[18px] border ${appSoftBorder} bg-app-panel-2/95 p-2 backdrop-blur ${appPanelShadow}`;
 
 export const menuItem =
-  `rounded-lg text-left transition-colors ${appHoverSurface} ${focusRing}`;
+  `rounded-md text-left transition-colors ${appHoverSurfaceSubtle} ${focusRing}`;
 
 export const primaryButton =
   `inline-flex items-center justify-center rounded-full bg-app-text text-app-bg transition-colors hover:bg-app-text/95 disabled:cursor-not-allowed disabled:opacity-45 ${focusRing}`;

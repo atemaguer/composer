@@ -32,10 +32,7 @@ import {
   appAccentText,
   appActiveSurface,
   appActiveSurfaceStrong,
-  appHoverSurface,
   appHoverSurfaceSubtle,
-  appPanelShadow,
-  appSoftBorder,
   appSuccessText,
   appWarningText,
   dimIcon,
@@ -46,6 +43,8 @@ import {
   subtleIconButton,
   titlebarControlRow
 } from "./style-tokens";
+import { GlassPanel } from "./liquid-glass/GlassPanel";
+import { useLiquidGlassEnabled } from "./liquid-glass/useLiquidGlass";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type SidebarProps = {
@@ -131,6 +130,7 @@ export function Sidebar({
   const [visibleWorkspaceCount, setVisibleWorkspaceCount] =
     useState(INITIAL_WORKSPACES);
   const [providerFilterOpen, setProviderFilterOpen] = useState(false);
+  const liquidGlass = useLiquidGlassEnabled();
   const filteredProjects = useMemo(
     () =>
       providerFilter === "all"
@@ -310,7 +310,7 @@ export function Sidebar({
       <div key={thread.id} className="grid gap-1">
         <div
           className={cn(
-            "group/thread grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md py-1 pr-1 text-[13px] text-app-muted/70 transition-colors",
+            "group/thread grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-1 rounded-md pr-1 text-[13px] text-app-muted/70 transition-colors",
             appHoverSurfaceSubtle,
             selectedThread === thread.id && `${appActiveSurface} text-app-text`
           )}
@@ -406,7 +406,11 @@ export function Sidebar({
     <aside
       aria-hidden={!open}
       className={cn(
-        "flex min-w-0 flex-col overflow-hidden bg-app-sidebar/85 transition-opacity duration-[220ms] ease-in-out motion-reduce:transition-none max-[900px]:hidden",
+        "flex min-w-0 flex-col overflow-hidden transition-opacity duration-[220ms] ease-in-out motion-reduce:transition-none max-[900px]:hidden",
+        // Glass on: a translucent dark tint over the native window vibrancy that
+        // shows through the transparent shell (see App root + styles.css). Off:
+        // the solid sidebar surface, identical to before.
+        liquidGlass ? "bg-app-sidebar/60" : "bg-app-sidebar/85",
         open ? "opacity-100" : "pointer-events-none opacity-0",
         className
       )}
@@ -522,12 +526,9 @@ export function Sidebar({
             </TooltipButton>
           </div>
           {providerFilterOpen && (
-            <div
-              className={cn(
-                "absolute right-0 top-9 z-30 grid min-w-[188px] gap-1 rounded-[18px] border bg-app-panel-2/95 p-3 text-[13px] backdrop-blur",
-                appSoftBorder,
-                appPanelShadow
-              )}
+            <GlassPanel
+              variant="menu"
+              className="absolute right-0 top-9 z-30 grid min-w-[188px] gap-1 p-3 text-[13px]"
               role="menu"
             >
               <div className="px-2 pb-1 text-[13px] text-app-dim">Show</div>
@@ -535,11 +536,11 @@ export function Sidebar({
                 <button
                   key={option.value}
                   className={cn(
-                    "grid h-9 grid-cols-[18px_minmax(0,1fr)_18px] items-center gap-2 rounded-lg px-2 text-left text-[14px] text-app-muted transition-colors",
-                    appHoverSurface,
+                    "grid min-h-7 grid-cols-[18px_minmax(0,1fr)_18px] items-center gap-2 rounded-md px-2 py-1 text-left text-[13px] text-app-muted transition-colors",
+                    appHoverSurfaceSubtle,
                     focusRing,
                     providerFilter === option.value &&
-                      "text-app-text"
+                      `${appActiveSurface} text-app-text`
                   )}
                   role="menuitemradio"
                   aria-checked={providerFilter === option.value}
@@ -570,7 +571,7 @@ export function Sidebar({
                   )}
                 </button>
               ))}
-            </div>
+            </GlassPanel>
           )}
           <div
             className={cn(

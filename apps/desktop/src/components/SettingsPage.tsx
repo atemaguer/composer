@@ -39,9 +39,10 @@ import {
 import {
   appActiveSurface,
   appHoverSurface,
-  cardSurface,
+  appHoverSurfaceSubtle,
   secondaryButton,
 } from "./style-tokens";
+import { GlassPanel } from "./liquid-glass/GlassPanel";
 import { NumberField } from "./ui/number-field";
 import { Select } from "./ui/select";
 import { Slider } from "./ui/slider";
@@ -142,8 +143,8 @@ function SettingsNavButton({
   return (
     <TooltipButton
       className={cn(
-        "grid min-h-9 w-full grid-cols-[22px_minmax(0,1fr)] items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-left text-[15px] text-app-muted transition-colors",
-        appHoverSurface,
+        "grid min-h-7 w-full grid-cols-[22px_minmax(0,1fr)] items-center gap-2.5 rounded-md px-2 py-1 text-left text-[13px] text-app-muted transition-colors",
+        appHoverSurfaceSubtle,
         active && `${appActiveSurface} text-app-text`
       )}
       tooltip={label}
@@ -158,7 +159,7 @@ function SettingsNavButton({
 
 function GeneralSettings() {
   return (
-    <div className={cn("overflow-hidden", cardSurface)}>
+    <GlassPanel variant="panel" className="overflow-hidden">
       <SettingsRow
         title="App name"
         trailing={<span className="text-[14px] text-app-muted">Composer</span>}
@@ -171,7 +172,7 @@ function GeneralSettings() {
           </span>
         }
       />
-    </div>
+    </GlassPanel>
   );
 }
 
@@ -188,7 +189,8 @@ function AppearanceSettingsPanel() {
       codeFontFamily: appearanceState.codeFontFamily,
       uiFontSize: appearanceState.uiFontSize,
       codeFontSize: appearanceState.codeFontSize,
-      fontSmoothing: appearanceState.fontSmoothing
+      fontSmoothing: appearanceState.fontSmoothing,
+      enableLiquidGlass: appearanceState.enableLiquidGlass
     }),
     [
       appearanceState.mode,
@@ -200,7 +202,8 @@ function AppearanceSettingsPanel() {
       appearanceState.codeFontFamily,
       appearanceState.uiFontSize,
       appearanceState.codeFontSize,
-      appearanceState.fontSmoothing
+      appearanceState.fontSmoothing,
+      appearanceState.enableLiquidGlass
     ]
   );
   const setAppearanceSettings = useAppearanceStore(
@@ -480,6 +483,22 @@ function AppearanceSettingsPanel() {
           }
         />
         <SettingsRow
+          title="Liquid glass"
+          description="Make the sidebar, dropdown cards, and settings translucent, letting the desktop show through. macOS only."
+          trailing={
+            <UiSwitch
+              checked={draftSettings.enableLiquidGlass}
+              onCheckedChange={(value) =>
+                updateDraft((current) => ({
+                  ...current,
+                  enableLiquidGlass: value
+                }))
+              }
+              aria-label="Toggle liquid glass"
+            />
+          }
+        />
+        <SettingsRow
           title="Contrast"
           description="Increase border and hover definition across surfaces"
           trailing={
@@ -646,7 +665,9 @@ function SettingsSection({
       >
         {title}
       </h2>
-      <div className={cn("overflow-hidden", cardSurface)}>{children}</div>
+      <GlassPanel variant="panel" className="overflow-hidden">
+        {children}
+      </GlassPanel>
     </section>
   );
 }
@@ -766,7 +787,8 @@ function cloneAppearanceSettings(settings: AppearanceSettings): AppearanceSettin
     codeFontFamily: settings.codeFontFamily,
     uiFontSize: settings.uiFontSize,
     codeFontSize: settings.codeFontSize,
-    fontSmoothing: settings.fontSmoothing
+    fontSmoothing: settings.fontSmoothing,
+    enableLiquidGlass: settings.enableLiquidGlass
   };
 }
 

@@ -132,5 +132,6 @@ contextBridge.exposeInMainWorld("composer", {
   setNativeAppearance: (request: {
     themeSource: "light" | "dark" | "system";
     backgroundColor: string;
+    vibrant?: boolean;
   }) => ipcRenderer.invoke("composer:set-native-appearance", request)
 });

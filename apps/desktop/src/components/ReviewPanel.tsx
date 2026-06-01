@@ -52,7 +52,9 @@ import type {
 } from "../types";
 import { CodeEditor } from "./CodeEditor";
 import { DiffView } from "./DiffView";
+import { GlassPanel } from "./liquid-glass/GlassPanel";
 import {
+  appActiveSurface,
   cardSurface,
   nestedIconButton,
   pillButton,
@@ -652,21 +654,22 @@ function AddPanelMenu({
   onAddTerminal: () => void;
 }) {
   return (
-    <div
+    <GlassPanel
       ref={menuRef}
-      className="absolute right-0 top-[calc(100%+8px)] z-50 w-[220px] rounded-xl border border-app-line bg-app-panel p-1.5 shadow-2xl"
+      variant="menu"
+      className="absolute right-0 top-[calc(100%+8px)] z-50 w-[220px] p-1.5"
       role="menu"
     >
       <button
         type="button"
-        className="flex h-9 w-full items-center gap-3 rounded-lg px-2.5 text-left text-[14px] text-app-text transition-colors hover:bg-app-text/[0.08]"
+        className="flex min-h-7 w-full items-center gap-3 rounded-md px-2 py-1 text-left text-[13px] text-app-text transition-colors hover:bg-app-text/[0.05]"
         role="menuitem"
         onClick={onAddTerminal}
       >
         <SquareTerminal size={15} className="text-app-muted" />
         <span>Terminal</span>
       </button>
-    </div>
+    </GlassPanel>
   );
 }
 
@@ -1202,8 +1205,8 @@ function BranchRefMenu({
               role="menuitemradio"
               aria-checked={selected}
               className={cn(
-                "grid min-h-9 w-full grid-cols-[minmax(0,1fr)_auto_18px] items-center gap-2 rounded-xl px-3 text-left text-app-muted transition-colors hover:bg-app-text/[0.08] hover:text-app-text",
-                selected && "text-app-text"
+                "grid min-h-7 w-full grid-cols-[minmax(0,1fr)_auto_18px] items-center gap-2 rounded-md px-2 py-1 text-left text-app-muted transition-colors hover:bg-app-text/[0.05] hover:text-app-text",
+                selected && `${appActiveSurface} text-app-text`
               )}
               onClick={() => onSelect(branch.name)}
             >
@@ -1249,11 +1252,10 @@ function ReviewScopeMenu({
   onSelect: (scope: ReviewDiffScope) => void;
 }) {
   return (
-    <div
+    <GlassPanel
       ref={menuRef}
-      className={cn(
-        "absolute left-0 top-9 z-50 grid min-w-[220px] overflow-hidden rounded-[18px] border border-app-line bg-app-panel-2 p-1.5 text-[14px] shadow-[0_18px_48px_color-mix(in_srgb,var(--color-app-bg)_42%,transparent)]"
-      )}
+      variant="menu"
+      className="absolute left-0 top-9 z-50 grid min-w-[220px] overflow-hidden p-1.5 text-[14px]"
       role="menu"
       aria-label="Diff scope"
     >
@@ -1265,11 +1267,11 @@ function ReviewScopeMenu({
           <button
             key={option.value}
             className={cn(
-              "grid min-h-10 grid-cols-[minmax(0,1fr)_20px] items-center gap-3 rounded-xl px-3 text-left text-app-muted transition-colors",
+              "grid min-h-7 grid-cols-[minmax(0,1fr)_20px] items-center gap-3 rounded-md px-2 py-1 text-left text-app-muted transition-colors",
               disabled
                 ? "cursor-not-allowed opacity-45"
-                : "hover:bg-app-text/[0.08] hover:text-app-text",
-              selected && "text-app-text"
+                : "hover:bg-app-text/[0.05] hover:text-app-text",
+              selected && `${appActiveSurface} text-app-text`
             )}
             type="button"
             role="menuitemradio"
@@ -1282,7 +1284,7 @@ function ReviewScopeMenu({
           </button>
         );
       })}
-    </div>
+    </GlassPanel>
   );
 }
 
@@ -1836,7 +1838,7 @@ function WorkspaceTreeRows({
             <div key={node.path}>
               <button
                 type="button"
-                className="flex h-7 w-full min-w-0 items-center gap-2 pr-2 text-left text-[13px] text-app-muted transition-colors hover:bg-app-text/[0.06] hover:text-app-text"
+                className="flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md py-1 pr-2 text-left text-[13px] text-app-muted transition-colors hover:bg-app-text/[0.05] hover:text-app-text"
                 style={{ paddingLeft: indentation }}
                 onClick={() => onToggleDirectory(node.path)}
               >
@@ -1869,7 +1871,7 @@ function WorkspaceTreeRows({
             key={node.path}
             type="button"
             className={cn(
-              "flex h-7 w-full min-w-0 items-center gap-2 pr-2 text-left text-[13px] text-app-muted transition-colors hover:bg-app-text/[0.06] hover:text-app-text",
+              "flex min-h-7 w-full min-w-0 items-center gap-2 rounded-md py-1 pr-2 text-left text-[13px] text-app-muted transition-colors hover:bg-app-text/[0.05] hover:text-app-text",
               selected && "bg-app-text/[0.08] text-app-text"
             )}
             style={{ paddingLeft: indentation + 18 }}

@@ -106,6 +106,7 @@ declare global {
       setNativeAppearance?: (request: {
         themeSource: "light" | "dark" | "system";
         backgroundColor: string;
+        vibrant?: boolean;
       }) => Promise<void>;
     };
   }

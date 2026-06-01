@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 
+import { isGlassCapable } from "../components/liquid-glass/useLiquidGlass";
 import { useAppearanceStore } from "../state/appearance-store";
 import { resolveAppearanceTheme } from "./resolve";
 import type {
@@ -26,7 +27,8 @@ export function AppearanceProvider({
       codeFontFamily: appearanceState.codeFontFamily,
       uiFontSize: appearanceState.uiFontSize,
       codeFontSize: appearanceState.codeFontSize,
-      fontSmoothing: appearanceState.fontSmoothing
+      fontSmoothing: appearanceState.fontSmoothing,
+      enableLiquidGlass: appearanceState.enableLiquidGlass
     }),
     [
       appearanceState.mode,
@@ -38,10 +40,14 @@ export function AppearanceProvider({
       appearanceState.codeFontFamily,
       appearanceState.uiFontSize,
       appearanceState.codeFontSize,
-      appearanceState.fontSmoothing
+      appearanceState.fontSmoothing,
+      appearanceState.enableLiquidGlass
     ]
   );
   const appearanceSettings = settings ?? storedSettings;
+  // Gate on platform support too, mirroring useLiquidGlassEnabled, so the
+  // window only goes transparent where the native vibrancy actually exists.
+  const liquidGlass = appearanceState.enableLiquidGlass && isGlassCapable();
   const systemScheme = useSystemScheme();
   const resolvedTheme = useMemo(
     () => resolveAppearanceTheme(appearanceSettings, systemScheme),
@@ -60,7 +66,8 @@ export function AppearanceProvider({
 
     const nativeAppearanceResult = window.composer?.setNativeAppearance?.({
       themeSource: resolvedTheme.themeSource,
-      backgroundColor: resolvedTheme.backgroundColor
+      backgroundColor: resolvedTheme.backgroundColor,
+      vibrant: liquidGlass
     });
     void nativeAppearanceResult?.catch(() => undefined);
 
@@ -69,7 +76,17 @@ export function AppearanceProvider({
         root.style.removeProperty(name);
       }
     };
-  }, [resolvedTheme]);
+  }, [resolvedTheme, liquidGlass]);
+
+  // Toggle a root attribute so global CSS can drop the html/body backgrounds
+  // when glass is on, letting the native window vibrancy show through.
+  useEffect(() => {
+    const root = document.documentElement;
+    root.setAttribute("data-liquid-glass", liquidGlass ? "true" : "false");
+    return () => {
+      root.removeAttribute("data-liquid-glass");
+    };
+  }, [liquidGlass]);
 
   return <>{children}</>;
 }

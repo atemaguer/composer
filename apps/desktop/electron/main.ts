@@ -23,6 +23,14 @@ import {
 import { configureAutoUpdates } from "./auto-updater.js";
 import { desktopCliEnvironment } from "./cli-env.js";
 
+// Dev affordance: expose a CDP endpoint for screenshotting/automation when requested.
+if (process.env.COMPOSER_REMOTE_DEBUG_PORT) {
+  app.commandLine.appendSwitch(
+    "remote-debugging-port",
+    process.env.COMPOSER_REMOTE_DEBUG_PORT
+  );
+}
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const MAX_FILE_PREVIEW_BYTES = 1_000_000;
 const MAX_WORKSPACE_FILE_ENTRIES = 5_000;
@@ -115,10 +123,15 @@ ipcMain.handle("composer:set-native-appearance", (_event, request: unknown) => {
     value.themeSource === "system"
       ? value.themeSource
       : "system";
-  const backgroundColor =
+  const themedBackground =
     typeof value.backgroundColor === "string" && /^#[0-9a-fA-F]{6}$/.test(value.backgroundColor)
       ? value.backgroundColor
       : "#091522";
+  // When liquid glass is on, the renderer punches the window background
+  // transparent so the macOS vibrancy material shows through the sidebar. A
+  // transparent window background color keeps that material visible; otherwise
+  // the opaque themed color would paint over it.
+  const backgroundColor = value.vibrant === true ? "#00000000" : themedBackground;
 
   nativeTheme.themeSource = themeSource;
 

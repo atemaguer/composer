@@ -3,7 +3,7 @@ import { Monitor, Search } from "lucide-react";
 
 import { cn } from "../lib/cn";
 import type { Project, ProjectThread } from "../types";
-import { appHoverSurface, cardSurface, menuItem } from "./style-tokens";
+import { appActiveSurface, cardSurface, menuItem } from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type SearchModalProps = {
@@ -147,11 +147,9 @@ export function SearchModal({
               <TooltipButton
                 key={result.thread.id}
                 className={cn(
-                  "grid min-h-11 w-full grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-3 rounded-xl px-3 text-left text-[17px] text-app-text/84 transition-colors",
+                  "grid min-h-7 w-full grid-cols-[24px_minmax(0,1fr)_auto_auto] items-center gap-3 px-2 py-1 text-left text-[13px] text-app-text/84",
                   menuItem,
-                  index === activeIndex
-                    ? "bg-app-panel-2/88 text-app-text shadow-[0_0_0_1px_color-mix(in_srgb,var(--color-app-text)_6%,transparent)_inset]"
-                    : appHoverSurface
+                  index === activeIndex && `${appActiveSurface} text-app-text`
                 )}
                 tooltip={`Open ${result.thread.name}`}
                 onClick={() => selectResult(result)}

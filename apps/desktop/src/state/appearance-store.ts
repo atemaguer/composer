@@ -49,6 +49,7 @@ export type AppearanceStore = AppearanceSettings & {
   setUiFontSize: (value: StateUpdater<number>) => void;
   setCodeFontSize: (value: StateUpdater<number>) => void;
   setFontSmoothing: (value: StateUpdater<boolean>) => void;
+  setEnableLiquidGlass: (value: StateUpdater<boolean>) => void;
   resetAppearanceSettings: () => void;
 };
 
@@ -68,7 +69,8 @@ export const defaultAppearanceSettings: AppearanceSettings = {
   codeFontFamily: defaultCodeFontFamily,
   uiFontSize: 14,
   codeFontSize: 12,
-  fontSmoothing: true
+  fontSmoothing: true,
+  enableLiquidGlass: false
 };
 
 export const useAppearanceStore = create<AppearanceStore>()(
@@ -162,6 +164,13 @@ export const useAppearanceStore = create<AppearanceStore>()(
             defaultAppearanceSettings.fontSmoothing
           )
         })),
+      setEnableLiquidGlass: (value) =>
+        set((state) => ({
+          enableLiquidGlass: normalizeBoolean(
+            resolveState(value, state.enableLiquidGlass),
+            defaultAppearanceSettings.enableLiquidGlass
+          )
+        })),
       resetAppearanceSettings: () => set(defaultAppearanceSettings)
     }),
     {
@@ -177,7 +186,8 @@ export const useAppearanceStore = create<AppearanceStore>()(
         codeFontFamily: state.codeFontFamily,
         uiFontSize: state.uiFontSize,
         codeFontSize: state.codeFontSize,
-        fontSmoothing: state.fontSmoothing
+        fontSmoothing: state.fontSmoothing,
+        enableLiquidGlass: state.enableLiquidGlass
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,
@@ -198,7 +208,8 @@ function selectAppearanceSettings(state: AppearanceStore): AppearanceSettings {
     codeFontFamily: state.codeFontFamily,
     uiFontSize: state.uiFontSize,
     codeFontSize: state.codeFontSize,
-    fontSmoothing: state.fontSmoothing
+    fontSmoothing: state.fontSmoothing,
+    enableLiquidGlass: state.enableLiquidGlass
   };
 }
 
@@ -231,6 +242,10 @@ export function normalizeAppearanceSettings(
     fontSmoothing: normalizeBoolean(
       settings.fontSmoothing,
       defaultAppearanceSettings.fontSmoothing
+    ),
+    enableLiquidGlass: normalizeBoolean(
+      settings.enableLiquidGlass,
+      defaultAppearanceSettings.enableLiquidGlass
     )
   };
 }
