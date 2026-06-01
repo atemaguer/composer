@@ -729,7 +729,7 @@ function threadProject(projects: Project[], sessionId: string): Project {
 
   // Should not happen when called after findThread succeeds; fall back to a
   // sentinel that won't match any workspace id.
-  return { id: " __no_project__", name: "", cwd: "", threads: [] };
+  return { id: "__no_project__", name: "", cwd: "", threads: [] };
 }
 
 export function upsertSessionProject(
