@@ -1,7 +1,9 @@
 #!/usr/bin/env node
-import { randomUUID } from "node:crypto";
+import { spawn } from "node:child_process";
+import { createHash, randomUUID } from "node:crypto";
 import { once } from "node:events";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -45,6 +47,15 @@ type CliOptions = {
 };
 
 const CLI_READY_PREFIX = "COMPOSER_CLI_SERVER_READY";
+
+// Self-update channel — mirrors install.sh's COMPOSER_CLI_BASE. Defined before
+// `main()` runs so the (synchronous) update path can read it without a TDZ.
+const CLI_RELEASE_BASE = (
+  process.env.COMPOSER_CLI_BASE ??
+  "https://storage.googleapis.com/composer-desktop-updates-bfloat/composer/cli/stable"
+).replace(/\/+$/u, "");
+
+const BREW_FORMULA_URL = "https://getcomposer.dev/homebrew/composer.rb";
 
 void main().catch((error) => {
   const message = error instanceof Error ? error.message : String(error);
@@ -126,6 +137,11 @@ async function main() {
 
   if (command === "models") {
     modelsCommand(args);
+    return;
+  }
+
+  if (command === "update" || command === "upgrade") {
+    await updateCommand(args);
     return;
   }
 
@@ -861,6 +877,185 @@ function readVersion(): string {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Self-update (`composer update` / `composer upgrade`)
+// ---------------------------------------------------------------------------
+
+type CliManifest = { version: string; tarball: string; sha256?: string };
+
+/**
+ * Update the globally-installed CLI to the latest published release (or a
+ * pinned `--version`). Resolves `latest.json`, downloads + verifies the tarball,
+ * and reinstalls via npm — the same mechanism as the curl installer. Guards
+ * against clobbering a linked dev build or a Homebrew install.
+ */
+async function updateCommand(args: string[]) {
+  let checkOnly = false;
+  let force = false;
+  let target = "latest";
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--check") {
+      checkOnly = true;
+    } else if (arg === "--force") {
+      force = true;
+    } else if (arg === "--help" || arg === "-h") {
+      printHelp();
+      return;
+    } else if (arg === "--version") {
+      target = requireOptionValue("version", args[(index += 1)]);
+    } else if (arg.startsWith("--version=")) {
+      target = arg.slice("--version=".length);
+    } else {
+      throw new Error(`Unknown update option: ${arg}`);
+    }
+  }
+
+  const current = readVersion();
+  let latest = target.replace(/^v/u, "");
+  let tarballUrl: string;
+  let sha256 = "";
+
+  if (target === "latest") {
+    const manifest = await fetchCliManifest();
+    latest = manifest.version;
+    tarballUrl = manifest.tarball;
+    sha256 = manifest.sha256 ?? "";
+  } else {
+    tarballUrl = `${CLI_RELEASE_BASE}/composer-cli-${latest}.tgz`;
+  }
+
+  const upToDate = compareVersions(current, latest) >= 0;
+  process.stderr.write(`[update] current v${current} · latest v${latest}\n`);
+
+  if (checkOnly) {
+    process.stdout.write(
+      upToDate
+        ? `Composer is up to date (v${current}).\n`
+        : `Update available: v${current} → v${latest}. Run 'composer update'.\n`
+    );
+    return;
+  }
+
+  if (target === "latest" && upToDate && !force) {
+    process.stdout.write(`Composer is already up to date (v${current}).\n`);
+    return;
+  }
+
+  // Guardrails: never clobber a linked dev build or a Homebrew-managed install.
+  const install = detectInstallMethod();
+  if (install.kind === "dev") {
+    throw new Error(
+      `'composer' is a linked dev build (${install.path}).\n` +
+        "Update it from the repo: git pull && npm --workspace @composer/cli run build"
+    );
+  }
+  if (install.kind === "brew") {
+    throw new Error(
+      `'composer' was installed via Homebrew. Update with:\n  brew upgrade ${BREW_FORMULA_URL}`
+    );
+  }
+
+  const tmpDir = mkdtempSync(path.join(tmpdir(), "composer-update-"));
+  const tarballPath = path.join(tmpDir, "composer.tgz");
+  try {
+    process.stderr.write(`[update] downloading ${tarballUrl}\n`);
+    const response = await fetch(tarballUrl);
+    if (!response.ok) {
+      throw new Error(`Download failed: ${tarballUrl} (HTTP ${response.status})`);
+    }
+    const bytes = Buffer.from(await response.arrayBuffer());
+    writeFileSync(tarballPath, bytes);
+
+    if (sha256) {
+      const actual = createHash("sha256").update(bytes).digest("hex");
+      if (actual !== sha256) {
+        throw new Error(`Checksum mismatch (expected ${sha256}, got ${actual}).`);
+      }
+    }
+
+    process.stderr.write(`[update] installing v${latest}…\n`);
+    await npmInstallGlobal(tarballPath);
+    process.stdout.write(
+      current === latest
+        ? `Reinstalled Composer v${latest}.\n`
+        : `Updated Composer v${current} → v${latest}.\n`
+    );
+  } finally {
+    rmSync(tmpDir, { recursive: true, force: true });
+  }
+}
+
+async function fetchCliManifest(): Promise<CliManifest> {
+  const url = `${CLI_RELEASE_BASE}/latest.json`;
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Could not load release manifest: ${url} (HTTP ${response.status})`);
+  }
+  const data = (await response.json()) as Partial<CliManifest>;
+  if (!data.version || !data.tarball) {
+    throw new Error("Release manifest is missing version/tarball.");
+  }
+  return { version: data.version, tarball: data.tarball, sha256: data.sha256 };
+}
+
+/** Numeric semver-ish compare: >0 if a newer than b, 0 if equal, <0 if older. */
+function compareVersions(a: string, b: string): number {
+  const pa = a.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  const pb = b.split(".").map((part) => Number.parseInt(part, 10) || 0);
+  for (let index = 0; index < Math.max(pa.length, pb.length); index += 1) {
+    const diff = (pa[index] ?? 0) - (pb[index] ?? 0);
+    if (diff !== 0) {
+      return diff < 0 ? -1 : 1;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Classify how this binary was installed from its resolved module path (Node
+ * resolves the package through symlinks, so a linked dev checkout reports its
+ * real repo path rather than the global node_modules).
+ */
+function detectInstallMethod(): { kind: "npm" | "brew" | "dev"; path: string } {
+  const self = fileURLToPath(import.meta.url);
+  const sep = path.sep;
+  if (self.includes(`${sep}Cellar${sep}`)) {
+    return { kind: "brew", path: self };
+  }
+  if (!self.includes(`${sep}node_modules${sep}`)) {
+    return { kind: "dev", path: self };
+  }
+  return { kind: "npm", path: self };
+}
+
+function npmInstallGlobal(tarball: string): Promise<void> {
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  return new Promise((resolve, reject) => {
+    const child = spawn(npm, ["install", "-g", tarball], {
+      stdio: ["ignore", "ignore", "pipe"]
+    });
+    let stderr = "";
+    child.stderr?.on("data", (chunk: Buffer) => {
+      stderr += chunk.toString("utf8");
+    });
+    child.on("error", reject);
+    child.on("exit", (code) => {
+      if (code === 0) {
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `npm install failed (exit ${code ?? "?"}).` +
+            (stderr.trim() ? `\n${stderr.trim()}` : "")
+        )
+      );
+    });
+  });
+}
+
 function printHelp() {
   process.stdout.write(`Usage:
   composer                       Launch the interactive TUI (in a terminal).
@@ -872,6 +1067,7 @@ function printHelp() {
   composer branches [--cwd <path>] [--json]
   composer capabilities [--json]
   composer models [--provider <p>] [--json]
+  composer update [--check] [--force] [--version <ver>]
 
 Commands:
   serve          Start the Composer server on 127.0.0.1.
@@ -881,6 +1077,12 @@ Commands:
   branches       List git branches for the working directory.
   capabilities   List installed skills and plugins.
   models         List provider models (static; no server needed).
+  update         Update the CLI to the latest release (alias: upgrade).
+
+Update options:
+  --check                        Report whether an update is available, then exit.
+  --force                        Reinstall even if already on the latest version.
+  --version <ver>                Install a specific version (e.g. 0.1.2).
 
 Run options:
   --server <url>                 Attach to an existing loopback server.
