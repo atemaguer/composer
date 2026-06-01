@@ -198,7 +198,7 @@ function nativeSessionMap(nativeSessions: SessionContent[]) {
   return new Map(
     nativeSessions
       .filter((session) =>
-        (session.provider === "codex" || session.provider === "claude") &&
+        isDelegateProvider(session.provider) &&
         Boolean(session.providerSessionId)
       )
       .map((session) => [
@@ -331,7 +331,7 @@ function providerRecordKeysRequiringItems(
   }
 
   const visibleProvider = sessionRecord.parallelAdoptedProvider ??
-    (sessionRecord.currentProvider === "codex" || sessionRecord.currentProvider === "claude"
+    (isDelegateProvider(sessionRecord.currentProvider)
       ? sessionRecord.currentProvider
       : providerRecords[0]?.provider);
   const visibleRecord = visibleProvider
@@ -390,7 +390,7 @@ function composerSessionFromRecord(
   }
 
   const visibleProvider = sessionRecord.parallelAdoptedProvider ??
-    (sessionRecord.currentProvider === "codex" || sessionRecord.currentProvider === "claude"
+    (isDelegateProvider(sessionRecord.currentProvider)
       ? sessionRecord.currentProvider
       : providerRecords[0]?.provider);
   const visibleRecord = visibleProvider
@@ -1118,7 +1118,7 @@ async function cachedSessionFilePath(
       const providerId = providerIdForSession(session);
 
       filePath =
-        providerId && (session.provider === "codex" || session.provider === "claude")
+        providerId && isDelegateProvider(session.provider)
           ? readComposerProviderSessionFile(session.provider, providerId)?.filePath
           : undefined;
     } catch {
@@ -1139,7 +1139,7 @@ async function cachedSessionFilePath(
   try {
     const providerId = providerIdForSession(session);
 
-    if (providerId && (session.provider === "codex" || session.provider === "claude")) {
+    if (providerId && isDelegateProvider(session.provider)) {
       deleteComposerProviderSessionFile(session.provider, providerId);
     }
   } catch {

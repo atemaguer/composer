@@ -15,6 +15,7 @@ import {
 } from "./session-worktrees.js";
 import {
   applyLiveSessionEvent,
+  canDelegateProvider,
   isRuntimeProviderId,
   providerModelDisplayLabel,
   providerStatusLabel
@@ -1409,7 +1410,7 @@ function syncProviderState(
 
   if (
     session.id !== providerSession.id &&
-    (provider === "codex" || provider === "claude") &&
+    canDelegateProvider(provider) &&
     providerSession.providerSessionId
   ) {
     persistence.upsertProviderSessions([

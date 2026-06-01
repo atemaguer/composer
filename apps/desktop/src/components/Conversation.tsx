@@ -47,7 +47,7 @@ import type {
   SessionProvider,
   ToolDetail
 } from "../types";
-import { providerLabel } from "../provider-registry";
+import { canDelegateProvider, providerLabel } from "../provider-registry";
 import { Composer, type ComposerProps } from "./Composer";
 import { DiffView } from "./DiffView";
 import { ProviderLogo } from "./ProviderLogo";
@@ -697,10 +697,7 @@ function parallelItemProvider(
     return "claude";
   }
 
-  if (
-    forceFallbackProvider &&
-    (activeFallbackProvider === "codex" || activeFallbackProvider === "claude")
-  ) {
+  if (forceFallbackProvider && isDelegateProvider(activeFallbackProvider)) {
     return activeFallbackProvider;
   }
 
@@ -708,14 +705,14 @@ function parallelItemProvider(
     return item.provider;
   }
 
-  if (activeFallbackProvider === "codex" || activeFallbackProvider === "claude") {
+  if (isDelegateProvider(activeFallbackProvider)) {
     return activeFallbackProvider;
   }
 
   return [...currentBatch]
     .reverse()
     .map((batchItem) => batchItem.provider)
-    .find((provider): provider is SessionProvider => provider === "codex" || provider === "claude");
+    .find((provider): provider is SessionProvider => isDelegateProvider(provider));
 }
 
 function parallelItemText(item: ConversationItem) {
@@ -783,10 +780,9 @@ function splitParallelItemByProvider(item: ParallelThreadItem): ParallelThreadIt
   }
 
   const detailGroups = new Map<SessionProvider, ToolDetail[]>();
-  const fallbackProvider =
-    item.provider === "codex" || item.provider === "claude"
-      ? item.provider
-      : undefined;
+  const fallbackProvider = isDelegateProvider(item.provider)
+    ? item.provider
+    : undefined;
 
   for (const detail of item.details) {
     const provider = parallelDetailProvider(detail) ?? fallbackProvider;
@@ -1303,8 +1299,10 @@ function ParallelContinueButton({
   );
 }
 
-function isDelegateProvider(provider: SessionProvider): provider is DelegateSessionProvider {
-  return provider === "codex" || provider === "claude";
+function isDelegateProvider(
+  provider: SessionProvider | undefined
+): provider is DelegateSessionProvider {
+  return provider !== undefined && canDelegateProvider(provider);
 }
 
 function parallelColumnItems(items: ConversationItem[]) {
