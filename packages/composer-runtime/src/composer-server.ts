@@ -115,6 +115,110 @@ export function createComposerServer({
     metadataSnapshotJson = undefined;
   }
 
+  // Declarative route registry. This is the single place to register HTTP
+  // routes — add new endpoints (including future provider-scoped or paginated
+  // ones) here rather than extending the dispatch chain. Each entry maps a
+  // method + path pattern to a handler that is invoked with (request, response,
+  // url). `pattern.kind` selects the matcher: "exact" matches pathname exactly,
+  // "prefix" matches when pathname starts with the value (used for the
+  // session-id load route, i.e. '/api/sessions/' + id).
+  type RoutePattern =
+    | { kind: "exact"; value: string }
+    | { kind: "prefix"; value: string };
+
+  type RouteHandler = (
+    request: IncomingMessage,
+    response: ServerResponse,
+    url: URL
+  ) => void | Promise<void>;
+
+  type Route = { method: string; pattern: RoutePattern; handler: RouteHandler };
+
+  const exact = (value: string): RoutePattern => ({ kind: "exact", value });
+  const prefix = (value: string): RoutePattern => ({ kind: "prefix", value });
+
+  function matchesPattern(pattern: RoutePattern, pathname: string): boolean {
+    return pattern.kind === "exact"
+      ? pathname === pattern.value
+      : pathname.startsWith(pattern.value);
+  }
+
+  const routes: Route[] = [
+    {
+      method: "GET",
+      pattern: exact("/health"),
+      handler: (_request, response) => {
+        writeJson(response, 200, { ok: true });
+      }
+    },
+    {
+      method: "GET",
+      pattern: exact("/api/capabilities"),
+      handler: async (_request, response) => {
+        writeJson(response, 200, await resolvedServices.loadCapabilityCatalog());
+      }
+    },
+    {
+      method: "GET",
+      pattern: exact("/api/capabilities/content"),
+      handler: async (_request, response, url) => {
+        const filePath = url.searchParams.get("path");
+
+        if (!filePath) {
+          writeJson(response, 400, { error: "Missing path" });
+          return;
+        }
+
+        writeJson(response, 200, await resolvedServices.readCapabilityContent(filePath));
+      }
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/chat"),
+      handler: (request, response) => handleChatRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/interrupt"),
+      handler: (request, response) => handleInterruptRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/review/diff"),
+      handler: (request, response) => handleReviewDiffRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/review/branches"),
+      handler: (request, response) => handleReviewBranchesRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/git/checkout-branch"),
+      handler: (request, response) => handleBranchCheckoutRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/sessions/visibility"),
+      handler: (request, response) => handleSessionVisibilityRequest(request, response)
+    },
+    {
+      method: "GET",
+      pattern: prefix("/api/sessions/"),
+      handler: (_request, response, url) => handleSessionLoadRequest(url, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/sessions/adopt-parallel"),
+      handler: (request, response) => handleParallelAdoptionRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/sessions/compact"),
+      handler: (request, response) => handleSessionCompactRequest(request, response)
+    }
+  ];
+
   const server = createServer(async (request, response) => {
     setCorsHeaders(response);
 
@@ -126,71 +230,11 @@ export function createComposerServer({
     try {
       const url = new URL(request.url ?? "/", "http://127.0.0.1");
 
-      if (request.method === "GET" && url.pathname === "/health") {
-        writeJson(response, 200, { ok: true });
-        return;
-      }
-
-      if (request.method === "GET" && url.pathname === "/api/capabilities") {
-        writeJson(response, 200, await resolvedServices.loadCapabilityCatalog());
-        return;
-      }
-
-      if (request.method === "GET" && url.pathname === "/api/capabilities/content") {
-        const filePath = url.searchParams.get("path");
-
-        if (!filePath) {
-          writeJson(response, 400, { error: "Missing path" });
+      for (const route of routes) {
+        if (route.method === request.method && matchesPattern(route.pattern, url.pathname)) {
+          await route.handler(request, response, url);
           return;
         }
-
-        writeJson(response, 200, await resolvedServices.readCapabilityContent(filePath));
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/chat") {
-        await handleChatRequest(request, response);
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/interrupt") {
-        await handleInterruptRequest(request, response);
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/review/diff") {
-        await handleReviewDiffRequest(request, response);
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/review/branches") {
-        await handleReviewBranchesRequest(request, response);
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/git/checkout-branch") {
-        await handleBranchCheckoutRequest(request, response);
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/sessions/visibility") {
-        await handleSessionVisibilityRequest(request, response);
-        return;
-      }
-
-      if (request.method === "GET" && url.pathname.startsWith("/api/sessions/")) {
-        await handleSessionLoadRequest(url, response);
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/sessions/adopt-parallel") {
-        await handleParallelAdoptionRequest(request, response);
-        return;
-      }
-
-      if (request.method === "POST" && url.pathname === "/api/sessions/compact") {
-        await handleSessionCompactRequest(request, response);
-        return;
       }
 
       writeJson(response, 404, { error: "Not found" });
