@@ -70,27 +70,40 @@ VERSION="${manifest.version}"
 TARBALL_URL="${manifest.tarball}"
 SHA256="${manifest.sha256}"
 
-info() { printf '\\033[1;34m::\\033[0m %s\\n' "$*"; }
-warn() { printf '\\033[1;33m!!\\033[0m %s\\n' "$*" >&2; }
-fail() { printf '\\033[1;31mxx\\033[0m %s\\n' "$*" >&2; exit 1; }
+# --- presentation -----------------------------------------------------------
+if [ -t 1 ] && [ -z "\${NO_COLOR:-}" ]; then
+  BOLD=$'\\033[1m'; DIM=$'\\033[2m'; GREEN=$'\\033[1;32m'
+  YELLOW=$'\\033[1;33m'; RED=$'\\033[1;31m'; RESET=$'\\033[0m'
+else
+  BOLD=''; DIM=''; GREEN=''; YELLOW=''; RED=''; RESET=''
+fi
 
-command -v node >/dev/null 2>&1 || fail "Node.js (>= 20) is required. Install from https://nodejs.org"
+ok()   { printf '%s✓%s %s\\n' "$GREEN" "$RESET" "$*"; }
+warn() { printf '%s!%s %s\\n' "$YELLOW" "$RESET" "$*" >&2; }
+fail() { printf '%s✗%s %s\\n' "$RED" "$RESET" "$*" >&2; exit 1; }
+
+printf '\\n%sComposer CLI Installer%s\\n\\n' "$BOLD" "$RESET"
+
+# --- environment ------------------------------------------------------------
+OS="$(uname -s | tr '[:upper:]' '[:lower:]')"
+ARCH="$(uname -m)"
+ok "Detected $OS/$ARCH"
+
+command -v node >/dev/null 2>&1 || fail "Node.js (>= 20) is required — https://nodejs.org"
 command -v npm  >/dev/null 2>&1 || fail "npm is required (it ships with Node.js)."
-
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
 [ "$NODE_MAJOR" -ge 20 ] || warn "Node $NODE_MAJOR detected; Composer expects Node >= 20."
+ok "Node $(node -v) detected"
 
-if ! command -v bun >/dev/null 2>&1; then
-  warn "Bun was not found — the interactive TUI requires it:"
-  warn "    curl -fsSL https://bun.sh/install | bash"
-  warn "  ('composer run' and 'composer serve' work without Bun.)"
-fi
+BUN_OK=1
+command -v bun >/dev/null 2>&1 || BUN_OK=0
 
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
-info "Downloading Composer CLI v$VERSION"
+# --- download + verify ------------------------------------------------------
 curl -fsSL "$TARBALL_URL" -o "$TMP/composer.tgz" || fail "Download failed: $TARBALL_URL"
+ok "Downloaded Composer CLI v$VERSION"
 
 if command -v shasum >/dev/null 2>&1; then
   ACTUAL="$(shasum -a 256 "$TMP/composer.tgz" | awk '{print $1}')"
@@ -102,16 +115,31 @@ fi
 if [ -n "$ACTUAL" ] && [ "$ACTUAL" != "$SHA256" ]; then
   fail "Checksum mismatch (expected $SHA256, got $ACTUAL)."
 fi
+[ -n "$ACTUAL" ] && ok "Verified checksum"
 
-info "Installing globally via npm…"
-npm install -g "$TMP/composer.tgz"
-
-if command -v composer >/dev/null 2>&1; then
-  info "Installed $(composer --version 2>/dev/null || echo composer) at $(command -v composer)"
-  info "Run 'composer' in a project to start, or 'composer --help'."
+# --- install (npm noise hidden unless it fails) -----------------------------
+if npm install -g "$TMP/composer.tgz" >"$TMP/npm.log" 2>&1; then
+  ok "Installed globally via npm"
 else
-  warn "composer is not on your PATH. Add \\"$(npm prefix -g)/bin\\" to PATH."
+  cat "$TMP/npm.log" >&2
+  fail "npm install failed (output above)."
 fi
+
+BIN="$(command -v composer 2>/dev/null || true)"
+[ -n "$BIN" ] || fail "Installed, but 'composer' is not on your PATH — add $(npm prefix -g)/bin to PATH."
+ok "Linked composer at $BIN"
+
+# --- done -------------------------------------------------------------------
+printf '\\n%s✨ Installation complete!%s\\n\\n' "$GREEN" "$RESET"
+printf '%sStart using Composer:%s\\n' "$BOLD" "$RESET"
+printf '    composer\\n'
+printf '    %scomposer --help%s   see all commands\\n\\n' "$DIM" "$RESET"
+
+if [ "$BUN_OK" -eq 0 ]; then
+  printf '%s!%s the interactive TUI needs Bun — %scurl -fsSL https://bun.sh/install | bash%s\\n\\n' "$YELLOW" "$RESET" "$DIM" "$RESET"
+fi
+
+printf '%sHappy coding!%s 🚀\\n' "$DIM" "$RESET"
 `;
 }
 
