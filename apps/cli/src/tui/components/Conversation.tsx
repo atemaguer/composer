@@ -1,4 +1,4 @@
-import { Fragment } from "react";
+import { Fragment, type ReactNode } from "react";
 import { TextAttributes, SyntaxStyle } from "@opentui/core";
 import {
   providerLabel,
@@ -11,7 +11,9 @@ import {
 import { useTui } from "../store.js";
 import { activeSession } from "../types.js";
 
-const MAX_OUTPUT_LINES = 10;
+// How many of a tool group's most recent calls to list individually; the rest
+// collapse into a "… N earlier items hidden" line (Cursor-style grouping).
+const VISIBLE_TOOL_LINES = 3;
 
 /**
  * Tokyo Night-flavored styling for the markdown renderer used to display
@@ -37,54 +39,211 @@ const MARKDOWN_SYNTAX_STYLE = SyntaxStyle.fromStyles({
   "markup.link.label": { fg: "#7aa2f7" }
 });
 
-function statusGlyph(status: ToolStatus | undefined): string {
-  switch (status) {
-    case "completed":
-      return "✓";
-    case "failed":
-      return "✗";
-    case "cancelled":
-      return "∅";
-    case "running":
-    default:
-      return "⋯";
-  }
-}
-
-function trimOutput(output: string): string {
-  const lines = output.split(/\r?\n/);
-  if (lines.length <= MAX_OUTPUT_LINES) {
-    return output.trimEnd();
-  }
-  return lines.slice(-MAX_OUTPUT_LINES).join("\n").trimEnd();
-}
-
 function providerColor(provider: SessionProvider | undefined): string {
   if (provider === "codex") return "#7dcfff";
   if (provider === "claude") return "#bb9af7";
   return "#7aa2f7";
 }
 
-function ToolDetailRow({ detail }: { detail: ToolDetail }) {
-  const glyph = statusGlyph(detail.status);
+const BULLET_TEXT = "#c0caf5";
+const BULLET_TOOL = "#9ece6a";
+
+/**
+ * A Claude Code-style leading bullet: a colored `●` in a fixed gutter with the
+ * content to its right, so multi-line bodies (markdown, tool trees) stay
+ * aligned under the first line rather than under the dot.
+ */
+function WithBullet({
+  color,
+  children
+}: {
+  color: string;
+  children: ReactNode;
+}) {
+  return (
+    <box style={{ flexDirection: "row", marginBottom: 1 }}>
+      {/* Fixed-width gutter so the body always starts past the dot — a trailing
+          space on the dot text gets trimmed at the flex boundary (markdown). */}
+      <box style={{ width: 2, flexShrink: 0 }}>
+        <text fg={color}>{"●"}</text>
+      </box>
+      <box style={{ flexDirection: "column", flexGrow: 1, minWidth: 0 }}>
+        {children}
+      </box>
+    </box>
+  );
+}
+
+/**
+ * Tool-call grouping (Cursor-style). Each `tool_group` is summarized as a bold
+ * run of verbs + per-category counts ("Read, searched · 9 files, 1 search"),
+ * with everything but the last few calls collapsed into a "… N hidden" line.
+ */
+type ToolCategory =
+  | "read"
+  | "search"
+  | "glob"
+  | "edit"
+  | "run"
+  | "fetch"
+  | "other";
+
+const CATEGORY_META: Record<
+  ToolCategory,
+  { past: string; verb: string; noun: string }
+> = {
+  read: { past: "read", verb: "Read", noun: "file" },
+  search: { past: "searched", verb: "Searched", noun: "search" },
+  glob: { past: "globbed", verb: "Globbed", noun: "glob" },
+  edit: { past: "edited", verb: "Edited", noun: "edit" },
+  run: { past: "ran", verb: "Ran", noun: "command" },
+  fetch: { past: "fetched", verb: "Fetched", noun: "fetch" },
+  other: { past: "used", verb: "Used", noun: "tool" }
+};
+
+/**
+ * Best-effort category from the (provider-varying) tool metadata. `action` is
+ * coarse — Claude tags Read/Glob/Grep all as "other" — so we fall back to the
+ * tool name and label keywords to recover the finer Cursor-style buckets.
+ */
+function classifyTool(detail: ToolDetail): ToolCategory {
+  const name = (detail.toolName ?? "").toLowerCase();
+  const label = detail.label.toLowerCase();
+  if (detail.action === "edit") return "edit";
+  if (detail.action === "command") return "run";
+  if (name.includes("glob") || label.startsWith("glob")) return "glob";
+  if (
+    detail.action === "search" ||
+    name.includes("grep") ||
+    name.includes("search") ||
+    label.startsWith("search") ||
+    label.startsWith("grep")
+  ) {
+    return "search";
+  }
+  if (name.includes("fetch") || name.includes("web")) return "fetch";
+  if (
+    detail.action === "read" ||
+    name.includes("read") ||
+    name.includes("cat") ||
+    name.includes("view") ||
+    name.includes("list") ||
+    label.startsWith("read")
+  ) {
+    return "read";
+  }
+  return "other";
+}
+
+/** Only the actual tool invocations (skip output/summary detail rows). */
+function toolCalls(details: ToolDetail[]): ToolDetail[] {
+  return details.filter((detail) => (detail.kind ?? "call") === "call");
+}
+
+function pluralize(noun: string, count: number): string {
+  if (count === 1) {
+    return `1 ${noun}`;
+  }
+  const plural = /(s|sh|ch|x|z)$/.test(noun) ? `${noun}es` : `${noun}s`;
+  return `${count} ${plural}`;
+}
+
+/** Bold verb run + dim count run, in first-seen category order. */
+function summarizeCalls(calls: ToolDetail[]): { verbs: string; counts: string } {
+  const order: ToolCategory[] = [];
+  const counts = new Map<ToolCategory, number>();
+  for (const call of calls) {
+    const category = classifyTool(call);
+    if (!counts.has(category)) {
+      order.push(category);
+    }
+    counts.set(category, (counts.get(category) ?? 0) + 1);
+  }
+  const verbs = order
+    .map((category, index) => {
+      const past = CATEGORY_META[category].past;
+      return index === 0 ? past.charAt(0).toUpperCase() + past.slice(1) : past;
+    })
+    .join(", ");
+  const countText = order
+    .map((category) => pluralize(CATEGORY_META[category].noun, counts.get(category) ?? 0))
+    .join(", ");
+  return { verbs, counts: countText };
+}
+
+/** Compact "Verb target" line for a single call. */
+function toolLineLabel(detail: ToolDetail): string {
+  if (detail.path) {
+    return `${CATEGORY_META[classifyTool(detail)].verb} ${detail.path}`;
+  }
+  return detail.label.replace(/^Use\s+/, "");
+}
+
+function toolLineColor(status: ToolStatus | undefined): string {
+  if (status === "failed") return "#f7768e";
+  if (status === "running") return "#e0af68";
+  return "#9aa5ce";
+}
+
+function ToolGroupRow({
+  item
+}: {
+  item: Extract<ConversationItem, { type: "tool_group" }>;
+}) {
+  const calls = toolCalls(item.details);
+
+  // No structured calls (e.g. a lone summary/handoff row) — fall back to the
+  // group's own summary so nothing is dropped.
+  if (calls.length === 0) {
+    return (
+      <text fg="#9aa5ce" attributes={TextAttributes.DIM}>
+        {item.summary}
+      </text>
+    );
+  }
+
+  const { verbs, counts } = summarizeCalls(calls);
+  const hidden = Math.max(0, calls.length - VISIBLE_TOOL_LINES);
+  const visible = calls.slice(-VISIBLE_TOOL_LINES);
+
+  // File-tree branches: an optional "… N hidden" stub first, then the most
+  // recent calls. The last branch uses └─, the rest ├─.
+  const branches: { key: string; label: string; color: string }[] = [];
+  if (hidden > 0) {
+    branches.push({
+      key: "hidden",
+      label: `… ${hidden} earlier item${hidden === 1 ? "" : "s"} hidden`,
+      color: "#565f89"
+    });
+  }
+  for (const detail of visible) {
+    branches.push({
+      key: detail.id,
+      label: toolLineLabel(detail),
+      color: toolLineColor(detail.status)
+    });
+  }
+
   return (
     <box style={{ flexDirection: "column" }}>
-      <text fg="#c0caf5">
-        {glyph} {detail.label}
-      </text>
-      {detail.command ? (
-        <text fg="#7dcfff" attributes={TextAttributes.DIM}>
-          {`$ ${detail.command}`}
+      <box style={{ flexDirection: "row" }}>
+        <text fg="#c0caf5" attributes={TextAttributes.BOLD}>
+          {verbs}
         </text>
-      ) : null}
-      {detail.output ? (
-        <text
-          fg={detail.tone === "error" ? "#f7768e" : "#9aa5ce"}
-          attributes={TextAttributes.DIM}
-        >
-          {trimOutput(detail.output)}
-        </text>
-      ) : null}
+        {counts ? (
+          <text fg="#565f89" attributes={TextAttributes.DIM}>
+            {` ${counts}`}
+          </text>
+        ) : null}
+      </box>
+      {branches.map((branch, index) => (
+        <box key={branch.key} style={{ flexDirection: "row" }}>
+          <text fg="#565f89" attributes={TextAttributes.DIM}>
+            {index === branches.length - 1 ? "└─ " : "├─ "}
+          </text>
+          <text fg={branch.color}>{branch.label}</text>
+        </box>
+      ))}
     </box>
   );
 }
@@ -100,24 +259,16 @@ function ConversationRow({ item }: { item: ConversationItem }) {
 
     case "assistant_message":
       return (
-        <box style={{ marginBottom: 1 }}>
+        <WithBullet color={BULLET_TEXT}>
           <markdown content={item.body} syntaxStyle={MARKDOWN_SYNTAX_STYLE} />
-        </box>
+        </WithBullet>
       );
 
     case "tool_group":
       return (
-        <box
-          border
-          borderStyle="single"
-          borderColor="#414868"
-          title={item.summary}
-          style={{ marginBottom: 1, padding: 0, flexDirection: "column" }}
-        >
-          {item.details.map((detail) => (
-            <ToolDetailRow key={detail.id} detail={detail} />
-          ))}
-        </box>
+        <WithBullet color={BULLET_TOOL}>
+          <ToolGroupRow item={item} />
+        </WithBullet>
       );
 
     case "running_tool":
@@ -194,13 +345,44 @@ function partitionByProvider(batch: ConversationItem[]): ParallelColumn[] {
   return providers.map((provider) => ({
     provider,
     title: titles.get(provider) ?? `${providerLabel(provider)} thread`,
-    items: byProvider.get(provider) ?? []
+    items: mergeConsecutiveToolGroups(byProvider.get(provider) ?? [])
   }));
 }
 
 type RenderNode =
   | { kind: "item"; item: ConversationItem }
   | { kind: "parallel"; id: string; columns: ParallelColumn[]; prompt?: string };
+
+/**
+ * Coalesce runs of adjacent `tool_group` items (same provider + layout group)
+ * into one, so successive tool calls render under a single grouped header — a
+ * conversation interleaves a fresh `tool_group` per call. An assistant message
+ * (or any non-tool item) between calls breaks the run, keeping turns distinct.
+ */
+function mergeConsecutiveToolGroups(
+  items: ConversationItem[]
+): ConversationItem[] {
+  const out: ConversationItem[] = [];
+  for (const item of items) {
+    const prev = out[out.length - 1];
+    if (
+      item.type === "tool_group" &&
+      prev?.type === "tool_group" &&
+      prev.provider === item.provider &&
+      prev.layoutGroupId === item.layoutGroupId
+    ) {
+      out[out.length - 1] = {
+        ...prev,
+        details: [...prev.details, ...item.details],
+        status: item.status ?? prev.status,
+        defaultOpen: prev.defaultOpen ?? item.defaultOpen
+      };
+    } else {
+      out.push(item);
+    }
+  }
+  return out;
+}
 
 /**
  * Collapse the flat item list into render nodes. Server-persisted compose turns
@@ -341,7 +523,7 @@ export function Conversation() {
         padding: 1
       }}
     >
-      {groupRenderNodes(session.items).map((node) =>
+      {groupRenderNodes(mergeConsecutiveToolGroups(session.items)).map((node) =>
         node.kind === "parallel" ? (
           <ParallelThreadGroup
             key={node.id}

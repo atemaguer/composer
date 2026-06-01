@@ -15,6 +15,7 @@ import { Conversation } from "./components/Conversation.js";
 import { Composer } from "./components/Composer.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { DialogHost } from "./components/DialogHost.js";
+import { InlineDialog } from "./components/InlineDialog.js";
 import { AdoptPrompt } from "./components/AdoptPrompt.js";
 import { Home } from "./routes/Home.js";
 
@@ -227,6 +228,9 @@ export function App({
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
       {showHome ? <Home /> : <Conversation />}
       {adoptPrompt ? <AdoptPrompt runtime={runtime} /> : null}
+      {/* Slash-command pickers (/model, /provider, …) render inline here, just
+          above the prompt; other dialogs stay modal via DialogHost below. */}
+      <InlineDialog runtime={runtime as RuntimeApi} />
       <Composer
         onSubmit={submit}
         disabled={state.busy}

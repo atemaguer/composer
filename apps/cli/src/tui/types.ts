@@ -88,6 +88,8 @@ export type TuiState = {
   input: string;
   /** True while an agent request is streaming. */
   busy: boolean;
+  /** True while a session-list snapshot requested for `/sessions` is in flight. */
+  sessionsLoading: boolean;
   /** Last fatal/transient error to surface in the status bar. */
   error: string | null;
   /** Transient toast/notice line shown in the status bar (auto-driven by UI). */
@@ -125,6 +127,7 @@ export type TuiAction =
   // Input / status ---------------------------------------------------------
   | { type: "setInput"; value: string }
   | { type: "setBusy"; busy: boolean }
+  | { type: "setSessionsLoading"; loading: boolean }
   | { type: "setError"; error: string | null }
   | { type: "setNotice"; notice: string | null }
   /**

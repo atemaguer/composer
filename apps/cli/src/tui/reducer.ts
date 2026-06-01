@@ -359,6 +359,7 @@ export function initialState(init: TuiInit): TuiState {
     cwd: init.cwd,
     sessions: {},
     projects: [],
+    sessionsLoading: false,
     selectedThread: null,
     route: "home",
     pendingNewRequestId: null,
@@ -394,6 +395,7 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
     case "sessions.snapshot":
       return {
         ...state,
+        sessionsLoading: false,
         projects: event.snapshot.projects,
         sessions: mergeSnapshotSessions(
           state.sessions,
@@ -631,6 +633,7 @@ export const rootReducer: RootReducer = (state, action) => {
     case "snapshot":
       return {
         ...state,
+        sessionsLoading: false,
         projects: action.projects,
         sessions: mergeSnapshotSessions(state.sessions, action.sessions)
       };
@@ -784,6 +787,9 @@ export const rootReducer: RootReducer = (state, action) => {
 
     case "setBusy":
       return { ...state, busy: action.busy };
+
+    case "setSessionsLoading":
+      return { ...state, sessionsLoading: action.loading };
 
     case "setError":
       return { ...state, error: action.error };

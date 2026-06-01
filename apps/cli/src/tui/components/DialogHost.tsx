@@ -2,12 +2,7 @@ import { TextAttributes } from "@opentui/core";
 import {
   providerLabel,
   providerModelDisplayLabel,
-  providerModelOptions,
-  runtimeProviderDefinitions,
-  type AgentModel,
   type ApprovalDecision,
-  type IntelligenceMode,
-  type PermissionMode,
   type SessionProvider
 } from "@composer/client";
 import { useTui } from "../store.js";
@@ -19,7 +14,7 @@ import {
 } from "../types.js";
 import type { RuntimeApi } from "../runtime.js";
 import { commandsForProvider } from "../commands/registry.js";
-import { DialogSelect } from "./dialogs/DialogSelect.js";
+import { isInlineDialog } from "./InlineDialog.js";
 import { DialogReview } from "./dialogs/DialogReview.js";
 import {
   DialogAdopt,
@@ -27,19 +22,6 @@ import {
   DialogBranch,
   DialogCapabilities
 } from "./dialogs/DialogActions.js";
-
-const INTELLIGENCE_OPTIONS: IntelligenceMode[] = [
-  "Low",
-  "Medium",
-  "High",
-  "Extra High"
-];
-
-const PERMISSION_OPTIONS: PermissionMode[] = [
-  "Default permissions",
-  "Auto-review",
-  "Full access"
-];
 
 function decisionLabel(decision: ApprovalDecision): string {
   switch (decision) {
@@ -65,7 +47,9 @@ export function DialogHost({ runtime }: { runtime: RuntimeApi }) {
   const { state, dispatch } = useTui();
   const dialog = topDialog(state);
 
-  if (!dialog) {
+  // Slash-command pickers render inline (see InlineDialog); only the remaining
+  // modal dialogs are drawn here as a centered overlay.
+  if (!dialog || isInlineDialog(dialog)) {
     return null;
   }
 
@@ -99,90 +83,6 @@ function DialogBody({
   state: ReturnType<typeof useTui>["state"];
 }) {
   switch (dialog.kind) {
-    case "provider":
-      return (
-        <DialogSelect<SessionProvider>
-          title="Switch provider"
-          options={runtimeProviderDefinitions.map((definition) => ({
-            name: definition.label,
-            description: definition.statusLabel,
-            value: definition.id
-          }))}
-          onSelect={(option) =>
-            dispatch({ type: "setProvider", provider: option.value })
-          }
-        />
-      );
-
-    case "model":
-      return (
-        <DialogSelect<AgentModel>
-          title={`Model · ${providerLabel(state.provider)}`}
-          options={providerModelOptions(state.provider).map((model) => ({
-            name: model.label,
-            description: model.detail,
-            value: model.value
-          }))}
-          onSelect={(option) =>
-            dispatch({ type: "setModel", model: option.value })
-          }
-        />
-      );
-
-    case "intelligence":
-      return (
-        <DialogSelect<IntelligenceMode>
-          title="Reasoning effort"
-          options={INTELLIGENCE_OPTIONS.map((value) => ({
-            name: value,
-            value
-          }))}
-          onSelect={(option) =>
-            dispatch({ type: "setIntelligence", intelligence: option.value })
-          }
-        />
-      );
-
-    case "permission":
-      return (
-        <DialogSelect<PermissionMode>
-          title="Permissions"
-          options={PERMISSION_OPTIONS.map((value) => ({ name: value, value }))}
-          onSelect={(option) =>
-            dispatch({ type: "setPermission", permission: option.value })
-          }
-        />
-      );
-
-    case "sessions": {
-      const fromProjects = state.projects.flatMap((project) =>
-        project.threads.map((thread) => ({
-          name: thread.name,
-          description: `${thread.provider ?? ""} ${thread.age ?? ""}`.trim(),
-          value: thread.id
-        }))
-      );
-      const options =
-        fromProjects.length > 0
-          ? fromProjects
-          : Object.values(state.sessions).map((session) => ({
-              name: session.title,
-              description: session.id,
-              value: session.id
-            }));
-
-      return (
-        <DialogSelect<string>
-          title="Resume a session"
-          options={options}
-          onSelect={(option) => {
-            runtime.loadSession(option.value);
-            dispatch({ type: "popDialog" });
-          }}
-        />
-      );
-    }
-
     case "approval": {
       const { approval } = dialog;
       const detailLines = approval.details

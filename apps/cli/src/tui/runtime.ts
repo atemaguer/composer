@@ -225,8 +225,9 @@ export function useRuntime(connection: {
   );
 
   const refreshSessions = useCallback(() => {
+    dispatch({ type: "setSessionsLoading", loading: true });
     socketRef.current?.requestSnapshot();
-  }, []);
+  }, [dispatch]);
 
   // The working directory to run git/review operations in: prefer the active
   // session's cwd, falling back to the server's launch directory.
