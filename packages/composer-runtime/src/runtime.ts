@@ -462,6 +462,35 @@ export class AgentRuntime {
     return this.snapshot();
   }
 
+  renameSession(sessionId: string, title: string) {
+    const session = this.sessions[sessionId];
+
+    if (!session) {
+      throw new Error(`Unknown session ${sessionId}`);
+    }
+
+    const trimmed = title.trim();
+
+    if (!trimmed) {
+      throw new Error("Session title cannot be empty");
+    }
+
+    // The registry's title column takes priority over the provider-derived
+    // title (see loadLocalSessionContent), so persisting the session is enough
+    // to make the rename stick across reloads.
+    session.title = trimmed;
+    session.updatedAt = new Date().toISOString();
+    this.persistence.upsertSession(session);
+
+    this.broadcast({
+      id: randomUUID(),
+      type: "session.updated",
+      session
+    });
+
+    return this.snapshot();
+  }
+
   async adoptParallelThread(sessionId: string, provider: DelegateSessionProvider) {
     // The live in-memory session is authoritative for an active run: it carries
     // both delegates' providerSessions from writeParallelProviderSessions. Capture

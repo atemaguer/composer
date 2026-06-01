@@ -16,7 +16,6 @@ import {
   GitPullRequestCreateArrow,
   Laptop,
   Paperclip,
-  MoreHorizontal,
   X
 } from "lucide-react";
 import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
@@ -49,7 +48,12 @@ import {
   resolveSelectedBranchRef
 } from "./state/branch-refs-cache";
 import { useComposerStore } from "./state/composer-store";
-import { pushActionError, pushAppError } from "./components/AppToaster";
+import {
+  pushActionError,
+  pushAppError,
+  pushAppToast
+} from "./components/AppToaster";
+import { ConversationTitleMenu } from "./components/ConversationTitleMenu";
 import { useFilePreviewStore } from "./state/file-preview-store";
 import { useRuntimeStore } from "./state/runtime-store";
 import { isSessionRunning, useSessionStore } from "./state/session-store";
@@ -1126,6 +1130,42 @@ export default function App() {
     }
   }
 
+  async function renameThread(sessionId: string, title: string) {
+    const trimmed = title.trim();
+
+    if (!trimmed) {
+      return;
+    }
+
+    try {
+      const snapshot = agentClient
+        ? await agentClient.renameSession(sessionId, trimmed)
+        : await window.composer?.renameSession?.({
+            sessionId,
+            title: trimmed
+          });
+
+      if (snapshot) {
+        setSessionSnapshot(snapshot);
+      }
+    } catch (error) {
+      pushActionError("Failed to rename chat", error);
+    }
+  }
+
+  function openSessionInNewWindow(sessionId: string) {
+    void window.composer?.openSessionWindow?.(sessionId);
+  }
+
+  async function copyToClipboard(text: string, confirmation: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      pushAppToast({ message: confirmation, tone: "info" });
+    } catch (error) {
+      pushActionError("Failed to copy", error);
+    }
+  }
+
   async function adoptParallelThread(provider: DelegateSessionProvider) {
     if (!activeSession || !agentClient) {
       return;
@@ -2195,10 +2235,36 @@ export default function App() {
                 <div className="flex h-full min-w-0 flex-1 items-center gap-3">
                   {!showThreadTabs && (
                     <div className="flex min-w-0 shrink-0 items-center gap-2">
-                      <span className="max-w-[220px] truncate">
-                        {activeSession?.title ?? workspaceName}
-                      </span>
-                      <MoreHorizontal size={13} />
+                      {activeSession ? (
+                        <ConversationTitleMenu
+                          title={activeSession.title ?? workspaceName}
+                          onRename={(value) =>
+                            void renameThread(activeSession.id, value)
+                          }
+                          onArchive={() => void archiveThread(activeSession.id)}
+                          onCopyTranscript={() =>
+                            void copyToClipboard(
+                              conversationToMarkdown(activeSession),
+                              "Copied transcript"
+                            )
+                          }
+                          onCopyTitle={() =>
+                            void copyToClipboard(
+                              activeSession.title ?? workspaceName,
+                              "Copied title"
+                            )
+                          }
+                          onOpenInNewWindow={
+                            window.composer?.openSessionWindow
+                              ? () => openSessionInNewWindow(activeSession.id)
+                              : undefined
+                          }
+                        />
+                      ) : (
+                        <span className="max-w-[220px] truncate">
+                          {workspaceName}
+                        </span>
+                      )}
                     </div>
                   )}
                   {showThreadTabs && (
@@ -3035,6 +3101,36 @@ function normalizePathKey(value: string) {
 
 function sessionRoute(sessionId: string) {
   return `/sessions/${encodeURIComponent(sessionId)}`;
+}
+
+// Serialize a conversation to a portable Markdown transcript for the "Copy"
+// menu. Messages become headed sections; tool groups and parallel threads are
+// summarized so the copy stays readable rather than dumping raw tool detail.
+function conversationItemsToMarkdown(
+  items: ConversationItem[],
+  lines: string[]
+) {
+  for (const item of items) {
+    if (item.type === "user_message") {
+      lines.push("## You", "", item.body.trim(), "");
+    } else if (item.type === "assistant_message") {
+      const author = item.provider ? providerLabel(item.provider) : "Assistant";
+      lines.push(`## ${author}`, "", item.body.trim(), "");
+    } else if (item.type === "tool_group") {
+      lines.push(`> 🔧 ${item.summary}`, "");
+    } else if (item.type === "parallel_thread_group") {
+      for (const column of item.columns) {
+        lines.push(`### ${column.title}`, "");
+        conversationItemsToMarkdown(column.items, lines);
+      }
+    }
+  }
+}
+
+function conversationToMarkdown(session: SessionContent): string {
+  const lines: string[] = [`# ${session.title}`, ""];
+  conversationItemsToMarkdown(session.items, lines);
+  return `${lines.join("\n").trim()}\n`;
 }
 
 function appRouteFromPathname(pathname: string):

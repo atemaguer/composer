@@ -408,6 +408,38 @@ export function archiveComposerSession(
   return changed;
 }
 
+export function renameComposerSession(
+  composerSessionId: string,
+  title: string,
+  options?: ComposerSessionRegistryStoreOptions
+) {
+  const db = openRegistryDatabase(options);
+  const now = new Date().toISOString();
+  const trimmed = title.trim();
+
+  let changed = false;
+
+  transaction(db, () => {
+    const existing = readSessionRecord(db, composerSessionId);
+
+    if (!existing || !trimmed || existing.title === trimmed) {
+      return;
+    }
+
+    db.prepare(
+      "UPDATE composer_sessions SET title = ?, updated_at = ? WHERE id = ?"
+    ).run(trimmed, now, composerSessionId);
+    appendEvent(db, {
+      composerSessionId,
+      type: "session_renamed",
+      data: { previousTitle: existing.title ?? null, title: trimmed }
+    });
+    changed = true;
+  });
+
+  return changed;
+}
+
 export function composerDelegateProviderSessionKeys(
   registry = readComposerSessionRegistry()
 ) {

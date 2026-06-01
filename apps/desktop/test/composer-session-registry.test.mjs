@@ -220,6 +220,60 @@ test("archiveComposerSession marks a registry session archived", async () => {
   });
 });
 
+test("renameComposerSession updates the title and records an event", async () => {
+  await withTemporaryHome(async () => {
+    const {
+      renameComposerSession,
+      readComposerSessionRegistry,
+      writeComposerSessionRegistry
+    } = await importRegistryModule();
+    const createdAt = "2026-05-23T20:00:00.000Z";
+
+    writeComposerSessionRegistry({
+      version: 1,
+      sessions: [
+        {
+          id: "composer-session-rename",
+          title: "Old title",
+          currentProvider: "codex",
+          lastProvider: "codex",
+          renderMode: "single",
+          status: "idle",
+          createdAt,
+          updatedAt: createdAt
+        }
+      ],
+      providerSessions: [],
+      events: []
+    });
+
+    assert.equal(
+      renameComposerSession("composer-session-rename", "  New title  "),
+      true
+    );
+
+    const registry = readComposerSessionRegistry();
+    const session = registry.sessions.find(
+      (record) => record.id === "composer-session-rename"
+    );
+
+    // Title is trimmed and persisted; the derived-title fallback is overridden.
+    assert.equal(session.title, "New title");
+    assert.equal(registry.events.at(-1).type, "session_renamed");
+    assert.deepEqual(registry.events.at(-1).data, {
+      previousTitle: "Old title",
+      title: "New title"
+    });
+
+    // A no-op rename to the same (trimmed) title does not write a new event.
+    assert.equal(
+      renameComposerSession("composer-session-rename", "New title"),
+      false
+    );
+    assert.equal(readComposerSessionRegistry().events.length, 1);
+  });
+});
+
 test("provider session file metadata is stored outside transcript scans", async () => {
   await withTemporaryHome(async () => {
     const {

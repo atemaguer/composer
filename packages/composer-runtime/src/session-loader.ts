@@ -4,6 +4,7 @@ import path from "node:path";
 
 import {
   archiveComposerSession,
+  renameComposerSession,
   composerDelegateProviderSessionKeys,
   deleteComposerProviderSessionFile,
   providerSessionKey,
@@ -1008,6 +1009,17 @@ export async function updateLocalSessionVisibility(
   await fs.rename(filePath, await uniqueFilePath(archivePath));
 
   return { ok: true, changed: true, filePath };
+}
+
+export function renameLocalSession(
+  session: Pick<SessionContent, "id">,
+  title: string
+) {
+  // The composer registry's title column overrides the provider-derived title
+  // (see the title fallback chain in loadLocalSessionContent), so persisting it
+  // there is all a rename needs — the native transcript file is untouched.
+  const changed = renameComposerSession(session.id, title);
+  return { ok: true, changed };
 }
 
 async function loadClaudeSessions(options: { includeItems: boolean }): Promise<SessionContent[]> {

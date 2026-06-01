@@ -469,6 +469,19 @@ export class ComposerClient<
     return body.snapshot;
   }
 
+  async renameSession(
+    sessionId: string,
+    title: string
+  ): Promise<SessionSnapshot | undefined> {
+    const body = await this.postJson<{ snapshot?: SessionSnapshot }>(
+      "/api/sessions/rename",
+      { sessionId, title },
+      "Session rename failed"
+    );
+
+    return body.snapshot;
+  }
+
   async adoptParallelThread(
     sessionId: string,
     provider: DelegateSessionProvider

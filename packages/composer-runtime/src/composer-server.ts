@@ -203,6 +203,11 @@ export function createComposerServer({
       handler: (request, response) => handleSessionVisibilityRequest(request, response)
     },
     {
+      method: "POST",
+      pattern: exact("/api/sessions/rename"),
+      handler: (request, response) => handleSessionRenameRequest(request, response)
+    },
+    {
       method: "GET",
       pattern: prefix("/api/sessions/"),
       handler: (_request, response, url) => handleSessionLoadRequest(url, response)
@@ -415,6 +420,23 @@ export function createComposerServer({
     }
 
     const snapshot: SessionSnapshot = runtime.updateSessionVisibility(sessionId, action);
+    writeJson(response, 200, { ok: true, snapshot });
+  }
+
+  async function handleSessionRenameRequest(
+    request: IncomingMessage,
+    response: ServerResponse
+  ) {
+    const body = await readJson(request);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+    const title = typeof body.title === "string" ? body.title.trim() : undefined;
+
+    if (!sessionId || !title) {
+      writeJson(response, 400, { error: "Expected sessionId and title" });
+      return;
+    }
+
+    const snapshot: SessionSnapshot = runtime.renameSession(sessionId, title);
     writeJson(response, 200, { ok: true, snapshot });
   }
 

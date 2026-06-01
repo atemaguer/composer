@@ -52,6 +52,10 @@ contextBridge.exposeInMainWorld("composer", {
     sessionId: string;
     action: "archive";
   }) => ipcRenderer.invoke("composer:update-session-visibility", request),
+  renameSession: (request: { sessionId: string; title: string }) =>
+    ipcRenderer.invoke("composer:rename-session", request),
+  openSessionWindow: (sessionId: string) =>
+    ipcRenderer.invoke("composer:open-session-window", sessionId) as Promise<void>,
   createProject: (request: { name?: string; baseCwd?: string }) =>
     ipcRenderer.invoke("composer:create-project", request),
   selectProjectFolder: () =>

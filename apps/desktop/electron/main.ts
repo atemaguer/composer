@@ -18,6 +18,7 @@ import * as pty from "@homebridge/node-pty-prebuilt-multiarch";
 import {
   loadLocalSessionContent,
   loadLocalSessionList,
+  renameLocalSession,
   updateLocalSessionVisibility
 } from "./session-loader.js";
 import { configureAutoUpdates } from "./auto-updater.js";
@@ -100,6 +101,32 @@ ipcMain.handle("composer:update-session-visibility", async (_event, request: unk
 
   await updateLocalSessionVisibility(session, action);
   return await loadLocalSessionList();
+});
+ipcMain.handle("composer:rename-session", async (_event, request: unknown) => {
+  const value = isRecord(request) ? request : {};
+  const sessionId = typeof value.sessionId === "string" ? value.sessionId : "";
+  const title = typeof value.title === "string" ? value.title.trim() : "";
+
+  if (!sessionId || !title) {
+    throw new Error("Expected sessionId and title");
+  }
+
+  const snapshot = await loadLocalSessionList();
+  const session = snapshot.sessions[sessionId];
+
+  if (!session) {
+    throw new Error(`Unknown session ${sessionId}`);
+  }
+
+  renameLocalSession(session, title);
+  return await loadLocalSessionList();
+});
+ipcMain.handle("composer:open-session-window", async (_event, sessionId: unknown) => {
+  if (typeof sessionId !== "string" || !sessionId) {
+    throw new Error("Expected a sessionId");
+  }
+
+  await createWindow(`/sessions/${encodeURIComponent(sessionId)}`);
 });
 ipcMain.handle("composer:get-agent-server", async () => {
   const port = await ensureAgentServer();
@@ -222,7 +249,7 @@ ipcMain.on("composer:terminal-dispose", (event, request: unknown) => {
   }
 });
 
-async function createWindow() {
+async function createWindow(hashRoute?: string) {
   nativeTheme.themeSource = "system";
 
   const window = new BrowserWindow({
@@ -255,12 +282,20 @@ async function createWindow() {
   window.webContents.once("did-finish-load", showWindow);
   bindWindowFrameStateEvents(window);
 
+  // HashRouter keeps the route in the URL fragment, so a deep link is just a
+  // hash — both the dev server and the packaged file load straight into it.
+  const hash = hashRoute
+    ? `#${hashRoute.startsWith("/") ? hashRoute : `/${hashRoute}`}`
+    : undefined;
+
   if (!app.isPackaged && await canReachDevServer()) {
-    await window.loadURL("http://127.0.0.1:5173");
+    await window.loadURL(`http://127.0.0.1:5173/${hash ?? ""}`);
     return;
   }
 
-  await window.loadFile(path.join(__dirname, "../dist/index.html"));
+  await window.loadFile(path.join(__dirname, "../dist/index.html"), {
+    hash: hash ? hash.slice(1) : undefined
+  });
 }
 
 function bindWindowFrameStateEvents(window: BrowserWindow) {

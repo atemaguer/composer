@@ -60,6 +60,11 @@ declare global {
         sessionId: string;
         action: "archive";
       }) => Promise<SessionSnapshot>;
+      renameSession?: (request: {
+        sessionId: string;
+        title: string;
+      }) => Promise<SessionSnapshot>;
+      openSessionWindow?: (sessionId: string) => Promise<void>;
       createProject?: (request: {
         name?: string;
         baseCwd?: string;
