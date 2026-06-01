@@ -384,12 +384,11 @@ jobs:
         env:
           APPLE_API_KEY_ID: ${{ matrix.target == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
           APPLE_API_ISSUER: ${{ matrix.target == 'mac' && secrets.APPLE_API_ISSUER || '' }}
-          # macOS signing uses the dedicated keychain set up above (CSC_KEYCHAIN);
-          # CSC_LINK is intentionally left empty so electron-builder discovers the
-          # identity from that keychain instead of importing into its own flaky
-          # temporary one. Windows keeps its own WIN_CSC_* path below.
-          CSC_LINK: ""
-          CSC_KEY_PASSWORD: ""
+          # macOS signing uses the dedicated keychain set up above (CSC_KEYCHAIN),
+          # so electron-builder discovers the identity from it instead of importing
+          # into its own flaky temporary keychain. CSC_LINK / CSC_KEY_PASSWORD are
+          # left UNSET (not empty strings): an empty CSC_LINK is treated as a cert
+          # path and fails "not a file". Windows uses WIN_CSC_* below.
           CSC_KEYCHAIN: ${{ env.CSC_KEYCHAIN }}
           WIN_CSC_LINK: ${{ matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true') && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true') && secrets.WIN_CSC_KEY_PASSWORD || '' }}
