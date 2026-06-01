@@ -595,8 +595,6 @@ export function Sidebar({
               !workspacesOpen && "hidden"
             )}
           >
-            <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-5 bg-gradient-to-b from-app-sidebar via-app-sidebar/70 to-app-sidebar/0" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-6 bg-gradient-to-t from-app-sidebar via-app-sidebar/70 to-app-sidebar/0" />
             <div
               id="workspace-list"
               className="thin-scrollbar grid h-full min-h-0 auto-rows-min content-start gap-1 overflow-x-hidden overflow-y-auto py-2 pr-1"

@@ -295,7 +295,6 @@ export function Conversation({
       aria-label="Agent conversation"
     >
       <div className="relative min-h-0">
-        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-8 bg-gradient-to-b from-app-shell via-app-shell/70 to-app-shell/0" />
         <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-9 bg-gradient-to-t from-app-shell via-app-shell/70 to-app-shell/0" />
         {timelineItems.length === 0 ? (
           <div className="thin-scrollbar h-full overflow-auto px-5 pb-[220px] pt-4">
