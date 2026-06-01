@@ -49,7 +49,9 @@ type ComposerStore = {
 export const useComposerStore = create<ComposerStore>((set) => ({
   prompt: "",
   permission: "Full access",
-  provider: "codex",
+  // New sessions default to Compare (parallel Codex + Claude). startNewSession
+  // also resets to this so every new session starts in Compare.
+  provider: "meta",
   modelByProvider: defaultModelsByProvider,
   intelligenceByProvider: defaultIntelligenceByProvider,
   permissionOpen: false,

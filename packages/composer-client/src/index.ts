@@ -151,10 +151,10 @@ const providerDefinitions = [
   },
   {
     id: "meta",
-    label: "Compose",
-    statusLabel: "Compose agent",
+    label: "Compare",
+    statusLabel: "Compare agent",
     defaultModel: "meta-parallel-initial",
-    defaultModelLabel: "Compose supervisor",
+    defaultModelLabel: "Compare supervisor",
     defaultIntelligence: "High",
     canDelegate: false,
     modelOptions: [

@@ -125,6 +125,9 @@ export type ComposerProps = {
   // subscribing to every keystroke itself.
   requireNonEmptyPrompt?: boolean;
   layout?: "overlay" | "inline";
+  // When false, the Compare (parallel) provider is hidden from the provider
+  // picker — used on the session view, where a session's provider is fixed.
+  allowCompose?: boolean;
   footerItems?: PromptComposerFooterItem[];
   branchFooterItem?: PromptComposerFooterItem;
   imageAttachments?: ComposerImageAttachment[];
@@ -249,6 +252,7 @@ export function PromptComposer({
   intelligenceMenuId,
   provider,
   setProvider,
+  allowCompose = true,
   value: valueProp,
   setValue: setValueProp,
   placeholder,
@@ -517,7 +521,11 @@ export function PromptComposer({
                 <ChevronDown className="shrink-0" size={13} />
               </TooltipButton>
             </div>
-            <ProviderDropdown provider={provider} setProvider={setProvider} />
+            <ProviderDropdown
+              provider={provider}
+              setProvider={setProvider}
+              allowCompose={allowCompose}
+            />
           </div>
 
           <div className="composer-right-controls flex min-w-0 flex-nowrap items-center justify-end gap-2">
@@ -722,6 +730,10 @@ export function Composer({
   layout = "overlay",
   footerItems,
   branchFooterItem,
+  // The session-view composer never offers Compare (parallel) — a session's
+  // provider is fixed. New-session uses <PromptComposer> directly (allowCompose
+  // defaults to true there).
+  allowCompose = false,
   ...controls
 }: ComposerProps) {
   const showPendingTerminalStack = false;
@@ -756,6 +768,7 @@ export function Composer({
         )}
         <PromptComposer
           {...controls}
+          allowCompose={allowCompose}
           footerItems={resolvedFooterItems}
           placeholder="Ask Composer to build, debug, or review"
         />
@@ -803,13 +816,20 @@ function ComposerMenuDivider() {
 
 function ProviderDropdown({
   provider,
-  setProvider
+  setProvider,
+  allowCompose = true
 }: {
   provider: SessionProvider;
   setProvider: (value: SessionProvider) => void;
+  allowCompose?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const visibleProvider: ComposerProvider = provider;
+  // On the session view the parallel "Compare" provider is hidden — a session's
+  // provider is fixed once it exists.
+  const options = allowCompose
+    ? providerOptions
+    : providerOptions.filter((option) => option.value !== "meta");
   const selectedProvider =
     providerOptions.find((option) => option.value === visibleProvider) ??
     providerOptions[0];
@@ -824,7 +844,7 @@ function ProviderDropdown({
           role="menu"
           aria-label="Provider"
         >
-          {providerOptions.map(({ value, label }) => (
+          {options.map(({ value, label }) => (
             <ComposerMenuButton
               key={value}
               className="grid min-h-7 grid-cols-[20px_minmax(0,1fr)_18px] items-center gap-2 text-[14px] text-app-text"

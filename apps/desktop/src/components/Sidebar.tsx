@@ -89,7 +89,7 @@ const providerFilterOptions: Array<{
   { label: "All threads", value: "all" },
   { label: "Codex", value: "codex", provider: "codex" },
   { label: "Claude", value: "claude", provider: "claude" },
-  { label: "Compose", value: "meta", provider: "meta" }
+  { label: "Compare", value: "meta", provider: "meta" }
 ];
 
 export function Sidebar({
