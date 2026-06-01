@@ -42,7 +42,9 @@ permissions:
   id-token: write
 
 concurrency:
-  group: cli-release-${{ github.ref }}
+  # Shared with desktop-release so the two never push a version bump to the same
+  # branch concurrently (which raced and failed when one commit touched both apps).
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:

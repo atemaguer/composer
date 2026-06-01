@@ -77,7 +77,9 @@ permissions:
   id-token: write
 
 concurrency:
-  group: desktop-release-${{ github.ref }}
+  # Shared with cli-release so the two never push a version bump to the same
+  # branch concurrently (which raced and failed when one commit touched both apps).
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -240,7 +242,9 @@ jobs:
       GCS_PREFIX: ${{ github.event.inputs.prefix || 'composer/desktop' }}
       GCS_BUCKET: ${{ github.event.inputs.bucket || vars.GCP_UPDATES_BUCKET }}
       PUBLISH_RELEASE: "true"
-      MACOS_NOTARIZE: ${{ github.event.inputs.notarize_macos || vars.MACOS_NOTARIZE || 'false' }}
+      # Push to main is a real release to users → always sign + notarize (this is
+      # what runs the dedicated-keychain setup). Manual dispatch honors its input.
+      MACOS_NOTARIZE: ${{ github.event_name == 'push' && 'true' || github.event.inputs.notarize_macos || vars.MACOS_NOTARIZE || 'false' }}
       WINDOWS_SIGNING: ${{ github.event.inputs.sign_windows || vars.WINDOWS_SIGNING || 'false' }}
       UPLOAD_ARTIFACTS: ${{ github.event.inputs.upload_artifacts || vars.DESKTOP_RELEASE_UPLOAD_ARTIFACTS || 'false' }}
       COMPOSER_UPDATE_BASE_URL: https://updates.invalid/composer/desktop/${{ github.event.inputs.channel || 'stable' }}
