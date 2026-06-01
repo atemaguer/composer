@@ -1,6 +1,6 @@
 {
   "name": "@composer/cli",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Composer CLI and interactive TUI",
   "type": "module",
   "main": "./dist/index.js",
