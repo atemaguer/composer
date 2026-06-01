@@ -190,7 +190,8 @@ function AppearanceSettingsPanel() {
       uiFontSize: appearanceState.uiFontSize,
       codeFontSize: appearanceState.codeFontSize,
       fontSmoothing: appearanceState.fontSmoothing,
-      enableLiquidGlass: appearanceState.enableLiquidGlass
+      enableLiquidGlass: appearanceState.enableLiquidGlass,
+      showSubagentSessions: appearanceState.showSubagentSessions
     }),
     [
       appearanceState.mode,
@@ -203,7 +204,8 @@ function AppearanceSettingsPanel() {
       appearanceState.uiFontSize,
       appearanceState.codeFontSize,
       appearanceState.fontSmoothing,
-      appearanceState.enableLiquidGlass
+      appearanceState.enableLiquidGlass,
+      appearanceState.showSubagentSessions
     ]
   );
   const setAppearanceSettings = useAppearanceStore(
@@ -499,6 +501,22 @@ function AppearanceSettingsPanel() {
           }
         />
         <SettingsRow
+          title="Show subagent sessions"
+          description="List subagent threads nested under their parent session in the sidebar. When off, only top-level sessions are shown."
+          trailing={
+            <UiSwitch
+              checked={draftSettings.showSubagentSessions}
+              onCheckedChange={(value) =>
+                updateDraft((current) => ({
+                  ...current,
+                  showSubagentSessions: value
+                }))
+              }
+              aria-label="Toggle subagent sessions"
+            />
+          }
+        />
+        <SettingsRow
           title="Contrast"
           description="Increase border and hover definition across surfaces"
           trailing={
@@ -788,7 +806,8 @@ function cloneAppearanceSettings(settings: AppearanceSettings): AppearanceSettin
     uiFontSize: settings.uiFontSize,
     codeFontSize: settings.codeFontSize,
     fontSmoothing: settings.fontSmoothing,
-    enableLiquidGlass: settings.enableLiquidGlass
+    enableLiquidGlass: settings.enableLiquidGlass,
+    showSubagentSessions: settings.showSubagentSessions
   };
 }
 

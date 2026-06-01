@@ -28,7 +28,8 @@ export function AppearanceProvider({
       uiFontSize: appearanceState.uiFontSize,
       codeFontSize: appearanceState.codeFontSize,
       fontSmoothing: appearanceState.fontSmoothing,
-      enableLiquidGlass: appearanceState.enableLiquidGlass
+      enableLiquidGlass: appearanceState.enableLiquidGlass,
+      showSubagentSessions: appearanceState.showSubagentSessions
     }),
     [
       appearanceState.mode,
@@ -41,7 +42,8 @@ export function AppearanceProvider({
       appearanceState.uiFontSize,
       appearanceState.codeFontSize,
       appearanceState.fontSmoothing,
-      appearanceState.enableLiquidGlass
+      appearanceState.enableLiquidGlass,
+      appearanceState.showSubagentSessions
     ]
   );
   const appearanceSettings = settings ?? storedSettings;

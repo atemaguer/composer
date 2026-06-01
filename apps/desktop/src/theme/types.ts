@@ -111,6 +111,7 @@ export type AppearanceSettings = {
   codeFontSize: number;
   fontSmoothing: boolean;
   enableLiquidGlass: boolean;
+  showSubagentSessions: boolean;
 };
 
 export type ResolvedAppearanceTheme = {

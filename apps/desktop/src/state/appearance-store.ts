@@ -50,6 +50,7 @@ export type AppearanceStore = AppearanceSettings & {
   setCodeFontSize: (value: StateUpdater<number>) => void;
   setFontSmoothing: (value: StateUpdater<boolean>) => void;
   setEnableLiquidGlass: (value: StateUpdater<boolean>) => void;
+  setShowSubagentSessions: (value: StateUpdater<boolean>) => void;
   resetAppearanceSettings: () => void;
 };
 
@@ -69,8 +70,9 @@ export const defaultAppearanceSettings: AppearanceSettings = {
   codeFontFamily: defaultCodeFontFamily,
   uiFontSize: 14,
   codeFontSize: 12,
-  fontSmoothing: true,
-  enableLiquidGlass: false
+  fontSmoothing: false,
+  enableLiquidGlass: false,
+  showSubagentSessions: false
 };
 
 export const useAppearanceStore = create<AppearanceStore>()(
@@ -171,6 +173,13 @@ export const useAppearanceStore = create<AppearanceStore>()(
             defaultAppearanceSettings.enableLiquidGlass
           )
         })),
+      setShowSubagentSessions: (value) =>
+        set((state) => ({
+          showSubagentSessions: normalizeBoolean(
+            resolveState(value, state.showSubagentSessions),
+            defaultAppearanceSettings.showSubagentSessions
+          )
+        })),
       resetAppearanceSettings: () => set(defaultAppearanceSettings)
     }),
     {
@@ -187,7 +196,8 @@ export const useAppearanceStore = create<AppearanceStore>()(
         uiFontSize: state.uiFontSize,
         codeFontSize: state.codeFontSize,
         fontSmoothing: state.fontSmoothing,
-        enableLiquidGlass: state.enableLiquidGlass
+        enableLiquidGlass: state.enableLiquidGlass,
+        showSubagentSessions: state.showSubagentSessions
       }),
       merge: (persistedState, currentState) => ({
         ...currentState,
@@ -209,7 +219,8 @@ function selectAppearanceSettings(state: AppearanceStore): AppearanceSettings {
     uiFontSize: state.uiFontSize,
     codeFontSize: state.codeFontSize,
     fontSmoothing: state.fontSmoothing,
-    enableLiquidGlass: state.enableLiquidGlass
+    enableLiquidGlass: state.enableLiquidGlass,
+    showSubagentSessions: state.showSubagentSessions
   };
 }
 
@@ -246,6 +257,10 @@ export function normalizeAppearanceSettings(
     enableLiquidGlass: normalizeBoolean(
       settings.enableLiquidGlass,
       defaultAppearanceSettings.enableLiquidGlass
+    ),
+    showSubagentSessions: normalizeBoolean(
+      settings.showSubagentSessions,
+      defaultAppearanceSettings.showSubagentSessions
     )
   };
 }

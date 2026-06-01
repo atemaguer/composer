@@ -45,6 +45,7 @@ import {
 } from "./style-tokens";
 import { GlassPanel } from "./liquid-glass/GlassPanel";
 import { useLiquidGlassEnabled } from "./liquid-glass/useLiquidGlass";
+import { useAppearanceStore } from "../state/appearance-store";
 import { TooltipButton } from "./ui/tooltip-button";
 
 type SidebarProps = {
@@ -131,17 +132,27 @@ export function Sidebar({
     useState(INITIAL_WORKSPACES);
   const [providerFilterOpen, setProviderFilterOpen] = useState(false);
   const liquidGlass = useLiquidGlassEnabled();
-  const filteredProjects = useMemo(
-    () =>
-      providerFilter === "all"
-        ? projects
-        : projects.flatMap((project) => {
-            const threads = filterThreadTree(project.threads, providerFilter);
-
-            return threads.length ? [{ ...project, threads }] : [];
-          }),
-    [projects, providerFilter]
+  const showSubagentSessions = useAppearanceStore(
+    (state) => state.showSubagentSessions
   );
+  const filteredProjects = useMemo(() => {
+    // Subagent threads are nested as `children`; hide the whole subtree unless
+    // the user has opted into showing them.
+    const base = showSubagentSessions
+      ? projects
+      : projects.map((project) => ({
+          ...project,
+          threads: stripSubagentThreads(project.threads)
+        }));
+
+    return providerFilter === "all"
+      ? base
+      : base.flatMap((project) => {
+          const threads = filterThreadTree(project.threads, providerFilter);
+
+          return threads.length ? [{ ...project, threads }] : [];
+        });
+  }, [projects, providerFilter, showSubagentSessions]);
   const selectedProviderFilter = providerFilterOptions.find(
     (option) => option.value === providerFilter
   ) ?? providerFilterOptions[0];
@@ -816,6 +827,16 @@ function flattenThreads(threads: ProjectThread[]): ProjectThread[] {
     thread,
     ...flattenThreads(thread.children ?? [])
   ]);
+}
+
+/** Drop subagent threads at every level, keeping only top-level agent threads. */
+function stripSubagentThreads(threads: ProjectThread[]): ProjectThread[] {
+  return threads
+    .filter((thread) => !thread.subagent)
+    .map((thread) => ({
+      ...thread,
+      children: stripSubagentThreads(thread.children ?? [])
+    }));
 }
 
 function ancestorThreadIds(
