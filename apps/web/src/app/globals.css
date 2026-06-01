@@ -1,27 +1,27 @@
 @import "tailwindcss";
 
 /* ----------------------------------------------------------------------
-   Visual identity: warm-accent dark — an editorial developer-tool look.
-   Near-black canvas so the dark app mocks read as lit specimens against
-   warm-gradient feature panels; terracotta accent echoes the Claude mark.
-   Token names are kept semantic (paper = surface, ink = text) so the whole
-   page themes from these values.
+   Visual identity: graphite + electric — a crisp, cool developer-platform
+   look (Vercel/Linear lineage). A true near-black graphite canvas lets the
+   dark app mocks read as lit specimens; a single electric-indigo accent
+   carries focus, gradients, and interactive glows. Token names are kept
+   semantic (paper = surface, ink = text) so the whole page themes from here.
 ---------------------------------------------------------------------- */
 :root {
   color-scheme: dark;
 
-  --paper: #0c0b09;
-  --paper-2: #131110;
-  --paper-3: #1c1815;
-  --ink: #f1ece3;
-  --ink-soft: #a39d92;
-  --ink-faint: #6e6a61;
-  --line: rgba(255, 255, 255, 0.1);
-  --line-strong: rgba(255, 255, 255, 0.17);
-  --accent: #e0673c;
-  --accent-deep: #c8521f;
-  --accent-soft: rgba(224, 103, 60, 0.22);
-  --paper-dark: #080706;
+  --paper: #08090b;
+  --paper-2: #0f1116;
+  --paper-3: #161922;
+  --ink: #f6f7f9;
+  --ink-soft: #9aa1ad;
+  --ink-faint: #626875;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.15);
+  --accent: #6d5ef6;
+  --accent-deep: #5a48e6;
+  --accent-soft: rgba(109, 94, 246, 0.22);
+  --paper-dark: #060709;
 
   --background: var(--paper);
   --foreground: var(--ink);
@@ -70,9 +70,9 @@ body::before {
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(50% 42% at 14% 18%, rgba(224, 103, 60, 0.16), transparent 62%),
-    radial-gradient(46% 42% at 92% 26%, rgba(86, 110, 190, 0.1), transparent 68%),
-    radial-gradient(85% 55% at 50% 112%, rgba(224, 103, 60, 0.08), transparent 72%);
+    radial-gradient(50% 42% at 14% 18%, rgba(109, 94, 246, 0.16), transparent 62%),
+    radial-gradient(46% 42% at 92% 26%, rgba(63, 125, 248, 0.12), transparent 68%),
+    radial-gradient(85% 55% at 50% 112%, rgba(109, 94, 246, 0.08), transparent 72%);
 }
 
 /* Fine film grain so flat areas read as surface, not flat black. */
@@ -82,7 +82,7 @@ body::after {
   inset: 0;
   z-index: 0;
   pointer-events: none;
-  opacity: 0.05;
+  opacity: 0.04;
   mix-blend-mode: overlay;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
@@ -121,17 +121,17 @@ a {
   border-radius: 26px;
   border: 1px solid var(--line);
   background:
-    radial-gradient(95% 130% at 50% -12%, rgba(224, 103, 60, 0.26), transparent 58%),
-    linear-gradient(158deg, #1b1411 0%, #0d0b09 72%);
+    radial-gradient(95% 130% at 50% -12%, rgba(109, 94, 246, 0.22), transparent 58%),
+    linear-gradient(158deg, #14131f 0%, #0a0a0e 72%);
   box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.06),
-    0 40px 80px -50px rgba(0, 0, 0, 0.9);
+    0 40px 80px -50px rgba(0, 0, 0, 0.92);
 }
 
 .feature-stage--cool {
   background:
-    radial-gradient(95% 130% at 50% -12%, rgba(86, 110, 190, 0.24), transparent 58%),
-    linear-gradient(158deg, #14151d 0%, #0b0b0e 72%);
+    radial-gradient(95% 130% at 50% -12%, rgba(63, 125, 248, 0.2), transparent 58%),
+    linear-gradient(158deg, #111620 0%, #090a0e 72%);
 }
 
 /* ---- Motion: one orchestrated load + scroll-driven section reveals ---- */

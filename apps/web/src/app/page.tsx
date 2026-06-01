@@ -1,13 +1,19 @@
 import Image from "next/image";
 import Link from "next/link";
 
-import {
-  HeroMock,
-  ParallelMock,
-  WorkflowMock,
-  type MiniStep,
-} from "@/components/composer-mock";
+import { HeroMock, type MiniStep } from "@/components/composer-mock";
 import { MobileNav } from "@/components/mobile-nav";
+import { Aurora } from "@/components/motion/aurora";
+import { CursorField } from "@/components/motion/cursor-field";
+import { HeaderShell } from "@/components/motion/header-shell";
+import { HeroEntrance, HeroItem } from "@/components/motion/hero-entrance";
+import { Magnetic } from "@/components/motion/magnetic";
+import { blurUp } from "@/components/motion/motion-presets";
+import { Reveal, RevealItem } from "@/components/motion/reveal";
+import { ScrollScale } from "@/components/motion/scroll-scale";
+import { ScrollProgress } from "@/components/motion/scroll-progress";
+import { WordReveal } from "@/components/motion/word-reveal";
+import { WorkflowShowcase } from "@/components/workflow-showcase";
 import { siteConfig } from "@/lib/site";
 
 const NAV_LINKS = [
@@ -137,48 +143,59 @@ export default function Home() {
         // eslint-disable-next-line react/no-danger
         dangerouslySetInnerHTML={{ __html: JSON.stringify(STRUCTURED_DATA) }}
       />
+      <ScrollProgress />
+      <Aurora />
+      <CursorField />
       <LandingHeader />
 
-      <section className="relative mx-auto flex w-full max-w-6xl flex-col items-center px-5 pb-20 pt-16 text-center sm:px-8 sm:pb-28 sm:pt-20">
-        <h1 className="load-up load-1 max-w-3xl text-[2rem] font-semibold leading-[1.05] tracking-[-0.02em] text-balance text-ink sm:text-[2.7rem]">
-          Seamless Claude and Codex handoff.
-        </h1>
-        <p className="load-up load-2 mt-5 max-w-xl text-[14px] leading-6 text-ink-soft sm:text-[15px]">
+      <HeroEntrance className="relative mx-auto flex w-full flex-col items-center px-5 pb-20 pt-24 text-center sm:px-8 sm:pb-28 sm:pt-32">
+        <WordReveal
+          as="h1"
+          text="Seamless Claude and Codex handoff."
+          className="max-w-3xl text-[2.2rem] font-semibold leading-[1.06] tracking-[-0.02em] text-balance text-ink sm:text-[3rem]"
+        />
+        <HeroItem
+          as="p"
+          className="mt-6 max-w-xl text-[14px] leading-6 text-ink-soft sm:mt-7 sm:text-[15px]"
+        >
           Start in Claude, continue in Codex, then switch back on the next
           prompt. Composer carries the context so you do not have to re-explain
           the work in another terminal.
-        </p>
-        <div className="load-up load-3 mt-8 flex flex-col items-center gap-3 sm:flex-row">
-          <a
-            className="inline-flex h-11 items-center justify-center bg-ink px-6 text-[13.5px] font-semibold leading-none text-paper transition-colors duration-200 hover:bg-ink/85"
-            href="/api/download"
-            aria-label="Download Composer for your current platform"
-          >
-            Download Composer
-          </a>
-          <Link
-            className="inline-flex h-11 items-center justify-center border border-line-strong bg-paper/70 px-6 text-[13.5px] font-semibold leading-none text-ink transition-colors duration-200 hover:border-ink hover:bg-paper-2"
-            href="/docs"
-          >
-            Read the docs
-          </Link>
-        </div>
+        </HeroItem>
+        <HeroItem className="mt-9 flex flex-col items-center gap-3 sm:mt-10 sm:flex-row">
+          <Magnetic>
+            <a
+              className="inline-flex h-11 items-center justify-center bg-ink px-6 text-[13.5px] font-semibold leading-none text-paper transition-colors duration-200 hover:bg-ink/85"
+              href="/api/download"
+              aria-label="Download Composer for your current platform"
+            >
+              Download Composer
+            </a>
+          </Magnetic>
+          <Magnetic>
+            <Link
+              className="inline-flex h-11 items-center justify-center border border-line-strong bg-paper/70 px-6 text-[13.5px] font-semibold leading-none text-ink transition-colors duration-200 hover:border-ink hover:bg-paper-2"
+              href="/docs"
+            >
+              Read the docs
+            </Link>
+          </Magnetic>
+        </HeroItem>
 
-        <div className="load-up load-5 relative mt-14 w-full">
-          <div className="blueprint-grid pointer-events-none absolute -inset-x-6 -top-12 bottom-10 sm:-inset-x-14" />
-          <div className="pointer-events-none absolute inset-x-16 -top-10 h-52 bg-[radial-gradient(58%_120%_at_50%_0%,rgba(207,91,52,0.22),transparent_70%)]" />
-          <div className="relative [filter:drop-shadow(0_48px_70px_rgba(24,21,17,0.22))]">
-            <HeroMock />
-          </div>
-        </div>
-      </section>
+        <HeroItem className="mx-auto mt-24 w-full max-w-[1080px] sm:mt-28 xl:[zoom:1.1] 2xl:[zoom:1.32]">
+          <ScrollScale className="relative">
+            <div className="blueprint-grid pointer-events-none absolute -inset-x-6 -top-12 bottom-10 sm:-inset-x-14" />
+            <div className="pointer-events-none absolute inset-x-16 -top-10 h-52 bg-[radial-gradient(58%_120%_at_50%_0%,rgba(109,94,246,0.24),transparent_70%)]" />
+            <div className="relative [filter:drop-shadow(0_48px_70px_rgba(24,21,17,0.22))]">
+              <HeroMock />
+            </div>
+          </ScrollScale>
+        </HeroItem>
+      </HeroEntrance>
 
-      <section
-        id="use-cases"
-        className="relative px-5 py-24 text-ink sm:px-8 sm:py-32"
-      >
-        <div className="mx-auto w-full max-w-6xl">
-          <div className="reveal mx-auto max-w-2xl text-center">
+      <section id="use-cases" className="relative py-24 text-ink sm:py-28">
+        <div className="mx-auto w-full max-w-6xl px-5 sm:px-8">
+          <Reveal variants={blurUp} className="mx-auto max-w-2xl text-center">
             <p className="eyebrow inline-flex items-center gap-2 text-accent">
               <span className="inline-block h-px w-6 bg-accent" aria-hidden="true" />
               Workflows
@@ -190,64 +207,28 @@ export default function Home() {
               Composer turns the copy-paste relay between Claude and Codex
               terminals into one continuous agent thread.
             </p>
-          </div>
-
-          <div className="mt-20 flex flex-col gap-20 sm:mt-28 sm:gap-28">
-            {WORKFLOWS.map((item, index) => {
-              const reversed = index % 2 === 1;
-              return (
-                <div
-                  key={item.title}
-                  className="reveal grid items-center gap-10 lg:grid-cols-2 lg:gap-16"
-                >
-                  <div className={reversed ? "lg:order-2" : ""}>
-                    <span className="eyebrow text-accent">{item.step}</span>
-                    <h3 className="mt-3 text-[1.6rem] font-semibold leading-[1.1] tracking-[-0.01em] text-ink sm:text-[1.95rem]">
-                      {item.title}
-                    </h3>
-                    <p className="mt-4 max-w-md text-[15px] leading-7 text-ink-soft">
-                      {item.description}
-                    </p>
-                    <div className="mt-6 flex items-center gap-2.5 text-[14px] font-medium text-accent">
-                      <span className="h-px w-7 bg-accent" aria-hidden="true" />
-                      {item.outcome}
-                    </div>
-                  </div>
-                  <div className={reversed ? "lg:order-1" : ""}>
-                    <div
-                      className={`feature-stage p-6 sm:p-9${
-                        reversed ? " feature-stage--cool" : ""
-                      }`}
-                    >
-                      <div className="relative [filter:drop-shadow(0_24px_44px_rgba(0,0,0,0.55))]">
-                        {item.parallel ? (
-                          <ParallelMock />
-                        ) : (
-                          <WorkflowMock steps={item.steps ?? []} />
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
+          </Reveal>
         </div>
+        <WorkflowShowcase workflows={WORKFLOWS} />
       </section>
 
       <section
         id="faq"
         className="mx-auto w-full max-w-6xl px-5 py-20 sm:px-8 sm:py-28"
       >
-        <h2 className="reveal flex items-center gap-3 text-2xl font-semibold tracking-[-0.01em] text-ink sm:text-[2rem]">
+        <Reveal
+          as="h2"
+          variants={blurUp}
+          className="flex items-center gap-3 text-2xl font-semibold tracking-[-0.01em] text-ink sm:text-[2rem]"
+        >
           <span className="inline-block h-5 w-1 rounded-full bg-accent" aria-hidden="true" />
           FAQ
-        </h2>
-        <div className="mt-10 grid gap-x-14 gap-y-2 sm:grid-cols-2">
+        </Reveal>
+        <Reveal stagger className="mt-10 grid gap-x-14 gap-y-2 sm:grid-cols-2">
           {FAQ_ITEMS.map((item, index) => (
-            <div
+            <RevealItem
               key={item.question}
-              className="reveal flex gap-4 border-t border-line py-5"
+              className="flex gap-4 border-t border-line py-5"
             >
               <span className="eyebrow mt-1 shrink-0 text-accent">
                 {String(index + 1).padStart(2, "0")}
@@ -260,13 +241,13 @@ export default function Home() {
                   {item.answer}
                 </p>
               </div>
-            </div>
+            </RevealItem>
           ))}
-        </div>
+        </Reveal>
       </section>
 
-      <footer className="relative z-10 border-t border-line bg-paper-dark text-[#cdc6bb]">
-        <div className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-5 py-16 text-sm sm:flex-row sm:items-start sm:justify-between sm:px-8">
+      <footer className="relative z-10 border-t border-line bg-paper-dark text-[#c3c7d0]">
+        <Reveal className="mx-auto flex w-full max-w-6xl flex-col gap-12 px-5 py-16 text-sm sm:flex-row sm:items-start sm:justify-between sm:px-8">
           <div className="flex items-center gap-2.5">
             <Image
               src="/composer-icon.png"
@@ -275,7 +256,7 @@ export default function Home() {
               height={28}
               className="size-7 rounded-md"
             />
-            <span className="text-[15px] font-semibold tracking-tight text-[#f4efe6]">
+            <span className="text-[15px] font-semibold tracking-tight text-[#f4f6f8]">
               Composer
             </span>
           </div>
@@ -299,8 +280,8 @@ export default function Home() {
               ]}
             />
           </div>
-        </div>
-        <div className="mx-auto w-full max-w-6xl border-t border-white/10 px-5 py-6 font-mono text-[12px] text-[#857d72] sm:px-8">
+        </Reveal>
+        <div className="mx-auto w-full max-w-6xl border-t border-white/10 px-5 py-6 font-mono text-[12px] text-[#767b86] sm:px-8">
           © 2026 Composer
         </div>
       </footer>
@@ -310,7 +291,7 @@ export default function Home() {
 
 function LandingHeader() {
   return (
-    <header className="sticky top-0 z-50 bg-paper/60 backdrop-blur-md">
+    <HeaderShell>
       <div className="mx-auto flex w-full max-w-6xl items-center justify-between gap-5 px-5 py-3.5 text-sm sm:px-8">
         <Link
           className="flex shrink-0 items-center gap-2.5"
@@ -368,7 +349,7 @@ function LandingHeader() {
           </a>
         </div>
       </div>
-    </header>
+    </HeaderShell>
   );
 }
 
@@ -439,7 +420,7 @@ function FooterColumn({ title, links }: FooterColumnProps) {
           return (
             <a
               key={`${link.href}-${link.label}`}
-              className="w-fit font-mono text-[13px] text-[#cdc6bb] transition-colors hover:text-[#f4efe6]"
+              className="w-fit font-mono text-[13px] text-[#c3c7d0] transition-colors hover:text-[#f4f6f8]"
               href={link.href}
               {...(external
                 ? { target: "_blank", rel: "noopener noreferrer" }
