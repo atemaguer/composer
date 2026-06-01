@@ -30,6 +30,10 @@ on:
         required: false
         default: "true"
   push:
+    branches:
+      - main
+    paths:
+      - "apps/cli/**"
     tags:
       - "cli-v*"
 
@@ -44,6 +48,8 @@ concurrency:
 jobs:
   release:
     name: Build and publish CLI
+    # Skip the loop: the bot's own release-bump push to main must not re-trigger.
+    if: github.event_name != 'push' || github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     env:
       CHANNEL: ${{ github.event.inputs.channel || 'stable' }}
@@ -71,11 +77,16 @@ jobs:
         id: version
         shell: bash
         env:
-          VERSION_BUMP: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump || 'none' }}
+          # Push to main auto-increments a patch (like the desktop release);
+          # workflow_dispatch honors its input; tag pushes build the tag as-is.
+          VERSION_BUMP: >-
+            ${{ (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'patch'
+                || (github.event_name == 'workflow_dispatch' && github.event.inputs.version_bump)
+                || 'none' }}
         run: |
           set -euo pipefail
 
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" && "${VERSION_BUMP}" != "none" ]]; then
+          if [[ "${VERSION_BUMP}" != "none" ]]; then
             if [[ "${GITHUB_REF_TYPE}" != "branch" ]]; then
               echo "Version bumps can only run from a branch ref." >&2
               exit 1
