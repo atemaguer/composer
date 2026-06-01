@@ -33,6 +33,14 @@ const GET_STARTED: Row[] = [
   { label: "/", hint: "browse commands · /help for the full list" }
 ];
 
+// Divergence-friendly first tasks — each is something Codex and Claude tend to
+// approach differently, so the first Compare run lands the aha.
+const TRY: Row[] = [
+  { label: "Explain this codebase", hint: "a great first task to watch both engines" },
+  { label: "Find and fix a bug", hint: "compare how Codex and Claude tackle it" },
+  { label: "Add tests for a module", hint: "see two takes, keep the best" }
+];
+
 const LABEL_WIDTH = 20;
 
 /** Live config summary — the things `/provider`, `/model`, `/effort` change. */
@@ -137,6 +145,15 @@ export function Home() {
 
         <box style={{ marginTop: 1 }}>
           <text fg="#bb9af7" attributes={TextAttributes.BOLD}>
+            Try a task
+          </text>
+        </box>
+        {TRY.map((row) => (
+          <SectionRow key={row.label} {...row} labelColor="#c0caf5" bullet />
+        ))}
+
+        <box style={{ marginTop: 1 }}>
+          <text fg="#bb9af7" attributes={TextAttributes.BOLD}>
             Get started
           </text>
         </box>
@@ -144,7 +161,10 @@ export function Home() {
           <SectionRow key={row.label} {...row} labelColor="#9ece6a" />
         ))}
 
-        <box style={{ marginTop: 1 }}>
+        <box style={{ marginTop: 1, flexDirection: "column" }}>
+          <text fg="#e0af68" attributes={TextAttributes.DIM}>
+            Starting in Compare — Codex + Claude run in parallel · /provider to change
+          </text>
           <text attributes={TextAttributes.DIM}>{setup}</text>
         </box>
       </box>

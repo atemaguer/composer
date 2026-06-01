@@ -5,6 +5,7 @@ import { createRoot } from "@opentui/react";
 import { startSidecar, type Sidecar } from "../connection.js";
 import { TuiProvider } from "./store.js";
 import { App } from "./App.js";
+import { hasSeenOnboarding } from "./onboarding.js";
 
 function parseCwd(args: string[]): string {
   const index = args.indexOf("--cwd");
@@ -16,6 +17,10 @@ function parseCwd(args: string[]): string {
 
 async function main(): Promise<void> {
   const cwd = parseCwd(process.argv.slice(2));
+  // Parallel-first onboarding: a first-time user's first session starts in
+  // Compare (Codex + Claude) so the "two agents, one task" aha is immediate.
+  // Returning users fall back to the reducer default (Codex).
+  const provider = hasSeenOnboarding() ? undefined : ("meta" as const);
 
   let sidecar: Sidecar | null = null;
 
@@ -52,7 +57,7 @@ async function main(): Promise<void> {
     };
 
     createRoot(renderer).render(
-      <TuiProvider init={{ cwd }}>
+      <TuiProvider init={{ cwd, provider }}>
         <App connection={{ httpUrl: activeSidecar.url, wsUrl: activeSidecar.wsUrl }} />
       </TuiProvider>
     );

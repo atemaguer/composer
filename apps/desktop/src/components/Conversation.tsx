@@ -23,7 +23,8 @@ import {
   Maximize2,
   Pencil,
   Square,
-  TerminalSquare
+  TerminalSquare,
+  X
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
@@ -48,6 +49,7 @@ import type {
   ToolDetail
 } from "../types";
 import { canDelegateProvider, providerLabel } from "../provider-registry";
+import { useOnboardingStore } from "../state/onboarding-store";
 import { Composer, type ComposerProps } from "./Composer";
 import { DiffView } from "./DiffView";
 import { ProviderLogo } from "./ProviderLogo";
@@ -56,11 +58,13 @@ import {
   appAccentText,
   appDangerSoftText,
   appDangerText,
+  appHoverSurfaceSubtle,
   appOverlaySurface,
   appSoftSurface,
   appSuccessText,
   cardSurface,
   dimIcon,
+  focusRing,
   subtleCardSurface,
   subtleIconButton
 } from "./style-tokens";
@@ -1123,6 +1127,15 @@ const ParallelThreadGroup = memo(function ParallelThreadGroup({
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 }) {
   const hasSelection = Boolean(parallelAdoption?.selectedProvider);
+  const seenParallelCoachmark = useOnboardingStore(
+    (state) => state.seenParallelCoachmark
+  );
+  const dismissParallelCoachmark = useOnboardingStore(
+    (state) => state.dismissParallelCoachmark
+  );
+  // One-time pointer the first time a user sees two agents run the same task.
+  const showCoachmark =
+    Boolean(parallelAdoption?.required) && !seenParallelCoachmark;
   // Precompute grouped column items and the config label once per column instead
   // of re-scanning on every render (P2-19). `item` carries a stable identity
   // (P1-3), so this only recomputes when the group actually changes.
@@ -1137,7 +1150,29 @@ const ParallelThreadGroup = memo(function ParallelThreadGroup({
   );
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] lg:gap-x-5">
+    <div className="grid gap-4">
+      {showCoachmark && (
+        <div className="mx-auto flex w-full max-w-[560px] items-center gap-2.5 rounded-xl border border-app-line bg-app-text/[0.04] px-3 py-2 text-[12.5px] text-app-muted">
+          <ProviderLogo provider="meta" className="h-4 w-4 shrink-0" />
+          <span className="min-w-0">
+            Same task, two agents. Keep the one you prefer below — or hand off to
+            combine them.
+          </span>
+          <button
+            type="button"
+            className={cn(
+              "ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-app-muted transition-colors hover:text-app-text",
+              appHoverSurfaceSubtle,
+              focusRing
+            )}
+            onClick={dismissParallelCoachmark}
+            aria-label="Dismiss"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      )}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_1px_minmax(0,1fr)] lg:gap-x-5">
         {columns.map(({ column, columnItems, config }) => {
           const showColumnThinking = hasPendingWork && columnItems.length === 0;
 
@@ -1211,6 +1246,7 @@ const ParallelThreadGroup = memo(function ParallelThreadGroup({
           </Fragment>
           );
         })}
+      </div>
     </div>
   );
 });

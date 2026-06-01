@@ -1,16 +1,21 @@
 import {
   Blocks,
   GitBranch,
-  Laptop
+  Laptop,
+  X
 } from "lucide-react";
 
 import { cn } from "../lib/cn";
+import { useComposerStore } from "../state/composer-store";
+import { useOnboardingStore } from "../state/onboarding-store";
 import {
   PromptComposer,
   type PromptComposerControls,
   type PromptComposerFooterItem,
   type PromptComposerFooterOption
 } from "./Composer";
+import { ProviderLogo } from "./ProviderLogo";
+import { appHoverSurfaceSubtle, focusRing } from "./style-tokens";
 
 type NewSessionPageProps = {
   className?: string;
@@ -25,6 +30,32 @@ type NewSessionPageProps = {
   onWorkspaceUseExistingFolder?: () => void | Promise<void>;
 };
 
+// Divergence-friendly starter tasks: each is something where Codex and Claude
+// tend to take meaningfully different approaches, so the first Compare run
+// lands the "two agents, one task" aha. Clicking a chip fills the prompt and
+// forces Compare mode.
+const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
+  {
+    label: "Explain this codebase",
+    prompt:
+      "Explain this codebase: the architecture, the key modules, and how they fit together."
+  },
+  {
+    label: "Find a bug",
+    prompt: "Find a likely bug in this codebase and propose a fix."
+  },
+  {
+    label: "Add tests",
+    prompt:
+      "Add meaningful tests for an important but under-tested part of this codebase."
+  },
+  {
+    label: "Refactor — compare approaches",
+    prompt:
+      "Refactor a complex part of this codebase. Walk through your approach and the trade-offs."
+  }
+];
+
 export function NewSessionPage({
   className,
   composer,
@@ -37,6 +68,25 @@ export function NewSessionPage({
   onWorkspaceCreate,
   onWorkspaceUseExistingFolder
 }: NewSessionPageProps) {
+  const provider = useComposerStore((state) => state.provider);
+  const setProvider = useComposerStore((state) => state.setProvider);
+  const setPrompt = useComposerStore((state) => state.setPrompt);
+  const seenCompareExplainer = useOnboardingStore(
+    (state) => state.seenCompareExplainer
+  );
+  const dismissCompareExplainer = useOnboardingStore(
+    (state) => state.dismissCompareExplainer
+  );
+
+  const showCompareExplainer = provider === "meta" && !seenCompareExplainer;
+
+  function startWith(prompt: string) {
+    setPrompt(prompt);
+    // Starter prompts are designed to showcase Compare, so always run the first
+    // one in parallel even if the user previously switched to a single engine.
+    setProvider("meta");
+  }
+
   const footerItems: PromptComposerFooterItem[] = [
     {
       icon: Blocks,
@@ -72,6 +122,29 @@ export function NewSessionPage({
           What should we build in {workspaceName}?
         </h1>
 
+        {showCompareExplainer && (
+          <div className="mx-auto flex max-w-[560px] items-center gap-2.5 rounded-full border border-app-line bg-app-text/[0.04] py-1.5 pl-3 pr-2 text-[13px] text-app-muted">
+            <ProviderLogo provider="meta" className="h-4 w-4 shrink-0" />
+            <span className="min-w-0">
+              <span className="text-app-text">Compare</span> runs Codex and
+              Claude in parallel — keep the better answer, or hand off to braid
+              them.
+            </span>
+            <button
+              type="button"
+              className={cn(
+                "ml-auto inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-app-muted transition-colors hover:text-app-text",
+                appHoverSurfaceSubtle,
+                focusRing
+              )}
+              onClick={dismissCompareExplainer}
+              aria-label="Dismiss"
+            >
+              <X size={13} />
+            </button>
+          </div>
+        )}
+
         <div className="grid gap-4">
           <PromptComposer
             {...composer}
@@ -80,6 +153,23 @@ export function NewSessionPage({
             placeholder="Ask Composer anything. Mention files when needed"
             textareaRows={2}
           />
+
+          <div className="flex flex-wrap justify-center gap-2">
+            {STARTER_PROMPTS.map((starter) => (
+              <button
+                key={starter.label}
+                type="button"
+                className={cn(
+                  "rounded-full border border-app-line bg-transparent px-3 py-1.5 text-[12.5px] text-app-muted transition-colors hover:border-app-line hover:text-app-text",
+                  appHoverSurfaceSubtle,
+                  focusRing
+                )}
+                onClick={() => startWith(starter.prompt)}
+              >
+                {starter.label}
+              </button>
+            ))}
+          </div>
         </div>
       </div>
     </section>
