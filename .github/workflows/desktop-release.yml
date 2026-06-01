@@ -323,6 +323,46 @@ jobs:
           chmod 600 "${apple_api_key_path}"
           echo "APPLE_API_KEY=${apple_api_key_path}" >> "${GITHUB_ENV}"
 
+      - name: Import signing certificate into a dedicated keychain (macOS)
+        if: matrix.target == 'mac' && env.MACOS_NOTARIZE == 'true'
+        shell: bash
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
+
+          # Build the signing identity in a fresh keychain we own end-to-end,
+          # instead of letting electron-builder create its own temporary one.
+          # On self-hosted runners its temp-keychain `set-key-partition-list`
+          # fails ("SecKeychainUnlock: passphrase not correct") because the
+          # generated keychain password and the partition-list password drift.
+          # Controlling the password here keeps them identical, and the cleanup
+          # step deletes the keychain so nothing accumulates run to run.
+          keychain="${RUNNER_TEMP}/composer-signing.keychain-db"
+          keychain_password="$(openssl rand -base64 24)"
+          cert_path="${RUNNER_TEMP}/composer-signing.p12"
+
+          echo "${CSC_LINK}" | openssl base64 -d -A > "${cert_path}"
+
+          security delete-keychain "${keychain}" 2>/dev/null || true
+          security create-keychain -p "${keychain_password}" "${keychain}"
+          # Long auto-lock window so the keychain stays usable for the whole job.
+          security set-keychain-settings -lut 21600 "${keychain}"
+          security unlock-keychain -p "${keychain_password}" "${keychain}"
+          security import "${cert_path}" -k "${keychain}" -P "${CSC_KEY_PASSWORD}" \
+            -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s \
+            -k "${keychain_password}" "${keychain}" >/dev/null
+          # Prepend to the user search list so codesign can reach the private key.
+          security list-keychains -d user -s "${keychain}" \
+            $(security list-keychains -d user | sed 's/[" ]//g')
+          rm -f "${cert_path}"
+
+          echo "CSC_KEYCHAIN=${keychain}" >> "${GITHUB_ENV}"
+          echo "Signing identities available in the dedicated keychain:"
+          security find-identity -v -p codesigning "${keychain}"
+
       - name: Validate Windows code signing secrets
         if: matrix.target == 'win' && env.WINDOWS_SIGNING == 'true'
         shell: bash
@@ -344,8 +384,13 @@ jobs:
         env:
           APPLE_API_KEY_ID: ${{ matrix.target == 'mac' && secrets.APPLE_API_KEY_ID || '' }}
           APPLE_API_ISSUER: ${{ matrix.target == 'mac' && secrets.APPLE_API_ISSUER || '' }}
-          CSC_LINK: ${{ matrix.target == 'mac' && secrets.CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ matrix.target == 'mac' && secrets.CSC_KEY_PASSWORD || '' }}
+          # macOS signing uses the dedicated keychain set up above (CSC_KEYCHAIN);
+          # CSC_LINK is intentionally left empty so electron-builder discovers the
+          # identity from that keychain instead of importing into its own flaky
+          # temporary one. Windows keeps its own WIN_CSC_* path below.
+          CSC_LINK: ""
+          CSC_KEY_PASSWORD: ""
+          CSC_KEYCHAIN: ${{ env.CSC_KEYCHAIN }}
           WIN_CSC_LINK: ${{ matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true') && secrets.WIN_CSC_LINK || '' }}
           WIN_CSC_KEY_PASSWORD: ${{ matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true') && secrets.WIN_CSC_KEY_PASSWORD || '' }}
           CSC_IDENTITY_AUTO_DISCOVERY: ${{ ((matrix.target == 'mac' && (github.event.inputs.notarize_macos == 'true' || vars.MACOS_NOTARIZE == 'true')) || (matrix.target == 'win' && (github.event.inputs.sign_windows == 'true' || vars.WINDOWS_SIGNING == 'true'))) && 'true' || 'false' }}
@@ -359,6 +404,17 @@ jobs:
           fi
 
           npm exec --workspace composer -- electron-builder "${build_args[@]}"
+
+      - name: Remove signing keychain (macOS)
+        # Always run so the dedicated keychain (and its search-list entry) never
+        # lingers on the self-hosted runner — `delete-keychain` also drops it from
+        # the search list, restoring the prior state and avoiding the cruft that
+        # accumulated from electron-builder's leftover temp keychains.
+        if: always() && matrix.target == 'mac' && env.CSC_KEYCHAIN != ''
+        shell: bash
+        run: |
+          security delete-keychain "${CSC_KEYCHAIN}" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/composer-signing.p12" 2>/dev/null || true
 
       - name: Verify Windows signature
         if: matrix.target == 'win' && env.WINDOWS_SIGNING == 'true'
