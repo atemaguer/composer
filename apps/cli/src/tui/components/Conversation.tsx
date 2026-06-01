@@ -259,6 +259,60 @@ function ToolGroupRow({
   );
 }
 
+// A provider handoff (e.g. Claude → Codex) surfaces as a tool_group whose
+// labels describe preparing/compacting/summarizing the handoff context. We mark
+// it as a distinct timeline divider rather than a generic tool group.
+const HANDOFF_PATTERNS = [
+  /\bpreparing handoff context\b/,
+  /\bcompacting context for handoff\b/,
+  /\bgenerating readable handoff summary\b/
+];
+
+function isHandoffToolGroup(item: ConversationItem): boolean {
+  if (item.type !== "tool_group") {
+    return false;
+  }
+  const text = [
+    item.summary,
+    ...item.details.flatMap((detail) => [detail.label, detail.toolName])
+  ]
+    .filter((value): value is string => Boolean(value && value.trim()))
+    .join(" ")
+    .toLowerCase();
+  return HANDOFF_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/** A full-width timeline divider marking a provider handoff point. */
+function HandoffMarker({
+  item
+}: {
+  item: Extract<ConversationItem, { type: "tool_group" }>;
+}) {
+  const running = item.status === "running";
+  const failed = item.status === "failed";
+  const label = failed
+    ? "Handoff skipped"
+    : running
+      ? "Handing off…"
+      : "Handoff point";
+  const color = failed ? "#e0af68" : running ? "#7aa2f7" : "#9aa5ce";
+
+  return (
+    <box
+      style={{
+        flexDirection: "row",
+        alignItems: "center",
+        marginTop: 1,
+        marginBottom: 1
+      }}
+    >
+      <box style={{ flexGrow: 1, height: 1, backgroundColor: "#414868" }} />
+      <text fg={color}>{`  ⇄ ${label}  `}</text>
+      <box style={{ flexGrow: 1, height: 1, backgroundColor: "#414868" }} />
+    </box>
+  );
+}
+
 function ConversationRow({ item }: { item: ConversationItem }) {
   switch (item.type) {
     case "user_message":
@@ -276,6 +330,9 @@ function ConversationRow({ item }: { item: ConversationItem }) {
       );
 
     case "tool_group":
+      if (isHandoffToolGroup(item)) {
+        return <HandoffMarker item={item} />;
+      }
       return (
         <WithBullet color={BULLET_TOOL}>
           <ToolGroupRow item={item} />
@@ -378,7 +435,9 @@ function mergeConsecutiveToolGroups(
     const prev = out[out.length - 1];
     if (
       item.type === "tool_group" &&
+      !isHandoffToolGroup(item) &&
       prev?.type === "tool_group" &&
+      !isHandoffToolGroup(prev) &&
       prev.provider === item.provider &&
       prev.layoutGroupId === item.layoutGroupId
     ) {
