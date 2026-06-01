@@ -1,12 +1,15 @@
+import { useEffect, useState, type ReactNode } from "react";
 import { TextAttributes } from "@opentui/core";
-import { providerLabel } from "@composer/client";
+import { providerLabel, providerModelDisplayLabel } from "@composer/client";
 import { useTui } from "../store.js";
+import { activeIntelligence, activeModel, type TuiState } from "../types.js";
+import { hasSeenOnboarding, markOnboardingSeen } from "../onboarding.js";
 
 /**
- * The home / welcome screen shown before a conversation exists (and again after
- * `/new`). It doubles as lightweight onboarding: a one-line description of what
- * Composer is, the things you can do, and how to start. The composer input +
- * status bar render below it (in App).
+ * The home / welcome screen shown before a conversation exists (and after
+ * `/new`). Newcomers get a full onboarding pass (what Composer is, what you can
+ * do, how to start); once seen (persisted under ~/.composer/state) returning
+ * users get a compact splash. Both surface the live engine/model/effort setup.
  */
 
 type Row = { label: string; hint: string };
@@ -32,6 +35,18 @@ const GET_STARTED: Row[] = [
 
 const LABEL_WIDTH = 20;
 
+/** Live config summary — the things `/provider`, `/model`, `/effort` change. */
+function setupLine(state: TuiState): string {
+  return [
+    providerLabel(state.provider),
+    providerModelDisplayLabel(state.provider, activeModel(state)),
+    activeIntelligence(state),
+    state.permission
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
+
 function SectionRow({
   label,
   hint,
@@ -51,9 +66,7 @@ function SectionRow({
   );
 }
 
-export function Home() {
-  const { state } = useTui();
-
+function Centered({ children }: { children: ReactNode }) {
   return (
     <box
       style={{
@@ -63,6 +76,45 @@ export function Home() {
         flexDirection: "column"
       }}
     >
+      {children}
+    </box>
+  );
+}
+
+export function Home() {
+  const { state } = useTui();
+  // Decide once per mount; mark seen on the first full render so the next launch
+  // gets the compact splash.
+  const [firstRun] = useState(() => !hasSeenOnboarding());
+  useEffect(() => {
+    if (firstRun) {
+      markOnboardingSeen();
+    }
+  }, [firstRun]);
+
+  const setup = `${setupLine(state)} · ${state.cwd}`;
+
+  if (!firstRun) {
+    return (
+      <Centered>
+        <text fg="#7aa2f7" attributes={TextAttributes.BOLD}>
+          ◆ Composer
+        </text>
+        <box style={{ marginTop: 1 }}>
+          <text attributes={TextAttributes.DIM}>{setup}</text>
+        </box>
+        <box style={{ marginTop: 1, flexDirection: "column", alignItems: "center" }}>
+          <text fg="#9aa5ce">Type a message to start, or:</text>
+          <text attributes={TextAttributes.DIM}>
+            / commands · /sessions resume · /provider switch · /help
+          </text>
+        </box>
+      </Centered>
+    );
+  }
+
+  return (
+    <Centered>
       <box style={{ flexDirection: "column", maxWidth: 78, paddingX: 1 }}>
         <text fg="#7aa2f7" attributes={TextAttributes.BOLD}>
           ◆ Composer
@@ -93,11 +145,9 @@ export function Home() {
         ))}
 
         <box style={{ marginTop: 1 }}>
-          <text attributes={TextAttributes.DIM}>
-            {`Orchestrating ${providerLabel(state.provider)} · ${state.cwd}`}
-          </text>
+          <text attributes={TextAttributes.DIM}>{setup}</text>
         </box>
       </box>
-    </box>
+    </Centered>
   );
 }
