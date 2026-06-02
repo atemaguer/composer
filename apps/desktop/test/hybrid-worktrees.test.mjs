@@ -797,8 +797,9 @@ test("registered handoff sessions reload interleaved provider transcripts", asyn
       [
         "explain this project",
         "Codex initial answer",
-        "Preparing handoff context for Claude",
+        // The handoff marker follows the user prompt that triggered it.
         "what did codex do?",
+        "Preparing handoff context for Claude",
         "Claude continued from Codex"
       ]
     );
@@ -925,11 +926,12 @@ test("registered handoff sessions backfill markers from provider records", async
       [
         "explain this project",
         "Codex initial answer",
-        "Preparing handoff context for Claude",
+        // Each handoff marker follows the user prompt that triggered it.
         "what was done in this session?",
+        "Preparing handoff context for Claude",
         "Claude answered from Codex handoff",
-        "Preparing handoff context for Codex",
         "what did claude do?",
+        "Preparing handoff context for Codex",
         "Codex answered from Claude handoff"
       ]
     );

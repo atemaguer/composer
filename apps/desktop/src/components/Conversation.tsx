@@ -120,12 +120,23 @@ type ConversationProps = {
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 };
 
-// Dev-only: correlates each handoff timeline marker (by item id) with the
-// SessionHandoffSummary that was passed to the next agent, so hovering a marker
-// can surface the handoff context. Empty in production.
-const HandoffSummaryContext = createContext<Map<string, SessionHandoffSummary>>(
+// Per-handoff-marker info resolved at the timeline level (where sibling order
+// is known): the provider handed off TO, and the SessionHandoffSummary passed
+// to it (dev tooltip). Keyed by marker item id.
+type HandoffMarkerInfo = {
+  target?: DelegateSessionProvider;
+  summary?: SessionHandoffSummary;
+};
+const HandoffMarkerContext = createContext<Map<string, HandoffMarkerInfo>>(
   new Map()
 );
+
+function delegateProviderOf(
+  item: ConversationItem
+): DelegateSessionProvider | undefined {
+  const provider = (item as { provider?: SessionProvider }).provider;
+  return provider === "codex" || provider === "claude" ? provider : undefined;
+}
 
 type ParallelAdoptionControls = {
   required: boolean;
@@ -167,21 +178,28 @@ export function Conversation({
       ),
     [items]
   );
-  // Pair handoff markers with their summaries in chronological order (best
-  // effort) so the dev-mode marker tooltip can show the context that was passed.
-  const handoffSummaryByItemId = useMemo(() => {
-    const map = new Map<string, SessionHandoffSummary>();
-    if (!handoffSummaries.length) {
-      return map;
-    }
-    timelineItems
-      .filter(isHandoffToolGroup)
-      .forEach((item, index) => {
-        const summary = handoffSummaries[index];
-        if (summary) {
-          map.set(item.id, summary);
+  // For each handoff marker, resolve who it handed off TO (the next delegate
+  // provider that speaks below it — reliable regardless of the marker's
+  // source/target phrasing) and, in order, the summary that was passed (dev
+  // tooltip).
+  const handoffMarkerInfoById = useMemo(() => {
+    const map = new Map<string, HandoffMarkerInfo>();
+    let handoffIndex = 0;
+    timelineItems.forEach((item, index) => {
+      if (!isHandoffToolGroup(item)) {
+        return;
+      }
+      let target: DelegateSessionProvider | undefined;
+      for (let next = index + 1; next < timelineItems.length; next += 1) {
+        const candidate = delegateProviderOf(timelineItems[next]);
+        if (candidate) {
+          target = candidate;
+          break;
         }
-      });
+      }
+      map.set(item.id, { target, summary: handoffSummaries[handoffIndex] });
+      handoffIndex += 1;
+    });
     return map;
   }, [timelineItems, handoffSummaries]);
   const activeToolLabels = useMemo(
@@ -322,7 +340,7 @@ export function Conversation({
   );
 
   return (
-    <HandoffSummaryContext.Provider value={handoffSummaryByItemId}>
+    <HandoffMarkerContext.Provider value={handoffMarkerInfoById}>
     <section
       className={cn(
         "relative grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden",
@@ -374,7 +392,7 @@ export function Conversation({
       )}
       <Composer {...composer} pendingItems={pendingItems} footerItems={[]} />
     </section>
-    </HandoffSummaryContext.Provider>
+    </HandoffMarkerContext.Provider>
   );
 }
 
@@ -1118,35 +1136,8 @@ const ConversationItemView = memo(function ConversationItemView({
   return <NoticeRow label={item.label} />;
 });
 
-// The handoff marker names the provider being handed off TO (e.g. the loaded
-// marker summary reads "Preparing handoff context for Codex"). Recover it from
-// the tool group's summary / detail labels so the marker can read
-// "Handed off to Codex".
-function handoffTargetProvider(
-  item: ToolGroupItem
-): DelegateSessionProvider | undefined {
-  const haystack = [
-    item.summary,
-    ...item.details.flatMap((detail) => {
-      const provider = (detail.args as { provider?: unknown } | undefined)
-        ?.provider;
-      return [detail.label, typeof provider === "string" ? provider : ""];
-    })
-  ]
-    .join(" ")
-    .toLowerCase();
-
-  if (haystack.includes("claude")) {
-    return "claude";
-  }
-  if (haystack.includes("codex")) {
-    return "codex";
-  }
-  return undefined;
-}
-
 // Dev-only popup contents: the handoff context/summary that was passed to the
-// next agent.
+// next agent. `summary.provider` is the agent that generated it (the source).
 function HandoffDebugPopup({ summary }: { summary: SessionHandoffSummary }) {
   return (
     <div className="block max-w-sm space-y-2 py-0.5 text-left">
@@ -1154,7 +1145,7 @@ function HandoffDebugPopup({ summary }: { summary: SessionHandoffSummary }) {
         <span className="rounded bg-app-text/[0.08] px-1.5 py-0.5 text-[10px] text-app-text">
           dev
         </span>
-        Handoff context → {providerLabel(summary.provider)} · ctx v
+        Handoff context · from {providerLabel(summary.provider)} · ctx v
         {summary.contextVersion}
       </div>
       <p className="whitespace-pre-wrap text-[12px] leading-5 text-app-text">
@@ -1202,8 +1193,9 @@ function HandoffDebugList({
 function HandoffTimelineMarker({ item }: { item: ToolGroupItem }) {
   const running = item.status === "running";
   const failed = item.status === "failed";
-  const target = handoffTargetProvider(item);
-  const debugSummary = useContext(HandoffSummaryContext).get(item.id);
+  const info = useContext(HandoffMarkerContext).get(item.id);
+  const target = info?.target;
+  const debugSummary = info?.summary;
   // Surface the passed handoff context on hover, but only in development.
   const showDebug = import.meta.env.DEV && !running && Boolean(debugSummary);
 

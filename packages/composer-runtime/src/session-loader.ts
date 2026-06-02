@@ -290,14 +290,25 @@ function activeProviderRecordsForSession(
   session: ComposerSessionRecord,
   providers: ComposerProviderSessionRecord[]
 ) {
+  const nonDiscarded = providers.filter(
+    (record) => record.lifecycle !== "discarded"
+  );
+
   if (session.parallelAdoptedProvider) {
-    return providers.filter((record) =>
-      record.provider === session.parallelAdoptedProvider &&
-      record.lifecycle !== "discarded"
+    // Keep the adopted provider's records, plus any genuine handoff records
+    // (post-adoption switches to the other engine) so a session that was
+    // Compose-adopted and then handed off still renders its handoff timeline.
+    // The discarded Compare branch stays excluded.
+    return nonDiscarded.filter(
+      (record) =>
+        record.provider === session.parallelAdoptedProvider ||
+        record.mode === "handoff" ||
+        record.role === "handoff" ||
+        record.lifecycle === "handoff"
     );
   }
 
-  return providers.filter((record) => record.lifecycle !== "discarded");
+  return nonDiscarded;
 }
 
 /**
@@ -327,7 +338,7 @@ function providerRecordKeysRequiringItems(
     return allKeys();
   }
 
-  if (shouldRenderHandoffTimeline(sessionRecord, providerRecords)) {
+  if (shouldRenderHandoffTimeline(providerRecords)) {
     return allKeys();
   }
 
@@ -378,7 +389,7 @@ function composerSessionFromRecord(
     );
   }
 
-  if (shouldRenderHandoffTimeline(sessionRecord, providerRecords)) {
+  if (shouldRenderHandoffTimeline(providerRecords)) {
     return composerHandoffSessionFromRecord(
       sessionRecord,
       providerRecords,
@@ -446,13 +457,14 @@ function composerSessionFromRecord(
 }
 
 function shouldRenderHandoffTimeline(
-  sessionRecord: ComposerSessionRecord,
   providerRecords: ComposerProviderSessionRecord[]
 ) {
-  if (sessionRecord.parallelAdoptedProvider) {
-    return false;
-  }
-
+  // A genuine handoff is a sequential provider switch persisted with handoff
+  // mode/role/lifecycle. Render the timeline whenever those records exist —
+  // including a session that was Compose-adopted and *then* handed off, which
+  // previously lost its markers on reload. Pure parallel/adopted records carry
+  // parallel-initial / adopted / discarded (never "handoff"), so a session that
+  // was only adopted keeps rendering as a single thread.
   const providers = new Set(providerRecords.map((record) => record.provider));
 
   return (
@@ -538,7 +550,13 @@ function interleavedHandoffItems(
   registryEvents: ComposerSessionEvent[],
   nativeByProviderSession: Map<string, SessionContent>
 ) {
-  const events = providerRecords.flatMap((record) => {
+  // Drop the discarded branch of a prior Compose comparison so an adopted-then-
+  // handed-off session doesn't replay the losing parallel thread in the
+  // interleaved timeline (genuine handoff sessions have no discarded records).
+  const activeRecords = providerRecords.filter(
+    (record) => record.lifecycle !== "discarded"
+  );
+  const events = activeRecords.flatMap((record) => {
     const native = nativeByProviderSession.get(
       providerSessionKey(record.provider, record.providerSessionId)
     );
@@ -559,7 +577,7 @@ function interleavedHandoffItems(
   });
   const handoffMarkers = handoffTimelineEvents(
     sessionRecord,
-    providerRecords,
+    activeRecords,
     registryEvents
   ).map((event, index) => ({
     id: `${sessionRecord.id}-handoff-marker-${index}`,
@@ -568,13 +586,48 @@ function interleavedHandoffItems(
     item: handoffMarkerItem(sessionRecord.id, index, event)
   }));
 
-  return compactAdjacentHandoffMarkers([...events, ...handoffMarkers]
-    .sort((a, b) =>
-      Date.parse(a.timestamp) - Date.parse(b.timestamp) ||
-      a.order - b.order ||
-      a.id.localeCompare(b.id)
+  // Collapse rapid back-to-back handoffs first, then slide the surviving marker
+  // past its triggering user message.
+  return moveHandoffMarkersAfterTriggers(
+    compactAdjacentHandoffMarkers(
+      [...events, ...handoffMarkers]
+        .sort((a, b) =>
+          Date.parse(a.timestamp) - Date.parse(b.timestamp) ||
+          a.order - b.order ||
+          a.id.localeCompare(b.id)
+        )
+        .map((entry) => entry.item)
     )
-    .map((entry) => entry.item));
+  );
+}
+
+// A handoff marker is created at the moment the next provider attaches, which
+// is just before the user's triggering prompt is recorded — so by timestamp it
+// sorts above that prompt. Slide each marker past any user message(s) that
+// immediately follow it so the timeline reads: user asks -> handed off ->
+// response, matching how the handoff actually happened.
+function moveHandoffMarkersAfterTriggers(
+  items: ConversationItem[]
+): ConversationItem[] {
+  const result = [...items];
+
+  for (let index = 0; index < result.length; index += 1) {
+    if (!isHandoffMarkerItem(result[index])) {
+      continue;
+    }
+
+    let end = index + 1;
+    while (end < result.length && result[end].type === "user_message") {
+      end += 1;
+    }
+
+    if (end > index + 1) {
+      const [marker] = result.splice(index, 1);
+      result.splice(end - 1, 0, marker);
+    }
+  }
+
+  return result;
 }
 
 function handoffTimelineEvents(
