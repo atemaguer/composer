@@ -283,7 +283,7 @@ export class ClaudeProvider implements AgentProvider {
 
     applyClaudeNativeWorktreeOption(options, request.session, resumeSessionId);
 
-    const claudeQuery = query({
+    const claudeQuery = this.queryImpl({
       prompt: claudePrompt(request.prompt, request.imageAttachments),
       options
     });
@@ -304,18 +304,45 @@ export class ClaudeProvider implements AgentProvider {
         }
 
         if (message.type === "stream_event") {
-          const delta = extractClaudeStreamDelta(message);
+          const event = message.event as unknown as JsonRecord;
 
-          if (delta) {
-            emittedText += delta;
-            request.emit({
-              id: randomUUID(),
-              type: "message.delta",
-              sessionId: request.sessionId,
-              messageId,
-              delta
-            });
+          if (event.type === "content_block_delta") {
+            const blockDelta = asRecord(event.delta);
+            const blockIndex =
+              typeof event.index === "number" ? event.index : 0;
+
+            if (
+              blockDelta.type === "text_delta" &&
+              typeof blockDelta.text === "string"
+            ) {
+              emittedText += blockDelta.text;
+              request.emit({
+                id: randomUUID(),
+                type: "message.delta",
+                sessionId: request.sessionId,
+                messageId,
+                delta: blockDelta.text
+              });
+            } else if (
+              blockDelta.type === "thinking_delta" &&
+              typeof blockDelta.thinking === "string" &&
+              blockDelta.thinking
+            ) {
+              // Surface Claude's extended thinking live as ordinary assistant
+              // text, in its own message (keyed by content-block index) so it
+              // stays separate from the response and from other reasoning
+              // steps — matching the reloaded transcript. Thinking streams
+              // before the response, so timeline ordering is preserved.
+              request.emit({
+                id: randomUUID(),
+                type: "message.delta",
+                sessionId: request.sessionId,
+                messageId: `${messageId}-thinking-${blockIndex}`,
+                delta: blockDelta.thinking
+              });
+            }
           }
+
           continue;
         }
 
@@ -679,22 +706,6 @@ function dataUrlImageBlock(dataUrl?: string, fallbackMediaType = "image/png") {
       data: match[2]
     }
   };
-}
-
-function extractClaudeStreamDelta(message: Extract<SDKMessage, { type: "stream_event" }>) {
-  const event = message.event as unknown as JsonRecord;
-
-  if (event.type !== "content_block_delta") {
-    return "";
-  }
-
-  const delta = asRecord(event.delta);
-
-  if (delta.type === "text_delta" && typeof delta.text === "string") {
-    return delta.text;
-  }
-
-  return "";
 }
 
 function hasEmittedText(emittedText: string, candidate: string) {

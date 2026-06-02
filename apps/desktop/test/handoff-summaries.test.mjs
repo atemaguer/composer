@@ -181,3 +181,54 @@ test("Claude handoff falls back to a non-empty summary when the model returns no
   assert.match(summary.summary, /Fix the layout bug/);
   assert.match(summary.summary, /npm run typecheck/);
 });
+
+test("Claude live run surfaces thinking as a separate assistant message", async () => {
+  const { ClaudeProvider } = await import("../dist-server/server/providers/claude.js");
+  const provider = new ClaudeProvider();
+  const session = createSession("claude");
+  const events = [];
+
+  // Extended thinking streams (block 0) before the response text (block 1).
+  provider.queryImpl = () =>
+    (async function* () {
+      yield {
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 0,
+          delta: { type: "thinking_delta", thinking: "Let me inspect the build." }
+        }
+      };
+      yield {
+        type: "stream_event",
+        event: {
+          type: "content_block_delta",
+          index: 1,
+          delta: { type: "text_delta", text: "All good." }
+        }
+      };
+      yield { type: "result", subtype: "success", session_id: "claude-x" };
+    })();
+
+  await provider.run({
+    sessionId: session.id,
+    session,
+    settings: { ...settings, model: "claude-sonnet-4-6" },
+    prompt: "check the build",
+    imageAttachments: [],
+    phase: undefined,
+    contextPrompt: undefined,
+    askApproval: async () => "accept",
+    emit: (event) => events.push(event)
+  });
+
+  const deltas = events.filter((e) => e.type === "message.delta");
+  const thinking = deltas.find((e) => e.messageId.includes("-thinking-"));
+  const response = deltas.find((e) => !e.messageId.includes("-thinking-"));
+
+  assert.ok(thinking, "thinking is surfaced live as its own message");
+  assert.equal(thinking.delta, "Let me inspect the build.");
+  assert.ok(response, "the response streams under a separate message id");
+  assert.equal(response.delta, "All good.");
+  assert.notEqual(thinking.messageId, response.messageId);
+});
