@@ -33,6 +33,10 @@ type JsonRecord = Record<string, unknown>;
 
 export class ClaudeProvider implements AgentProvider {
   private active = new Map<string, { abortController: AbortController; query?: Query }>();
+  // Indirection over the Claude Agent SDK `query` so tests can drive the
+  // handoff/compaction stream (PostCompact hook + result messages) without a
+  // live Claude process. Mirrors CodexProvider.request.
+  protected queryImpl: typeof query = query;
 
   async compact(request: Parameters<NonNullable<AgentProvider["compact"]>>[0]) {
     const abortController = new AbortController();
@@ -110,7 +114,7 @@ export class ClaudeProvider implements AgentProvider {
       options.resume = resumeSessionId;
     }
 
-    const claudeQuery = query({
+    const claudeQuery = this.queryImpl({
       prompt: claudeCompactPrompt(request.reason),
       options
     });
