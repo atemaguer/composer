@@ -235,6 +235,10 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.should_release == 'true'
     runs-on: ${{ matrix.os }}
+    # Sign + notarize normally finishes well under 15 min; cap the job so a
+    # wedged package/notarize step (or a dropped self-hosted runner) fails fast
+    # instead of lingering toward the 6-hour default.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.prepare.outputs.build_matrix) }}
@@ -407,7 +411,15 @@ jobs:
             build_args+=("-c.mac.notarize=false")
           fi
 
-          npm exec --workspace composer -- electron-builder "${build_args[@]}"
+          if [[ "${{ matrix.target }}" == "mac" ]]; then
+            # The self-hosted Mac dropped offline mid-package once when the box was
+            # starved/idle during the long sign+notarize wait. Hold it awake
+            # (display/idle/disk/system, user-active) for the whole electron-builder
+            # run so the runner keeps its connection.
+            caffeinate -dimsu npm exec --workspace composer -- electron-builder "${build_args[@]}"
+          else
+            npm exec --workspace composer -- electron-builder "${build_args[@]}"
+          fi
 
       - name: Remove signing keychain (macOS)
         # Always run so the dedicated keychain (and its search-list entry) never
