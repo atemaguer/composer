@@ -2309,6 +2309,7 @@ export default function App() {
                 }
                 composer={composerControls}
                 parallelAdoption={parallelAdoption}
+                handoffSummaries={activeSession.handoffSummaries}
                 onOpenFile={onOpenFileStable}
                 onReviewChanges={onReviewChangesStable}
               />

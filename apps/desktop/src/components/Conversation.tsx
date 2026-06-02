@@ -1,7 +1,9 @@
 import {
+  createContext,
   Fragment,
   memo,
   useCallback,
+  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -15,6 +17,7 @@ import { create } from "zustand";
 import {
   Anchor,
   ArrowDown,
+  ArrowRight,
   ChevronDown,
   Check,
   Copy,
@@ -45,6 +48,7 @@ import type {
   FileChangeRow,
   PendingConversationItem,
   ReviewDiffFile,
+  SessionHandoffSummary,
   SessionProvider,
   ToolDetail
 } from "../types";
@@ -69,6 +73,7 @@ import {
   subtleIconButton
 } from "./style-tokens";
 import { TooltipButton } from "./ui/tooltip-button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 const markdownLinkText = "text-[#b7c3ff] hover:text-[#cbd4ff]";
 
@@ -110,9 +115,17 @@ type ConversationProps = {
   transcriptLoading?: boolean;
   composer: ComposerProps;
   parallelAdoption?: ParallelAdoptionControls;
+  handoffSummaries?: SessionHandoffSummary[];
   onOpenFile?: (filePath: string) => void;
   onReviewChanges?: (request?: ReviewChangeRequest) => void;
 };
+
+// Dev-only: correlates each handoff timeline marker (by item id) with the
+// SessionHandoffSummary that was passed to the next agent, so hovering a marker
+// can surface the handoff context. Empty in production.
+const HandoffSummaryContext = createContext<Map<string, SessionHandoffSummary>>(
+  new Map()
+);
 
 type ParallelAdoptionControls = {
   required: boolean;
@@ -133,6 +146,7 @@ export function Conversation({
   transcriptLoading = false,
   composer,
   parallelAdoption,
+  handoffSummaries = [],
   onOpenFile,
   onReviewChanges
 }: ConversationProps) {
@@ -153,6 +167,23 @@ export function Conversation({
       ),
     [items]
   );
+  // Pair handoff markers with their summaries in chronological order (best
+  // effort) so the dev-mode marker tooltip can show the context that was passed.
+  const handoffSummaryByItemId = useMemo(() => {
+    const map = new Map<string, SessionHandoffSummary>();
+    if (!handoffSummaries.length) {
+      return map;
+    }
+    timelineItems
+      .filter(isHandoffToolGroup)
+      .forEach((item, index) => {
+        const summary = handoffSummaries[index];
+        if (summary) {
+          map.set(item.id, summary);
+        }
+      });
+    return map;
+  }, [timelineItems, handoffSummaries]);
   const activeToolLabels = useMemo(
     () =>
       pendingItems
@@ -291,6 +322,7 @@ export function Conversation({
   );
 
   return (
+    <HandoffSummaryContext.Provider value={handoffSummaryByItemId}>
     <section
       className={cn(
         "relative grid h-full min-h-0 min-w-0 grid-rows-[minmax(0,1fr)_auto] overflow-hidden",
@@ -342,6 +374,7 @@ export function Conversation({
       )}
       <Composer {...composer} pendingItems={pendingItems} footerItems={[]} />
     </section>
+    </HandoffSummaryContext.Provider>
   );
 }
 
@@ -1085,22 +1118,146 @@ const ConversationItemView = memo(function ConversationItemView({
   return <NoticeRow label={item.label} />;
 });
 
+// The handoff marker names the provider being handed off TO (e.g. the loaded
+// marker summary reads "Preparing handoff context for Codex"). Recover it from
+// the tool group's summary / detail labels so the marker can read
+// "Handed off to Codex".
+function handoffTargetProvider(
+  item: ToolGroupItem
+): DelegateSessionProvider | undefined {
+  const haystack = [
+    item.summary,
+    ...item.details.flatMap((detail) => {
+      const provider = (detail.args as { provider?: unknown } | undefined)
+        ?.provider;
+      return [detail.label, typeof provider === "string" ? provider : ""];
+    })
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  if (haystack.includes("claude")) {
+    return "claude";
+  }
+  if (haystack.includes("codex")) {
+    return "codex";
+  }
+  return undefined;
+}
+
+// Dev-only popup contents: the handoff context/summary that was passed to the
+// next agent.
+function HandoffDebugPopup({ summary }: { summary: SessionHandoffSummary }) {
+  return (
+    <div className="block max-w-sm space-y-2 py-0.5 text-left">
+      <div className="flex items-center gap-2 text-[10.5px] font-medium uppercase tracking-wide text-app-dim">
+        <span className="rounded bg-app-text/[0.08] px-1.5 py-0.5 text-[10px] text-app-text">
+          dev
+        </span>
+        Handoff context → {providerLabel(summary.provider)} · ctx v
+        {summary.contextVersion}
+      </div>
+      <p className="whitespace-pre-wrap text-[12px] leading-5 text-app-text">
+        {summary.summary}
+      </p>
+      <HandoffDebugList label="Files changed" items={summary.filesChanged} />
+      <HandoffDebugList label="Commands run" items={summary.commandsRun} />
+      <HandoffDebugList label="Tests run" items={summary.testsRun} />
+    </div>
+  );
+}
+
+function HandoffDebugList({
+  label,
+  items
+}: {
+  label: string;
+  items: string[];
+}) {
+  if (!items.length) {
+    return null;
+  }
+  return (
+    <div>
+      <div className="text-[10px] font-medium uppercase tracking-wide text-app-dim">
+        {label}
+      </div>
+      <ul className="mt-0.5 space-y-0.5">
+        {items.slice(0, 8).map((entry, index) => (
+          <li
+            key={`${entry}-${index}`}
+            className="truncate font-mono text-[11px] text-app-muted"
+          >
+            {entry}
+          </li>
+        ))}
+        {items.length > 8 && (
+          <li className="text-[11px] text-app-dim">+{items.length - 8} more</li>
+        )}
+      </ul>
+    </div>
+  );
+}
+
 function HandoffTimelineMarker({ item }: { item: ToolGroupItem }) {
   const running = item.status === "running";
-  const label = item.status === "failed" ? "Handoff skipped" : "Handoff point";
+  const failed = item.status === "failed";
+  const target = handoffTargetProvider(item);
+  const debugSummary = useContext(HandoffSummaryContext).get(item.id);
+  // Surface the passed handoff context on hover, but only in development.
+  const showDebug = import.meta.env.DEV && !running && Boolean(debugSummary);
+
+  const badge = (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded-full border border-app-line bg-app-text/[0.04] px-2.5 py-1 text-[12px] font-medium text-app-muted",
+        showDebug && "cursor-help border-dashed"
+      )}
+    >
+      {failed ? (
+        <>
+          <History size={12} className={dimIcon} />
+          Handoff skipped
+        </>
+      ) : target ? (
+        <>
+          <ArrowRight size={12} className={dimIcon} />
+          Handed off to
+          <ProviderLogo
+            provider={target}
+            className={cn(
+              "h-3.5 w-3.5",
+              target === "claude" && appSuccessText,
+              target === "codex" && appAccentText
+            )}
+          />
+          <span className="text-app-text">{providerLabel(target)}</span>
+        </>
+      ) : (
+        <>
+          <History size={12} className={dimIcon} />
+          Handoff point
+        </>
+      )}
+    </span>
+  );
 
   return (
     <div className="my-1 flex max-w-[820px] items-center gap-3 text-[13px] text-app-dim">
       <div className="h-px flex-1 bg-app-line" />
       {running ? (
         <Shimmer as="span" className="font-medium" duration={1.6} spread={3}>
-          Handing off
+          {target ? `Handing off to ${providerLabel(target)}` : "Handing off"}
         </Shimmer>
+      ) : showDebug && debugSummary ? (
+        <Tooltip>
+          <TooltipTrigger render={badge} />
+          <TooltipContent side="top" className="max-w-sm">
+            <HandoffDebugPopup summary={debugSummary} />
+          </TooltipContent>
+        </Tooltip>
       ) : (
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-app-line bg-app-text/[0.04] px-2.5 py-1 text-[12px] font-medium text-app-muted">
-          <History size={12} className={dimIcon} />
-          {label}
-        </span>
+        badge
       )}
       <div className="h-px flex-1 bg-app-line" />
     </div>
