@@ -19,6 +19,7 @@ import {
 } from "../patch-review.js";
 import type { AgentProvider } from "../runtime.js";
 import { defaultCwd, providerSessionId } from "../runtime.js";
+import { buildDeterministicHandoffSummary } from "./handoff-summary.js";
 import type {
   ApprovalDecision,
   ApprovalRequest,
@@ -155,14 +156,21 @@ export class ClaudeProvider implements AgentProvider {
 
       if (!recordedSummary) {
         // Only reached when the model produced no usable summary (e.g. the
-        // session was too short to compact). Fall back to a metadata note.
+        // session was too short to compact). Assemble the same deterministic
+        // transcript digest Codex uses so the next provider still inherits the
+        // recent requests / output / tool activity instead of a bare note.
         latestCompaction = recordClaudeCompaction(request.session, {
           id: `${request.session.id}-claude-compact-fallback-${Date.now()}`,
           contextVersion: request.session.contextVersion ?? 0,
           trigger: boundaryMeta?.trigger ?? "manual",
           preTokens: boundaryMeta?.preTokens,
           postTokens: boundaryMeta?.postTokens,
-          summary: `Claude compacted its provider-local context for ${request.reason}.`
+          summary: buildDeterministicHandoffSummary({
+            provider: "claude",
+            providerLabel: "Claude",
+            session: request.session,
+            reason: request.reason
+          })
         });
       }
 

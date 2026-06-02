@@ -173,6 +173,11 @@ test("Claude handoff falls back to a non-empty summary when the model returns no
     summary?.summary.trim().length > 0,
     "fallback summary must be non-empty so the next provider keeps context"
   );
+  // The Claude fallback now assembles the same transcript digest as Codex,
+  // rather than a bare one-line note — so the next provider keeps real context.
+  assert.match(summary.summary, /# Claude Handoff Summary/);
   assert.match(summary.summary, /handoff from Claude to Codex/);
-  assert.equal(session.compactionSummaries.at(-1)?.summary, summary.summary);
+  assert.match(summary.summary, /Recent User Requests/);
+  assert.match(summary.summary, /Fix the layout bug/);
+  assert.match(summary.summary, /npm run typecheck/);
 });
