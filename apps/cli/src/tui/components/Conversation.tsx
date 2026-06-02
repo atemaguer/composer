@@ -284,18 +284,31 @@ function isHandoffToolGroup(item: ConversationItem): boolean {
 
 /** A full-width timeline divider marking a provider handoff point. */
 function HandoffMarker({
-  item
+  item,
+  target
 }: {
   item: Extract<ConversationItem, { type: "tool_group" }>;
+  target?: SessionProvider;
 }) {
   const running = item.status === "running";
   const failed = item.status === "failed";
+  const targetLabel = target ? providerLabel(target) : undefined;
   const label = failed
     ? "Handoff skipped"
     : running
-      ? "Handing off…"
-      : "Handoff point";
-  const color = failed ? "#e0af68" : running ? "#7aa2f7" : "#9aa5ce";
+      ? targetLabel
+        ? `Handing off to ${targetLabel}…`
+        : "Handing off…"
+      : targetLabel
+        ? `Handed off to ${targetLabel}`
+        : "Handoff point";
+  const color = failed
+    ? "#e0af68"
+    : running
+      ? "#7aa2f7"
+      : target
+        ? providerColor(target)
+        : "#9aa5ce";
 
   return (
     <box
@@ -313,7 +326,13 @@ function HandoffMarker({
   );
 }
 
-function ConversationRow({ item }: { item: ConversationItem }) {
+function ConversationRow({
+  item,
+  handoffTargets
+}: {
+  item: ConversationItem;
+  handoffTargets?: Map<string, SessionProvider>;
+}) {
   switch (item.type) {
     case "user_message":
       return (
@@ -331,7 +350,9 @@ function ConversationRow({ item }: { item: ConversationItem }) {
 
     case "tool_group":
       if (isHandoffToolGroup(item)) {
-        return <HandoffMarker item={item} />;
+        return (
+          <HandoffMarker item={item} target={handoffTargets?.get(item.id)} />
+        );
       }
       return (
         <WithBullet color={BULLET_TOOL}>
@@ -380,6 +401,35 @@ function itemProvider(item: ConversationItem): SessionProvider | undefined {
   return item.type === "assistant_message" || item.type === "tool_group"
     ? item.provider
     : undefined;
+}
+
+/** A delegate (codex/claude) provider an item belongs to, if any. */
+function delegateProviderOf(item: ConversationItem): SessionProvider | undefined {
+  const provider = itemProvider(item);
+  return provider === "codex" || provider === "claude" ? provider : undefined;
+}
+
+/**
+ * For each handoff marker, the provider handed off TO — the next delegate that
+ * speaks below it (reliable regardless of the marker's source/target phrasing).
+ */
+function handoffTargetsByItemId(
+  items: ConversationItem[]
+): Map<string, SessionProvider> {
+  const map = new Map<string, SessionProvider>();
+  items.forEach((item, index) => {
+    if (!isHandoffToolGroup(item)) {
+      return;
+    }
+    for (let next = index + 1; next < items.length; next += 1) {
+      const provider = delegateProviderOf(items[next]);
+      if (provider) {
+        map.set(item.id, provider);
+        break;
+      }
+    }
+  });
+  return map;
 }
 
 function itemLayoutTitle(item: ConversationItem): string | undefined {
@@ -593,17 +643,25 @@ export function Conversation() {
         padding: 1
       }}
     >
-      {groupRenderNodes(mergeConsecutiveToolGroups(session.items)).map((node) =>
-        node.kind === "parallel" ? (
-          <ParallelThreadGroup
-            key={node.id}
-            columns={node.columns}
-            prompt={node.prompt}
-          />
-        ) : (
-          <ConversationRow key={node.item.id} item={node.item} />
-        )
-      )}
+      {(() => {
+        const handoffTargets = handoffTargetsByItemId(session.items);
+        return groupRenderNodes(mergeConsecutiveToolGroups(session.items)).map(
+          (node) =>
+            node.kind === "parallel" ? (
+              <ParallelThreadGroup
+                key={node.id}
+                columns={node.columns}
+                prompt={node.prompt}
+              />
+            ) : (
+              <ConversationRow
+                key={node.item.id}
+                item={node.item}
+                handoffTargets={handoffTargets}
+              />
+            )
+        );
+      })()}
       {session.pendingItems.map((item) => (
         <PendingRow key={item.id} item={item} />
       ))}
