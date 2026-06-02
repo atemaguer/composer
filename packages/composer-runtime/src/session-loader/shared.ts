@@ -117,13 +117,6 @@ export type ConversationItem =
     }
   | {
       id: string;
-      type: "reasoning";
-      body: string;
-      provider?: SessionProvider;
-      sortTimestamp?: string;
-    }
-  | {
-      id: string;
       type: "running_tool";
       label: string;
       status: ToolStatus;

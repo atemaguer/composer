@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-// Regression: Claude thinking blocks are rendered as `reasoning` items. Because
-// a reasoning item sits between tool calls, the renderer's consecutive-tool
-// grouping no longer merges reasoning-separated calls into one group — while a
-// rapid burst with no reasoning between calls stays consecutive (one group).
+// Regression: Claude thinking blocks render as ordinary assistant_message text.
+// Because an assistant_message sits between tool calls, the renderer's
+// consecutive-tool grouping no longer merges reasoning-separated calls into one
+// group — while a rapid burst with no reasoning between stays consecutive.
 
 function row(obj) {
   return JSON.stringify(obj);
@@ -29,7 +29,7 @@ function toolResult(id) {
   return { type: "tool_result", tool_use_id: id, content: `output for ${id}` };
 }
 
-test("Claude parser renders reasoning between tool calls", async () => {
+test("Claude parser renders thinking as assistant text between tool calls", async () => {
   const { parseClaudeSession } = await import(
     "../../../packages/composer-runtime/dist/session-loader/claude-adapter.js"
   );
@@ -56,25 +56,24 @@ test("Claude parser renders reasoning between tool calls", async () => {
   try {
     fs.writeFileSync(file, `${lines.join("\n")}\n`, "utf8");
     const session = await parseClaudeSession(file, { includeItems: true });
-    const types = (session?.items ?? []).map((i) => i.type);
+    const items = session?.items ?? [];
+    const types = items.map((i) => i.type);
 
-    // Thinking → reasoning items; a reasoning item sits between the Read and
-    // Bash, but Glob→Read (no reasoning between) stay consecutive so the
-    // renderer keeps them in one group.
+    // Thinking → assistant_message; one sits between Read and Bash, but
+    // Glob→Read (no thinking between) stay consecutive so the renderer keeps
+    // them in one group. The trailing answer is also an assistant_message.
     assert.deepEqual(types, [
       "user_message",
-      "reasoning",
+      "assistant_message", // thinking #1
       "tool_group", // Glob
       "tool_group", // Read (consecutive with Glob — same group)
-      "reasoning",
-      "tool_group", // Bash (separated by reasoning — its own group)
-      "assistant_message"
+      "assistant_message", // thinking #2
+      "tool_group", // Bash (separated by assistant text — its own group)
+      "assistant_message" // the answer
     ]);
 
-    const reasoning = session.items.filter((i) => i.type === "reasoning");
-    assert.equal(reasoning.length, 2);
-    assert.match(reasoning[0].body, /look around/);
-    assert.equal(reasoning[0].provider, "claude");
+    // The thinking content is preserved verbatim as assistant text.
+    assert.match(items[1].body, /look around/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
