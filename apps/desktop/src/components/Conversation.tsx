@@ -1081,6 +1081,10 @@ const ConversationItemView = memo(function ConversationItemView({
     return <TurnStatusDivider label={item.label} />;
   }
 
+  if (item.type === "reasoning") {
+    return <ReasoningBlock body={item.body} />;
+  }
+
   if (item.type === "tool_group") {
     if (isHandoffToolGroup(item)) {
       return <HandoffTimelineMarker item={item} />;
@@ -1545,6 +1549,37 @@ export function TurnStatusDivider({ label }: { label: string }) {
     <div className="grid max-w-[820px] gap-3">
       <div className="text-[15px] text-app-muted">{label}</div>
       <div className="h-px bg-app-line" />
+    </div>
+  );
+}
+
+// A provider's reasoning/thinking step, rendered collapsed and muted so it
+// stays out of the way but is available on demand. Collapsed by default.
+function ReasoningBlock({ body }: { body: string }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <div className="max-w-[820px]">
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        className={cn(
+          "inline-flex items-center gap-1.5 rounded-md py-0.5 text-[12.5px] text-app-dim transition-colors hover:text-app-muted",
+          focusRing
+        )}
+        aria-expanded={open}
+      >
+        <ChevronDown
+          size={13}
+          className={cn("transition-transform", open ? "" : "-rotate-90")}
+        />
+        Reasoning
+      </button>
+      {open && (
+        <div className="mt-1 whitespace-pre-wrap border-l border-app-line pl-3 text-[13px] leading-6 text-app-muted">
+          {body}
+        </div>
+      )}
     </div>
   );
 }

@@ -49,6 +49,7 @@ export async function parseClaudeSession(
   const items: ConversationItem[] = [];
   const toolGroupsByCallId = new Map<string, { itemIndex: number }>();
   let toolIndex = 0;
+  let reasoningIndex = 0;
 
   for (const row of rows) {
     const rowTimestamp = asString(row.timestamp);
@@ -216,8 +217,21 @@ export async function parseClaudeSession(
             });
           }
         } else if (blockType === "thinking") {
-          // Claude thinking blocks are internal reasoning state, not
-          // user-visible assistant transcript content.
+          // Claude thinking is the model's reasoning before it acts. Render it
+          // as a collapsed reasoning step (the renderer keeps it muted), which
+          // also separates reasoning-divided tool calls into distinct groups.
+          const thinking = asString(contentBlock.thinking);
+
+          if (includeItems && thinking && !isHiddenHandoffTranscriptText(thinking)) {
+            reasoningIndex += 1;
+            items.push({
+              id: `${sessionId}-reasoning-${reasoningIndex}`,
+              type: "reasoning",
+              body: trimText(thinking),
+              provider: "claude",
+              sortTimestamp: rowTimestamp
+            });
+          }
           continue;
         } else if (includeItems && blockType === "tool_use") {
           toolIndex += 1;

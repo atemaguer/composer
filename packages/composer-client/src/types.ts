@@ -263,6 +263,15 @@ export type ConversationItem =
       status?: ToolStatus;
     }
   | {
+      // A provider reasoning/thinking step shown between turns and tool calls.
+      // Rendered collapsed; it also separates otherwise-consecutive tool calls
+      // into distinct groups (the reasoning marks a logical boundary).
+      id: string;
+      type: "reasoning";
+      body: string;
+      provider?: SessionProvider;
+    }
+  | {
       id: string;
       type: "running_tool";
       label: string;
