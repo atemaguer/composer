@@ -31,9 +31,9 @@ type NewSessionPageProps = {
 };
 
 // Divergence-friendly starter tasks: each is something where Codex and Claude
-// tend to take meaningfully different approaches, so the first Compare run
+// tend to take meaningfully different approaches, so the first Compose run
 // lands the "two agents, one task" aha. Clicking a chip fills the prompt and
-// forces Compare mode.
+// forces Compose mode.
 const STARTER_PROMPTS: Array<{ label: string; prompt: string }> = [
   {
     label: "Explain this codebase",
@@ -82,7 +82,7 @@ export function NewSessionPage({
 
   function startWith(prompt: string) {
     setPrompt(prompt);
-    // Starter prompts are designed to showcase Compare, so always run the first
+    // Starter prompts are designed to showcase Compose, so always run the first
     // one in parallel even if the user previously switched to a single engine.
     setProvider("meta");
   }
@@ -126,7 +126,7 @@ export function NewSessionPage({
           <div className="mx-auto flex max-w-[560px] items-center gap-2.5 rounded-full border border-app-line bg-app-text/[0.04] py-1.5 pl-3 pr-2 text-[13px] text-app-muted">
             <ProviderLogo provider="meta" className="h-4 w-4 shrink-0" />
             <span className="min-w-0">
-              <span className="text-app-text">Compare</span> runs Codex and
+              <span className="text-app-text">Compose</span> runs Codex and
               Claude in parallel — keep the better answer, or hand off to braid
               them.
             </span>

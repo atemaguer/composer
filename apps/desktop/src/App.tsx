@@ -357,8 +357,8 @@ export default function App() {
   const activeModel = modelByProvider[activeProvider];
   const activeIntelligence = intelligenceByProvider[activeProvider];
 
-  // New sessions default to Compare (parallel). Whenever the app leaves a
-  // session for the new-session view, reset the provider to Compare — but don't
+  // New sessions default to Compose (parallel). Whenever the app leaves a
+  // session for the new-session view, reset the provider to Compose — but don't
   // fight the user if they switch it while already on the new-session page.
   const previousSelectedThreadRef = useRef(selectedThread);
   useEffect(() => {

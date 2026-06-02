@@ -110,7 +110,7 @@ const metaPlannerReviewOption = {
 
 const metaParallelInitialOption = {
   value: "meta-parallel-initial",
-  label: "Compare agents",
+  label: "Compose agents",
   detail: "Run Codex and Claude side by side, then choose one to continue",
   efforts: ["High"]
 } satisfies ProviderModelOption;
@@ -158,10 +158,10 @@ const providerDefinitions = [
   },
   {
     id: "meta",
-    label: "Compare",
-    statusLabel: "Compare agent",
+    label: "Compose",
+    statusLabel: "Compose agent",
     defaultModel: "meta-parallel-initial",
-    defaultModelLabel: "Compare supervisor",
+    defaultModelLabel: "Compose supervisor",
     defaultIntelligence: "High",
     canDelegate: false,
     modelOptions: [
@@ -240,8 +240,16 @@ export function providerModelDisplayLabel(
       return "Opus plan -> GPT-5.5";
     }
 
-    if (model === "meta-parallel-initial" || model === "meta-planner-review") {
-      return "Compare agents";
+    if (
+      model === "meta-parallel-initial" ||
+      model === "meta-planner-review" ||
+      // Reconstructed parallel sessions persist these as their model string;
+      // map them to the brand label so loaded sessions read "Compose agents".
+      model === "Compose agents" ||
+      model === "Compare agents" ||
+      model === "Codex + Claude parallel"
+    ) {
+      return "Compose agents";
     }
   }
 

@@ -125,7 +125,7 @@ export type ComposerProps = {
   // subscribing to every keystroke itself.
   requireNonEmptyPrompt?: boolean;
   layout?: "overlay" | "inline";
-  // When false, the Compare (parallel) provider is hidden from the provider
+  // When false, the Compose (parallel) provider is hidden from the provider
   // picker — used on the session view, where a session's provider is fixed.
   allowCompose?: boolean;
   footerItems?: PromptComposerFooterItem[];
@@ -730,7 +730,7 @@ export function Composer({
   layout = "overlay",
   footerItems,
   branchFooterItem,
-  // The session-view composer never offers Compare (parallel) — a session's
+  // The session-view composer never offers Compose (parallel) — a session's
   // provider is fixed. New-session uses <PromptComposer> directly (allowCompose
   // defaults to true there).
   allowCompose = false,
@@ -825,7 +825,7 @@ function ProviderDropdown({
 }) {
   const [open, setOpen] = useState(false);
   const visibleProvider: ComposerProvider = provider;
-  // On the session view the parallel "Compare" provider is hidden — a session's
+  // On the session view the parallel "Compose" provider is hidden — a session's
   // provider is fixed once it exists.
   const options = allowCompose
     ? providerOptions

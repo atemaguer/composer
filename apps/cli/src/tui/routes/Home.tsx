@@ -21,7 +21,7 @@ const CAPABILITIES: Row[] = [
   },
   { label: "Switch engines", hint: "/provider · /model · /effort" },
   {
-    label: "Compare in parallel",
+    label: "Compose in parallel",
     hint: "run Codex + Claude on one task, then adopt the best"
   },
   { label: "Resume past work", hint: "/sessions to reopen an earlier session" },
@@ -130,7 +130,7 @@ export function Home() {
         <box style={{ marginTop: 1 }}>
           <text fg="#9aa5ce">
             A coding agent for your terminal — drive Codex or Claude, or run them
-            in parallel with Compare and adopt the best result.
+            in parallel with Compose and adopt the best result.
           </text>
         </box>
 
@@ -163,7 +163,7 @@ export function Home() {
 
         <box style={{ marginTop: 1, flexDirection: "column" }}>
           <text fg="#e0af68" attributes={TextAttributes.DIM}>
-            Starting in Compare — Codex + Claude run in parallel · /provider to change
+            Starting in Compose — Codex + Claude run in parallel · /provider to change
           </text>
           <text attributes={TextAttributes.DIM}>{setup}</text>
         </box>
