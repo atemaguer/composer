@@ -18,7 +18,7 @@ import {
   Paperclip,
   X
 } from "lucide-react";
-import { useLocation, useNavigate, useNavigationType } from "react-router-dom";
+import { useLocation, useNavigate, useRouter } from "./router-compat";
 import { useShallow } from "zustand/react/shallow";
 
 import { AppChrome } from "./components/AppChrome";
@@ -100,7 +100,7 @@ type NewSessionWorkTarget = "local" | "worktree";
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
-  const navigationType = useNavigationType();
+  const router = useRouter();
   const liquidGlass = useLiquidGlassEnabled();
   const sidebarOpen = useUiStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
@@ -284,7 +284,7 @@ export default function App() {
   // base64 (readAsDataURL) encode to submit time instead of doing it eagerly
   // just to render a preview (previews use a cheap object URL).
   const imageAttachmentFilesRef = useRef<Map<string, File>>(new Map());
-  const maxRouterHistoryIndexRef = useRef(routerHistoryIndex());
+  const maxRouterHistoryIndexRef = useRef(0);
   const [loadingSessionIds, setLoadingSessionIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -839,22 +839,40 @@ export default function App() {
   }
 
   useEffect(() => {
-    const nextIndex = routerHistoryIndex();
+    // Back/forward availability tracks the history index against the furthest
+    // index reached. A PUSH after going back truncates forward history, so it
+    // resets the max; every other action (BACK/FORWARD/GO/REPLACE) keeps it.
+    // Subscribing to TanStack's history delivers the index and action together,
+    // so this is race-free (unlike reading a separately-tracked nav type).
+    const applyAvailability = (index: number) => {
+      setNavigationAvailability({
+        canGoBack: index > 0,
+        canGoForward: index < maxRouterHistoryIndexRef.current
+      });
+    };
 
-    if (navigationType === "PUSH") {
-      maxRouterHistoryIndexRef.current = nextIndex;
-    } else {
-      maxRouterHistoryIndexRef.current = Math.max(
-        maxRouterHistoryIndexRef.current,
-        nextIndex
-      );
-    }
+    const initialIndex = router.history.location.state.__TSR_index ?? 0;
+    maxRouterHistoryIndexRef.current = Math.max(
+      maxRouterHistoryIndexRef.current,
+      initialIndex
+    );
+    applyAvailability(initialIndex);
 
-    setNavigationAvailability({
-      canGoBack: nextIndex > 0,
-      canGoForward: nextIndex < maxRouterHistoryIndexRef.current
+    return router.history.subscribe(({ action, location: historyLocation }) => {
+      const index = historyLocation.state.__TSR_index ?? 0;
+
+      if (action.type === "PUSH") {
+        maxRouterHistoryIndexRef.current = index;
+      } else {
+        maxRouterHistoryIndexRef.current = Math.max(
+          maxRouterHistoryIndexRef.current,
+          index
+        );
+      }
+
+      applyAvailability(index);
     });
-  }, [location.key, navigationType]);
+  }, [router]);
 
   useEffect(() => {
     const route = appRouteFromPathname(location.pathname);
@@ -3155,12 +3173,6 @@ function appRouteFromPathname(pathname: string):
   }
 
   return { kind: "new" };
-}
-
-function routerHistoryIndex() {
-  const index = window.history.state?.idx;
-
-  return typeof index === "number" ? index : 0;
 }
 
 function fileToAttachment(id: string, file: File): ComposerImageAttachment {

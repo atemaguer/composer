@@ -1,7 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { HashRouter } from "react-router-dom";
-import App from "./App";
+import { RouterProvider } from "@tanstack/react-router";
+import { router } from "./router";
 import { AppToaster } from "./components/AppToaster";
 import { TooltipProvider } from "./components/ui/tooltip";
 import { ComposerPostHogProvider } from "./lib/posthog";
@@ -15,9 +15,7 @@ createRoot(document.getElementById("root")!).render(
       <AppearanceProvider>
         <WindowFrameProvider>
           <TooltipProvider>
-            <HashRouter>
-              <App />
-            </HashRouter>
+            <RouterProvider router={router} />
             <AppToaster />
           </TooltipProvider>
         </WindowFrameProvider>
