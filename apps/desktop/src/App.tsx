@@ -353,14 +353,13 @@ export default function App() {
   );
   const lastTurnReviewFiles =
     lastTurnReviewFilesOverride ?? activeSessionLastTurnReviewFiles;
-  // On the session view the composer must reflect the *session's* provider —
-  // including right after a Compose adoption flips it from "meta" to the adopted
-  // engine — rather than the global composer-store value, which is set by
-  // several racing paths (selectThread / async session reload). Derive it from
-  // the active session and fall back to the store only on the new-session page.
-  const activeProvider = activeSession
-    ? composerProviderForSession(activeSession, provider)
-    : provider;
+  // The composer-store `provider` is the single source of truth for which engine
+  // handles the next message. It is synced *from* the session when a session is
+  // selected/loaded (selectThread / ensureSessionLoaded) and after a Compose
+  // adoption (adoptParallelThread) — those are the only writers on the session
+  // view. Reading it directly lets a manual provider switch in the picker take
+  // effect immediately; deriving from the session instead would ignore the pick.
+  const activeProvider = provider;
   const activeModel = modelByProvider[activeProvider];
   const activeIntelligence = intelligenceByProvider[activeProvider];
 
