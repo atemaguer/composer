@@ -637,33 +637,35 @@ export default function App() {
       if (event.type === "error") {
         setSessionsLoading(false);
         const pendingRequest = pendingNewSessionRequestRef.current;
-
-        if (
+        const isPendingNewSession =
           expectingNewSessionRef.current &&
           (!event.requestId ||
             event.requestId === pendingRequest?.requestId ||
-            event.requestId === useSessionStore.getState().pendingNewRequestId)
-        ) {
+            event.requestId === useSessionStore.getState().pendingNewRequestId);
+
+        // Execution errors are transient — surface them as a notification, never
+        // as an item in the conversation transcript. Errors on a live session
+        // already carry a provider-labeled message from the runtime, so toast it
+        // as-is. A failed *new* session start has no session yet: toast it
+        // (labeled from the pending request) and restore the prompt so the
+        // user's input isn't lost to a dead-end error session.
+        if (isPendingNewSession && !event.sessionId) {
           expectingNewSessionRef.current = false;
           pendingNewSessionRequestRef.current = null;
           setPendingNewRequestId(null);
 
-          if (!event.sessionId && pendingRequest) {
-            const errorSessionId = `${pendingRequest.provider}-error-${createId()}`;
-            setSessions((current) =>
-              appendErrorMessage(
-                current,
-                undefined,
-                pendingRequest.prompt,
-                pendingRequest.provider,
-                event.message,
-                errorSessionId
-              )
+          if (pendingRequest) {
+            pushAppError(
+              `${providerLabel(pendingRequest.provider)} failed: ${
+                event.message || "the agent stopped before starting."
+              }`
             );
-            setSelectedThread(errorSessionId);
-            setActiveNav("New session");
-            navigate(sessionRoute(errorSessionId));
+            setPrompt(pendingRequest.prompt);
+          } else {
+            pushAppError(event.message || "The agent failed to start.");
           }
+        } else {
+          pushAppError(event.message || "The agent stopped unexpectedly.");
         }
 
         return;

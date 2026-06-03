@@ -593,7 +593,9 @@ export function applyAgentEventToState(
       return {};
     }
 
-    const updated = applyLiveSessionEvent(session, event);
+    // errorNotice:"none" — execution errors are surfaced as a toast (see the
+    // `error` branch of applyAgentEvent), never appended to the transcript.
+    const updated = applyLiveSessionEvent(session, event, { errorNotice: "none" });
 
     // Streaming-only events (turn.started, tool.started/delta/completed,
     // message.delta, error) never affect project metadata, so leave

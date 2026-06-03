@@ -112,7 +112,12 @@ function applyEventToSession(
     return sessions;
   }
 
-  return putSession(sessions, applyLiveSessionEvent(session, event));
+  // errorNotice:"none" — execution errors surface in the status bar
+  // (state.error), never as a notice item in the transcript.
+  return putSession(
+    sessions,
+    applyLiveSessionEvent(session, event, { errorNotice: "none" })
+  );
 }
 
 function titleFromBody(body: string): string {

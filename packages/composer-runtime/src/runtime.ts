@@ -208,6 +208,63 @@ export class AgentRuntime {
     };
   }
 
+  /**
+   * Populate the session list from the local store and push it to connected
+   * clients. Callers construct the runtime with an empty snapshot so the server
+   * can start listening immediately — scanning local transcripts (~/.claude,
+   * ~/.codex) can take seconds on machines with lots of history and must not
+   * block the READY signal / first paint. Sessions created or loaded while the
+   * scan was in flight are never clobbered.
+   */
+  async hydrateSessionListFromStore() {
+    if (!this.loadSessionListFromStore) {
+      return;
+    }
+
+    let snapshot: SessionSnapshot;
+
+    try {
+      snapshot = await this.loadSessionListFromStore();
+    } catch (error) {
+      console.warn("Could not hydrate session list from store", error);
+      return;
+    }
+
+    const restored = restoreRuntimeSessions(snapshot.sessions);
+    let added = false;
+
+    for (const [id, session] of Object.entries(restored.sessions)) {
+      if (this.sessions[id]) {
+        continue;
+      }
+
+      this.sessions[id] = session;
+      added = true;
+    }
+
+    for (const session of restored.staleSessions) {
+      if (this.sessions[session.id] !== session) {
+        continue;
+      }
+
+      try {
+        this.persistence.upsertSession(session);
+      } catch (error) {
+        console.warn("Could not persist restored session state", error);
+      }
+    }
+
+    if (!added) {
+      return;
+    }
+
+    this.broadcast({
+      id: randomUUID(),
+      type: "sessions.snapshot",
+      snapshot: this.snapshot()
+    });
+  }
+
   async loadSessionContent(sessionId: string) {
     const current = this.sessions[sessionId];
 
@@ -855,11 +912,18 @@ export class AgentRuntime {
       }
 
       applyLiveSessionEvent(session, event, { immutable: false, errorNotice: "none" });
+
+      // Execution errors are transient failures, not transcript content. The
+      // reducer (errorNotice:"none") sets status=error / settles running tools
+      // but appends no notice; each surface renders the error as a notification
+      // (desktop toast / CLI status line). Enrich the broadcast message with a
+      // provider label + cleanup so that notification reads clearly.
+      let outgoing: LiveAgentEvent = event;
       if (event.type === "error") {
-        // The shared reducer (errorNotice:"none") set status=error, cleared
-        // pendingItems, and settled running tool groups but pushed no notice.
-        // Append the runtime's richer provider-aware notice to match prior behavior.
-        appendErrorNotice(session, event.message);
+        outgoing = {
+          ...event,
+          message: `${providerLabel(session.lastProvider ?? session.provider)} failed: ${formatErrorMessage(event.message)}`
+        };
       }
       if (event.type === "turn.completed") {
         completeProviderTurn(session, this.activeRunProviders.get(event.sessionId));
@@ -868,7 +932,7 @@ export class AgentRuntime {
       if (shouldPersistRuntimeEvent(event)) {
         this.persistence.upsertSession(session);
       }
-      this.broadcast(event);
+      this.broadcast(outgoing);
       return;
     }
 
@@ -1144,21 +1208,6 @@ function localSessionSourceFingerprint(session: SessionContent) {
     contentLoaded: session.contentLoaded,
     itemCount: session.items.length,
     lastItem
-  });
-}
-
-function appendErrorNotice(session: SessionContent, message: string) {
-  const label = `${providerLabel(session.lastProvider ?? session.provider)} failed: ${formatErrorMessage(message)}`;
-  const lastItem = session.items.at(-1);
-
-  if (lastItem?.type === "notice" && lastItem.label === label) {
-    return;
-  }
-
-  session.items.push({
-    id: `${session.id}-error-${Date.now()}`,
-    type: "notice",
-    label
   });
 }
 

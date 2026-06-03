@@ -14,17 +14,27 @@ export type StartComposerRuntimeServerOptions = {
 export async function startComposerRuntimeServer(
   options: StartComposerRuntimeServerOptions = {}
 ) {
-  const runtime = new AgentRuntime(await loadLocalSessionList(), {
-    loadSessionContent: loadLocalSessionContent,
-    loadSessionList: loadLocalSessionList,
-    persistence: localRuntimePersistence
-  });
+  // Start with an empty session list so the server can begin listening (and
+  // print READY) immediately. Scanning local transcripts (~/.claude, ~/.codex)
+  // can take seconds on machines with lots of history; doing it eagerly here
+  // blocked the READY signal and the renderer's first paint. The full list is
+  // hydrated in the background below and pushed to clients via sessions.snapshot.
+  const runtime = new AgentRuntime(
+    { sessions: {}, projects: [] },
+    {
+      loadSessionContent: loadLocalSessionContent,
+      loadSessionList: loadLocalSessionList,
+      persistence: localRuntimePersistence
+    }
+  );
   const composerServer = createComposerServer({ runtime });
   const requestedPort = options.port ?? Number(process.env.COMPOSER_AGENT_SERVER_PORT ?? 0);
   const listenResult = await composerServer.listen({
     port: Number.isFinite(requestedPort) ? requestedPort : 0,
     host: options.host ?? "127.0.0.1"
   });
+
+  void runtime.hydrateSessionListFromStore();
 
   return {
     ...listenResult,
