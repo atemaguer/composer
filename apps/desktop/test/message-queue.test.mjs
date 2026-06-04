@@ -150,6 +150,42 @@ test("a message sent while running is queued, then drained on completion (FIFO)"
   assert.equal(runtime.snapshot().sessions[id].queuedMessages.length, 0);
 });
 
+test("queued messages accumulate and are not wiped by a session reload", async () => {
+  const { AgentRuntime } = await import("@composer/runtime");
+  const fake = createControllableProvider();
+  const id = "codex-live-reload";
+  // The session starts un-loaded and the store reload returns a bare session
+  // with no queuedMessages — the pre-fix path reloaded on every send and dropped
+  // the in-memory queue (so a second queued message replaced the first).
+  const runtime = new AgentRuntime(
+    {
+      sessions: { [id]: { ...seededSession(id), contentLoaded: false } },
+      projects: []
+    },
+    {
+      providers: { codex: fake.provider },
+      loadSessionContent: (sid) => ({
+        ...seededSession(sid),
+        id: sid,
+        contentLoaded: true
+      })
+    }
+  );
+
+  await send(runtime, id, "first");
+  await tick();
+  assert.deepEqual(fake.prompts, ["first"], "first dispatches");
+
+  await send(runtime, id, "second");
+  await send(runtime, id, "third");
+  await tick();
+  assert.deepEqual(
+    runtime.snapshot().sessions[id].queuedMessages.map((m) => m.body),
+    ["second", "third"],
+    "both queued messages survive (no reload-wipe / replace)"
+  );
+});
+
 test("a queued message can be cancelled before it runs", async () => {
   const fake = createControllableProvider();
   const { runtime, id } = await makeRuntime(fake);

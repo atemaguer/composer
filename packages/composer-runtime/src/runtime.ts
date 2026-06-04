@@ -313,6 +313,9 @@ export class AgentRuntime {
       pendingItems: current?.pendingItems?.length
         ? current.pendingItems
         : loaded.pendingItems,
+      // queuedMessages is in-memory runtime state, absent from the on-disk
+      // transcript — preserve it across a reload so the queue survives.
+      queuedMessages: current?.queuedMessages ?? loaded.queuedMessages,
       contentLoaded: true
     });
     this.sessions[restored.id] = restored;
@@ -425,7 +428,19 @@ export class AgentRuntime {
   }
 
   async sendMessage(request: RunRequest, sink: EventSink) {
-    const session = await this.loadSessionContent(request.sessionId);
+    // When a turn is already running, this message is queued. Queue against the
+    // in-memory session WITHOUT a disk reload: loadSessionContent re-parses the
+    // transcript (slow — the ~2s the accordion lagged) and rebuilds the session
+    // without the in-memory `queuedMessages` (which the transcript doesn't
+    // store), so reloading on every queued send both lagged the UI and dropped
+    // earlier queued messages. A queued message is given fresh context when it
+    // later drains, so the reload is unnecessary here.
+    const liveSession = this.sessions[request.sessionId];
+    const queueing = Boolean(liveSession) && this.isSessionBusy(request.sessionId);
+
+    const session = queueing
+      ? (liveSession as SessionContent)
+      : await this.loadSessionContent(request.sessionId);
 
     if (!session) {
       throw new Error(`Unknown session ${request.sessionId}`);
@@ -449,9 +464,7 @@ export class AgentRuntime {
       this.requestSessions.set(request.requestId, request.sessionId);
     }
 
-    // A run is already in flight — park this message in the session's FIFO and
-    // drain it when the current turn completes (or is steered).
-    if (this.isSessionBusy(request.sessionId)) {
+    if (queueing) {
       this.enqueueMessage(session, provider, request, sink);
       return;
     }

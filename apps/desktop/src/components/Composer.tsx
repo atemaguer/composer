@@ -860,11 +860,11 @@ function QueuedMessagesAccordion({
   };
 
   return (
-    // Tucks under the composer like a stacked disk: rounded top, flat bottom,
-    // no bottom border, and a negative bottom margin so the composer card (z-10)
-    // overlaps and hides its lower edge. Extra bottom padding keeps the last row
-    // clear of the overlapped zone.
-    <div className="relative z-0 -mb-4 overflow-hidden rounded-t-2xl border border-b-0 border-app-line bg-app-panel pb-4 shadow-sm">
+    // Tucks under the composer like a stacked disk: 90% of the composer width,
+    // centered, rounded top, flat bottom, no bottom border, and a negative
+    // bottom margin so the composer card (z-10) overlaps and hides its lower
+    // edge. Extra bottom padding keeps the last row clear of the overlapped zone.
+    <div className="relative z-0 mx-auto -mb-4 w-[90%] overflow-hidden rounded-t-2xl border border-b-0 border-app-line bg-app-panel pb-4 shadow-sm">
       <button
         type="button"
         onClick={() => setCollapsed((value) => !value)}
