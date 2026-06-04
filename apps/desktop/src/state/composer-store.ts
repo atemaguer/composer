@@ -16,6 +16,8 @@ import { resolveState, type StateUpdater } from "./state-utils";
 
 type ComposerStore = {
   prompt: string;
+  promptScope: string;
+  promptByScope: Record<string, string>;
   permission: PermissionMode;
   provider: SessionProvider;
   modelByProvider: Record<SessionProvider, AgentModel>;
@@ -25,6 +27,7 @@ type ComposerStore = {
   imageAttachments: ComposerImageAttachment[];
   reviewCommentAttachments: ComposerReviewCommentAttachment[];
   setPrompt: (value: StateUpdater<string>) => void;
+  setPromptScope: (scope: string) => void;
   setPermission: (value: PermissionMode) => void;
   setProvider: (value: SessionProvider) => void;
   setModelForProvider: (provider: SessionProvider, value: AgentModel) => void;
@@ -46,8 +49,12 @@ type ComposerStore = {
   clearComposer: () => void;
 };
 
+export const newComposerPromptScope = "new";
+
 export const useComposerStore = create<ComposerStore>((set) => ({
   prompt: "",
+  promptScope: newComposerPromptScope,
+  promptByScope: { [newComposerPromptScope]: "" },
   permission: "Full access",
   // New sessions default to Compose (parallel Codex + Claude). startNewSession
   // also resets to this so every new session starts in Compose.
@@ -59,7 +66,34 @@ export const useComposerStore = create<ComposerStore>((set) => ({
   imageAttachments: [],
   reviewCommentAttachments: [],
   setPrompt: (value) =>
-    set((state) => ({ prompt: resolveState(value, state.prompt) })),
+    set((state) => {
+      const prompt = resolveState(value, state.prompt);
+
+      return {
+        prompt,
+        promptByScope: {
+          ...state.promptByScope,
+          [state.promptScope]: prompt
+        }
+      };
+    }),
+  setPromptScope: (promptScope) =>
+    set((state) => {
+      if (promptScope === state.promptScope) {
+        return state;
+      }
+
+      const promptByScope = {
+        ...state.promptByScope,
+        [state.promptScope]: state.prompt
+      };
+
+      return {
+        promptScope,
+        prompt: promptByScope[promptScope] ?? "",
+        promptByScope
+      };
+    }),
   setPermission: (permission) => set({ permission }),
   setProvider: (provider) =>
     set((state) => ({
@@ -155,7 +189,15 @@ export const useComposerStore = create<ComposerStore>((set) => ({
         revokeAttachmentPreview(attachment);
       }
 
-      return { prompt: "", imageAttachments: [], reviewCommentAttachments: [] };
+      return {
+        prompt: "",
+        promptByScope: {
+          ...state.promptByScope,
+          [state.promptScope]: ""
+        },
+        imageAttachments: [],
+        reviewCommentAttachments: []
+      };
     })
 }));
 
