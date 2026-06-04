@@ -98,6 +98,15 @@ import type {
 
 type NewSessionWorkTarget = "local" | "worktree";
 
+function workspaceDefaultProvider(
+  workspaceId: string | undefined
+): SessionProvider {
+  return (
+    useWorkspaceStore.getState().getWorkspaceDefaultProvider(workspaceId) ??
+    "meta"
+  );
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -256,6 +265,9 @@ export default function App() {
   const setSelectedWorkspaceId = useWorkspaceStore(
     (state) => state.setSelectedWorkspaceId
   );
+  const setWorkspaceDefaultProvider = useWorkspaceStore(
+    (state) => state.setWorkspaceDefaultProvider
+  );
 
   const filePreview = useFilePreviewStore((state) => state.filePreview);
   const setFilePreview = useFilePreviewStore((state) => state.setFilePreview);
@@ -366,16 +378,6 @@ export default function App() {
   const activeModel = modelByProvider[activeProvider];
   const activeIntelligence = intelligenceByProvider[activeProvider];
 
-  // New sessions default to Compose (parallel). Whenever the app leaves a
-  // session for the new-session view, reset the provider to Compose — but don't
-  // fight the user if they switch it while already on the new-session page.
-  const previousSelectedThreadRef = useRef(selectedThread);
-  useEffect(() => {
-    if (previousSelectedThreadRef.current && !selectedThread) {
-      setProvider("meta");
-    }
-    previousSelectedThreadRef.current = selectedThread;
-  }, [selectedThread, setProvider]);
   const resolvedNewSessionWorkTarget: NewSessionWorkTarget =
     workspaceGitAvailable === false ? "local" : newSessionWorkTarget;
   const activeSessionNeedsParallelAdoption =
@@ -527,7 +529,53 @@ export default function App() {
     activeSessionRunning || newSessionPending ? "stop" : "send";
   const shouldShowConversation = Boolean(activeSession);
   const showThreadTabs = shouldShowConversation && threadViewMode === "tabs";
-  const newSessionPageActive = appRouteFromPathname(location.pathname).kind === "new";
+  const newSessionPageActive =
+    appRouteFromPathname(location.pathname).kind === "new";
+
+  // New sessions use the workspace's remembered provider. If the workspace has
+  // no preference yet, keep the original Compose-first default.
+  const previousSelectedThreadRef = useRef(selectedThread);
+  const previousNewSessionWorkspaceIdRef = useRef<string | undefined>(
+    undefined
+  );
+  useEffect(() => {
+    const workspaceId = selectedWorkspace?.id ?? currentCwd;
+    const enteredNewSession =
+      previousSelectedThreadRef.current && !selectedThread;
+    const workspaceChangedOnNewSession =
+      !selectedThread &&
+      workspaceId !== previousNewSessionWorkspaceIdRef.current;
+
+    if (enteredNewSession || workspaceChangedOnNewSession) {
+      setProvider(workspaceDefaultProvider(workspaceId));
+    }
+
+    previousSelectedThreadRef.current = selectedThread;
+
+    if (!selectedThread) {
+      previousNewSessionWorkspaceIdRef.current = workspaceId;
+    }
+  }, [currentCwd, selectedThread, selectedWorkspace?.id, setProvider]);
+
+  const setComposerProvider = useCallback(
+    (nextProvider: SessionProvider) => {
+      setProvider(nextProvider);
+
+      if (newSessionPageActive) {
+        setWorkspaceDefaultProvider(
+          selectedWorkspace?.id ?? currentCwd,
+          nextProvider
+        );
+      }
+    },
+    [
+      currentCwd,
+      newSessionPageActive,
+      selectedWorkspace?.id,
+      setProvider,
+      setWorkspaceDefaultProvider
+    ]
+  );
 
   useEffect(() => {
     if (!selectedWorkspaceId && allWorkspaceOptions[0]) {
@@ -1019,6 +1067,13 @@ export default function App() {
     const sessionId = activeSession?.id;
     const requestProvider = activeProvider;
 
+    if (!sessionId) {
+      setWorkspaceDefaultProvider(
+        selectedWorkspace?.id ?? currentCwd,
+        requestProvider
+      );
+    }
+
     if (!agentClient) {
       createOfflineSession(promptWithComments, requestProvider);
       return;
@@ -1213,6 +1268,7 @@ export default function App() {
 
       setSelectedThread(activeSession.id);
       setProvider(provider);
+      setWorkspaceDefaultProvider(activeSession.cwd ?? currentCwd, provider);
       navigateAppRoute(sessionRoute(activeSession.id), { replace: true });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -2099,7 +2155,7 @@ export default function App() {
       permissionMenuId: "composer-permission-menu",
       intelligenceMenuId: "composer-intelligence-menu",
       provider: activeProvider,
-      setProvider,
+      setProvider: setComposerProvider,
       // value/setValue intentionally omitted: Composer reads the draft text
       // from useComposerStore itself so keystrokes don't re-render App.
       onSubmit: onSubmitStable,
@@ -2159,7 +2215,7 @@ export default function App() {
       setModelForProvider,
       setPermission,
       setPermissionOpen,
-      setProvider,
+      setComposerProvider,
       submitMode
     ]
   );
