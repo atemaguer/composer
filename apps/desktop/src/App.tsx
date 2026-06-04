@@ -1952,6 +1952,11 @@ export default function App() {
     if (activeSession && agentClient) {
       void agentClient
         .cancelQueuedMessage(activeSession.id, queuedId)
+        .then((snapshot) => {
+          if (snapshot) {
+            setSessionSnapshot(snapshot);
+          }
+        })
         .catch((error) => console.warn("Could not cancel queued message", error));
     }
   });
@@ -1959,6 +1964,11 @@ export default function App() {
     if (activeSession && agentClient) {
       void agentClient
         .reorderQueue(activeSession.id, orderedIds)
+        .then((snapshot) => {
+          if (snapshot) {
+            setSessionSnapshot(snapshot);
+          }
+        })
         .catch((error) => console.warn("Could not reorder queue", error));
     }
   });
@@ -1973,6 +1983,11 @@ export default function App() {
     );
     void agentClient
       .cancelQueuedMessage(activeSession.id, queuedId)
+      .then((snapshot) => {
+        if (snapshot) {
+          setSessionSnapshot(snapshot);
+        }
+      })
       .catch((error) => console.warn("Could not unqueue message", error));
   });
   const onAddImageAttachmentsStable = useStableCallback((files: File[]) =>
