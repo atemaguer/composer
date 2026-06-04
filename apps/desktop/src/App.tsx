@@ -589,11 +589,24 @@ export default function App() {
     ]
   );
 
+  // Once workspace options are available (either from persisted store or from
+  // loaded sessions), ensure a workspace is selected. We treat a selection as
+  // valid only if it actually exists in the current options list — this covers
+  // both the fresh-install case (selectedWorkspaceId is "") and the stale case
+  // (selectedWorkspaceId points to a workspace that's no longer present).
   useEffect(() => {
-    if (!selectedWorkspaceId && allWorkspaceOptions[0]) {
+    if (!allWorkspaceOptions[0]) {
+      return;
+    }
+
+    const hasValidSelection = allWorkspaceOptions.some(
+      (opt) => opt.id === selectedWorkspaceId
+    );
+
+    if (!hasValidSelection) {
       setSelectedWorkspaceId(allWorkspaceOptions[0].id);
     }
-  }, [allWorkspaceOptions, selectedWorkspaceId]);
+  }, [allWorkspaceOptions, selectedWorkspaceId, setSelectedWorkspaceId]);
 
   useEffect(() => {
     let cancelled = false;
