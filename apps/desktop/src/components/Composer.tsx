@@ -206,6 +206,8 @@ const localWorkMenuBaseItems: PromptComposerFooterMenuItem[] = [
   }
 ];
 
+const MAX_PROMPT_TEXTAREA_HEIGHT = 160;
+
 export const startInFooterMenuItems: PromptComposerFooterMenuItem[] = [
   ...localWorkMenuBaseItems.slice(0, 1),
   {
@@ -301,6 +303,8 @@ export function PromptComposer({
   const intelligenceMenuRef = useRef<HTMLDivElement>(null);
   const intelligenceButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaWidthRef = useRef<number | null>(null);
   // Subscribe to the store-owned draft text here so typing re-renders this
   // component only. An explicit `value`/`setValue` prop (if provided) still
   // wins for backwards compatibility.
@@ -315,6 +319,42 @@ export function PromptComposer({
   const activeProvider = composerProvider(provider);
   const selectedModel = modelOption(activeProvider, model);
   const compactModelLabel = compactModelOptionLabel(selectedModel);
+
+  function resizePromptTextarea() {
+    const textarea = textareaRef.current;
+
+    if (!textarea) {
+      return;
+    }
+
+    textareaWidthRef.current = textarea.clientWidth;
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(textarea.scrollHeight, MAX_PROMPT_TEXTAREA_HEIGHT);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY =
+      textarea.scrollHeight > MAX_PROMPT_TEXTAREA_HEIGHT ? "auto" : "hidden";
+  }
+
+  useLayoutEffect(() => {
+    resizePromptTextarea();
+  }, [textareaRows, value]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+
+    if (typeof ResizeObserver === "function" && textarea) {
+      const observer = new ResizeObserver(() => {
+        if (textareaWidthRef.current !== textarea.clientWidth) {
+          resizePromptTextarea();
+        }
+      });
+      observer.observe(textarea);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", resizePromptTextarea);
+    return () => window.removeEventListener("resize", resizePromptTextarea);
+  }, []);
 
   useEffect(() => {
     if (disabled) {
@@ -504,8 +544,9 @@ export function PromptComposer({
           </div>
         )}
         <textarea
+          ref={textareaRef}
           aria-label="Ask Composer"
-          className="mt-0.5 min-h-7 w-full resize-none rounded-md bg-transparent px-1 text-[13px] leading-6 text-app-text outline-none placeholder:text-app-dim focus-visible:outline-none focus-visible:ring-0"
+          className="thin-scrollbar mt-0.5 min-h-7 w-full resize-none rounded-md bg-transparent px-1 text-[13px] leading-6 text-app-text outline-none placeholder:text-app-dim focus-visible:outline-none focus-visible:ring-0"
           placeholder={placeholder}
           rows={textareaRows}
           value={value}
