@@ -150,8 +150,8 @@ const providerDefinitions = [
         efforts: ["Low", "Medium", "High"]
       },
       {
-        value: "claude-opus-4-7",
-        label: "Claude Opus 4.7",
+        value: "claude-opus-4-8",
+        label: "Claude Opus 4.8",
         detail: "Deep reasoning model",
         efforts: ["Low", "Medium", "High", "Extra High"]
       }

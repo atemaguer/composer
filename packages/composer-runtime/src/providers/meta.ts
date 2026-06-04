@@ -45,7 +45,7 @@ type DelegateRun = {
 
 const META_PLANNER = {
   provider: "claude" as const,
-  model: "claude-opus-4-7",
+  model: "claude-opus-4-8",
   intelligence: "Extra High" as const
 };
 
@@ -730,7 +730,7 @@ function strategyDescription(strategy: MetaStrategy) {
     return "Starting Codex GPT-5.4 and Claude Sonnet 4.6 side by side so you can compare agents and choose one to continue.";
   }
 
-  return "Planning with Claude Opus 4.7 at Extra High thinking, then executing the approved plan with Codex GPT-5.4 Mini at Low reasoning.";
+  return "Planning with Claude Opus 4.8 at Extra High thinking, then executing the approved plan with Codex GPT-5.4 Mini at Low reasoning.";
 }
 
 function composeDelegateSettings(
