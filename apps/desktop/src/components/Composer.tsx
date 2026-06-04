@@ -19,6 +19,7 @@ import {
   ChevronDown,
   ChevronRight,
   CircleGauge,
+  CircleHelp,
   CloudOff,
   CornerDownRight,
   ExternalLink,
@@ -54,6 +55,9 @@ import type {
   PendingConversationItem,
   PermissionMode,
   QueuedUserMessage,
+  QuestionAnswer,
+  QuestionItem,
+  QuestionRequest,
   SessionProvider
 } from "../types";
 import {
@@ -153,6 +157,10 @@ export type ComposerProps = {
   onCancelQueued?: (queuedId: string) => void;
   onReorderQueued?: (orderedIds: string[]) => void;
   onEditQueued?: (queuedId: string, body: string) => void;
+  // An open clarifying question (AskUserQuestion / request_user_input) the user
+  // answers in the accordion; the selection round-trips to the engine.
+  pendingQuestion?: QuestionRequest;
+  onAnswerQuestion?: (questionId: string, answers: QuestionAnswer[]) => void;
 };
 
 export type PromptComposerControls = Omit<ComposerProps, "pendingItems">;
@@ -836,6 +844,8 @@ export function Composer({
   onCancelQueued,
   onReorderQueued,
   onEditQueued,
+  pendingQuestion,
+  onAnswerQuestion,
   ...controls
 }: ComposerProps) {
   const showPendingTerminalStack = false;
@@ -868,6 +878,9 @@ export function Composer({
             onStop={controls.onStop}
           />
         )}
+        {pendingQuestion ? (
+          <QuestionPrompt question={pendingQuestion} onAnswer={onAnswerQuestion} />
+        ) : null}
         <QueuedMessagesAccordion
           queuedMessages={queuedMessages}
           onSteer={onSteerQueued}
@@ -1023,6 +1036,148 @@ function QueuedMessagesAccordion({
           ))}
         </ul>
       )}
+    </div>
+  );
+}
+
+// The engine's clarifying question (AskUserQuestion / request_user_input),
+// rendered as a card that tucks under the composer like the queue accordion.
+// Single-select single-question answers on click; otherwise the user makes
+// their selections and presses Send.
+function QuestionPrompt({
+  question,
+  onAnswer
+}: {
+  question: QuestionRequest;
+  onAnswer?: (questionId: string, answers: QuestionAnswer[]) => void;
+}) {
+  const [selections, setSelections] = useState<Record<string, string[]>>({});
+  const [submitted, setSubmitted] = useState(false);
+
+  const quickSingle =
+    question.questions.length === 1 && !question.questions[0]?.multiSelect;
+
+  const submit = (answers: QuestionAnswer[]) => {
+    if (!onAnswer || submitted) {
+      return;
+    }
+    setSubmitted(true);
+    onAnswer(question.id, answers);
+  };
+
+  const toggle = (item: QuestionItem, label: string) => {
+    if (quickSingle) {
+      submit([{ questionId: item.id, selected: [label] }]);
+      return;
+    }
+    setSelections((prev) => {
+      const current = prev[item.id] ?? [];
+      if (item.multiSelect) {
+        const next = current.includes(label)
+          ? current.filter((value) => value !== label)
+          : [...current, label];
+        return { ...prev, [item.id]: next };
+      }
+      return { ...prev, [item.id]: [label] };
+    });
+  };
+
+  const answeredAll = question.questions.every(
+    (item) => (selections[item.id]?.length ?? 0) > 0
+  );
+
+  return (
+    <div className="relative z-0 mx-auto -mb-4 w-[96%] overflow-hidden rounded-t-2xl border border-b-0 border-app-line bg-app-panel pb-4 shadow-sm">
+      <div className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-app-muted">
+        <CircleHelp size={13} className="shrink-0" />
+        <span className="flex-1">
+          {question.provider === "claude"
+            ? "Claude has a question"
+            : question.provider === "codex"
+              ? "Codex has a question"
+              : "A question"}
+        </span>
+      </div>
+      <div className="flex flex-col gap-3 border-t border-app-line/70 px-3 pb-1.5 pt-2.5">
+        {question.questions.map((item) => (
+          <div key={item.id} className="flex flex-col gap-1.5">
+            {item.header ? (
+              <span className="w-fit rounded-md bg-app-line px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-app-muted">
+                {item.header}
+              </span>
+            ) : null}
+            <p className="text-[13px] text-app-text">{item.question}</p>
+            <div className="flex flex-col gap-1">
+              {item.options.map((option) => {
+                const selected = (selections[item.id] ?? []).includes(option.label);
+                return (
+                  <button
+                    key={option.label}
+                    type="button"
+                    disabled={submitted}
+                    onClick={() => toggle(item, option.label)}
+                    className={cn(
+                      "flex items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
+                      selected
+                        ? "border-app-accent/60 bg-app-accent/10"
+                        : "border-app-line hover:bg-app-hover",
+                      submitted ? "opacity-60" : ""
+                    )}
+                  >
+                    <span
+                      className={cn(
+                        "mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-[4px] border",
+                        selected
+                          ? "border-app-accent bg-app-accent text-app-bg"
+                          : "border-app-line"
+                      )}
+                    >
+                      {selected ? <Check size={10} /> : null}
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="text-[13px] text-app-text">
+                        {option.label}
+                        {option.recommended ? (
+                          <span className="ml-1 text-[11px] text-app-muted">
+                            (Recommended)
+                          </span>
+                        ) : null}
+                      </span>
+                      {option.description ? (
+                        <span className="mt-0.5 block text-[12px] text-app-muted">
+                          {option.description}
+                        </span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+        {quickSingle ? null : (
+          <button
+            type="button"
+            disabled={!answeredAll || submitted}
+            onClick={() =>
+              submit(
+                question.questions.map((item) => ({
+                  questionId: item.id,
+                  selected: selections[item.id] ?? []
+                }))
+              )
+            }
+            className={cn(
+              "mt-0.5 w-fit self-end rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors",
+              answeredAll && !submitted
+                ? "bg-app-accent text-app-bg hover:opacity-90"
+                : "cursor-not-allowed bg-app-line text-app-muted"
+            )}
+          >
+            {submitted ? "Sent" : "Send answer"}
+          </button>
+        )}
+      </div>
     </div>
   );
 }

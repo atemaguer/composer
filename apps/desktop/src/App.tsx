@@ -87,6 +87,7 @@ import type {
   Project,
   ProjectThread,
   QueuedUserMessage,
+  QuestionAnswer,
   ReviewDiff,
   ReviewBranchList,
   ReviewDiffFile,
@@ -1315,6 +1316,12 @@ export default function App() {
     removeApproval(approvalId);
   }
 
+  function answerQuestion(questionId: string, answers: QuestionAnswer[]) {
+    // The runtime broadcasts question.resolved (clearing pendingQuestion); no
+    // optimistic local mutation needed for a loopback server.
+    socketRef.current?.resolveQuestion(questionId, answers);
+  }
+
   function createOfflineSession(body: string, requestProvider: SessionProvider) {
     const id = `${requestProvider}-offline-${createId()}`;
     const session: SessionContent = {
@@ -2028,6 +2035,10 @@ export default function App() {
     (approvalId: string, decision: ApprovalDecision) =>
       resolveApproval(approvalId, decision)
   );
+  const onAnswerQuestionStable = useStableCallback(
+    (questionId: string, answers: QuestionAnswer[]) =>
+      answerQuestion(questionId, answers)
+  );
   const selectComposerBranchStable = useStableCallback(
     (option: PromptComposerFooterOption) => void selectComposerBranch(option)
   );
@@ -2220,15 +2231,19 @@ export default function App() {
       onCancelQueued: onCancelQueuedStable,
       onReorderQueued: onReorderQueuedStable,
       onEditQueued: onEditQueuedStable,
+      pendingQuestion: activeSession?.pendingQuestion,
+      onAnswerQuestion: onAnswerQuestionStable,
       branchFooterItem: sessionBranchFooterItem
     }),
     [
       activeIntelligence,
       activeModel,
       activeProvider,
+      activeSession?.pendingQuestion,
       activeSessionNeedsParallelAdoption,
       activeSessionQueuedMessages,
       composerApprovals,
+      onAnswerQuestionStable,
       onCancelQueuedStable,
       onEditQueuedStable,
       onReorderQueuedStable,

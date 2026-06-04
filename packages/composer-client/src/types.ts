@@ -335,6 +335,9 @@ export type SessionContent = {
   // User messages queued while a run is active, in FIFO order. Drained one per
   // turn completion. Empty/absent when nothing is queued.
   queuedMessages?: QueuedUserMessage[];
+  // An open clarifying question the engine is waiting on (AskUserQuestion /
+  // request_user_input). Set on question.requested, cleared on question.resolved.
+  pendingQuestion?: QuestionRequest;
   runtimeStatus?: AgentSessionRuntimeStatus;
   contentLoaded?: boolean;
   title: string;
@@ -367,6 +370,42 @@ export type ApprovalRequest = {
   title: string;
   details?: Record<string, string>;
   availableDecisions: ApprovalDecision[];
+};
+
+// A structured clarifying question an engine asks mid-turn (Claude's
+// AskUserQuestion / Codex's request_user_input). The turn pauses until the user
+// picks; unlike an approval, the answer is the selected option label(s), not a
+// fixed accept/decline decision. Surfaced in the accordion above the composer.
+export type QuestionOption = {
+  label: string;
+  description?: string;
+  recommended?: boolean;
+};
+
+export type QuestionItem = {
+  id: string;
+  question: string;
+  header?: string;
+  multiSelect?: boolean;
+  options: QuestionOption[];
+  // When true the user may type a custom answer ("Other"). Always allowed by the
+  // engines, surfaced here so the UI can offer a free-text entry.
+  allowCustom?: boolean;
+};
+
+export type QuestionRequest = {
+  id: string;
+  provider: SessionProvider;
+  sessionId: string;
+  turnId?: string;
+  questions: QuestionItem[];
+};
+
+// The user's answer to one question: the chosen option label(s) (or a typed
+// custom value). Single-select carries one entry; multi-select carries several.
+export type QuestionAnswer = {
+  questionId: string;
+  selected: string[];
 };
 
 export type AgentSettings = {
@@ -448,6 +487,8 @@ export type LiveAgentEvent =
     }
   | { id: string; type: "approval.requested"; approval: ApprovalRequest }
   | { id: string; type: "approval.resolved"; approvalId: string }
+  | { id: string; type: "question.requested"; question: QuestionRequest }
+  | { id: string; type: "question.resolved"; questionId: string }
   | {
       id: string;
       type: "turn.completed";

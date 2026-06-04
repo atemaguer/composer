@@ -25,6 +25,8 @@ import type {
   ApprovalRequest,
   IntelligenceMode,
   PermissionMode,
+  QuestionAnswer,
+  QuestionItem,
   SessionContent,
   SessionCompactionSummary,
   ToolDetail
@@ -202,6 +204,30 @@ export class ClaudeProvider implements AgentProvider {
     });
 
     const canUseTool: CanUseTool = async (toolName, input, context) => {
+      // AskUserQuestion isn't a permission gate — its "answer" IS the user's
+      // choice. Surface the real options (in the composer accordion) and inject
+      // the user's selection back as the tool's answers, instead of silently
+      // auto-picking the first option.
+      if (toolName === "AskUserQuestion") {
+        const questions = parseClaudeQuestions(input, request.sessionId, turnId);
+
+        if (questions.length === 0) {
+          return { behavior: "allow", updatedInput: answerClaudeQuestion(input) };
+        }
+
+        const answers = await request.askQuestion({
+          provider: "claude",
+          sessionId: request.sessionId,
+          turnId,
+          questions
+        });
+
+        return {
+          behavior: "allow",
+          updatedInput: applyClaudeAnswers(input, questions, answers)
+        };
+      }
+
       const approval = claudeApproval({
         toolName,
         input,
@@ -212,12 +238,7 @@ export class ClaudeProvider implements AgentProvider {
       const decision = await request.askApproval(approval);
 
       if (decision === "accept" || decision === "acceptForSession") {
-        return {
-          behavior: "allow",
-          updatedInput: toolName === "AskUserQuestion"
-            ? answerClaudeQuestion(input)
-            : input
-        };
+        return { behavior: "allow", updatedInput: input };
       }
 
       return {
@@ -604,6 +625,73 @@ function answerClaudeQuestion(input: JsonRecord) {
   }
 
   return { ...input, answers };
+}
+
+// Parse a Claude AskUserQuestion tool input into Composer's QuestionItem[] for
+// the UI. Each question is keyed by index within the turn so answers map back.
+function parseClaudeQuestions(
+  input: JsonRecord,
+  sessionId: string,
+  turnId: string
+): QuestionItem[] {
+  const questions = Array.isArray(input.questions) ? input.questions : [];
+
+  return questions
+    .map((raw, index): QuestionItem | null => {
+      const record = asRecord(raw);
+      const question = typeof record.question === "string" ? record.question : "";
+      if (!question) {
+        return null;
+      }
+
+      const options: QuestionItem["options"] = [];
+      for (const option of Array.isArray(record.options) ? record.options : []) {
+        const optionRecord = asRecord(option);
+        const label = typeof optionRecord.label === "string" ? optionRecord.label : "";
+        if (!label) {
+          continue;
+        }
+        options.push({
+          label,
+          description:
+            typeof optionRecord.description === "string"
+              ? optionRecord.description
+              : undefined
+        });
+      }
+
+      return {
+        id: `${sessionId}-${turnId}-q${index}`,
+        question,
+        header: typeof record.header === "string" ? record.header : undefined,
+        multiSelect: record.multiSelect === true,
+        // The engines always allow a custom "Other" answer.
+        allowCustom: true,
+        options
+      };
+    })
+    .filter((question): question is QuestionItem => question !== null);
+}
+
+// Inject the user's selections into the tool input as the answers map the SDK
+// reads (keyed by question text), so Claude proceeds with the chosen options.
+function applyClaudeAnswers(
+  input: JsonRecord,
+  questions: QuestionItem[],
+  answers: QuestionAnswer[]
+) {
+  const byId = new Map(answers.map((answer) => [answer.questionId, answer.selected]));
+  const result: Record<string, string> = {};
+
+  for (const question of questions) {
+    const selected = byId.get(question.id) ?? [];
+    const value = selected.length > 0
+      ? selected.join(", ")
+      : question.options[0]?.label ?? "Continue";
+    result[question.question] = value;
+  }
+
+  return { ...input, answers: result };
 }
 
 function toolKind(toolName: string): ApprovalRequest["kind"] {

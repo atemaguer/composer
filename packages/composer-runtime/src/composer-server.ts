@@ -24,6 +24,7 @@ import type {
   AgentSettings,
   ComposerChatDataTypes,
   LiveAgentEvent,
+  QuestionAnswer,
   SessionProvider,
   SessionSnapshot
 } from "@composer/client";
@@ -279,6 +280,8 @@ export function createComposerServer({
           decision?: string;
           sessionId?: string;
           requestId?: string;
+          questionId?: string;
+          answers?: unknown[];
         };
 
         if (message.type === "session.list") {
@@ -297,6 +300,20 @@ export function createComposerServer({
             type: "approval.resolved",
             approvalId: message.approvalId
           });
+          return;
+        }
+
+        if (
+          message.type === "question.resolve" &&
+          typeof message.questionId === "string" &&
+          Array.isArray(message.answers)
+        ) {
+          // resolveQuestion broadcasts question.resolved itself (it also clears
+          // pendingQuestion on the session).
+          runtime.resolveQuestion(
+            message.questionId,
+            normalizeQuestionAnswers(message.answers)
+          );
           return;
         }
 
@@ -858,6 +875,26 @@ function parseWorkTarget(body: Record<string, unknown>) {
       : undefined;
 
   return { mode, branch };
+}
+
+function normalizeQuestionAnswers(value: unknown[]): QuestionAnswer[] {
+  return value
+    .map((entry): QuestionAnswer | null => {
+      if (!entry || typeof entry !== "object") {
+        return null;
+      }
+      const record = entry as Record<string, unknown>;
+      const questionId =
+        typeof record.questionId === "string" ? record.questionId : undefined;
+      if (!questionId) {
+        return null;
+      }
+      const selected = Array.isArray(record.selected)
+        ? record.selected.filter((item): item is string => typeof item === "string")
+        : [];
+      return { questionId, selected };
+    })
+    .filter((answer): answer is QuestionAnswer => answer !== null);
 }
 
 function isApprovalDecision(value: unknown): value is "accept" | "acceptForSession" | "decline" | "cancel" {

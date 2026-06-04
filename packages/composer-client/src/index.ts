@@ -34,6 +34,10 @@ export type {
   ProjectThread,
   ProviderSessionState,
   QueuedUserMessage,
+  QuestionAnswer,
+  QuestionItem,
+  QuestionOption,
+  QuestionRequest,
   ReviewBranchComparison,
   ReviewBranchList,
   ReviewBranchRef,
@@ -387,6 +391,10 @@ export type ComposerEventSocket<
     approvalId: string,
     decision: "accept" | "acceptForSession" | "decline" | "cancel"
   ) => void;
+  resolveQuestion: (
+    questionId: string,
+    answers: Array<{ questionId: string; selected: string[] }>
+  ) => void;
   send: (message: JsonRecord) => void;
   socket: WebSocket;
   readonly __eventType?: LiveEvent;
@@ -665,6 +673,8 @@ export class ComposerClient<
       requestSnapshot: () => send({ type: "session.list" }),
       resolveApproval: (approvalId, decision) =>
         send({ type: "approval.resolve", approvalId, decision }),
+      resolveQuestion: (questionId, answers) =>
+        send({ type: "question.resolve", questionId, answers }),
       send,
       socket
     };

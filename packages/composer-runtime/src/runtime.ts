@@ -31,6 +31,8 @@ import type {
   Project,
   ProjectThread,
   QueuedUserMessage,
+  QuestionAnswer,
+  QuestionRequest,
   SessionContent,
   SessionCompactionSummary,
   SessionProvider,
@@ -42,6 +44,22 @@ export type EventSink = (event: LiveAgentEvent) => void;
 // Sink for queue-drained runs: their events flow over the WebSocket broadcast
 // (emitToSink always calls apply()), so the per-request HTTP sink is a noop.
 const noopSink: EventSink = () => {};
+
+// Fall back to the recommended/first option if no client answers a clarifying
+// question before the engine's own tool timeout (~60s), so a turn never hangs.
+const QUESTION_TIMEOUT_MS = 55_000;
+
+function defaultQuestionAnswers(request: QuestionRequest): QuestionAnswer[] {
+  return request.questions.map((question) => {
+    const option =
+      question.options.find((candidate) => candidate.recommended) ??
+      question.options[0];
+    return {
+      questionId: question.id,
+      selected: option ? [option.label] : []
+    };
+  });
+}
 
 type RunRequest = {
   sessionId: string;
@@ -70,6 +88,11 @@ type ProviderRunRequest = RunRequest & {
   session: SessionContent;
   contextPrompt?: string;
   askApproval: (approval: Omit<ApprovalRequest, "id">) => Promise<ApprovalDecision>;
+  // Ask the user a structured clarifying question (AskUserQuestion /
+  // request_user_input); resolves with the selected option(s) per question.
+  askQuestion: (
+    question: Omit<QuestionRequest, "id">
+  ) => Promise<QuestionAnswer[]>;
   emit: EventSink;
   phase?: "plan" | "execute";
 };
@@ -184,6 +207,15 @@ export class AgentRuntime {
   private readonly localSessionPollIntervalMs: number;
   private broadcastListeners = new Set<EventSink>();
   private approvals = new Map<string, ApprovalResolver>();
+  // Open clarifying questions awaiting a user answer, keyed by question id.
+  private questions = new Map<
+    string,
+    {
+      sessionId: string;
+      resolve: (answers: QuestionAnswer[]) => void;
+      timer?: ReturnType<typeof setTimeout>;
+    }
+  >();
   private providers: Record<RuntimeSessionProvider, AgentProvider>;
   private activeRuns = new Map<string, Promise<void>>();
   private activeRunProviders = new Map<string, RuntimeSessionProvider>();
@@ -422,6 +454,7 @@ export class AgentRuntime {
       settings: request.settings,
       imageAttachments: request.imageAttachments,
       askApproval: (approval) => this.askApproval(approval, sink),
+      askQuestion: (question) => this.askQuestion(question, sink),
       emit: (event) => this.emitToSink(sink, event)
     });
     this.applyPendingRequestInterrupt(request.requestId, id);
@@ -538,6 +571,7 @@ export class AgentRuntime {
       ...request,
       session,
       askApproval: (approval) => this.askApproval(approval, sink),
+      askQuestion: (question) => this.askQuestion(question, sink),
       emit: (event) => this.emitToSink(sink, event)
     });
   }
@@ -995,6 +1029,33 @@ export class AgentRuntime {
     resolver(decision);
   }
 
+  resolveQuestion(questionId: string, answers: QuestionAnswer[]) {
+    const entry = this.questions.get(questionId);
+
+    if (!entry) {
+      return;
+    }
+
+    this.questions.delete(questionId);
+    if (entry.timer) {
+      clearTimeout(entry.timer);
+    }
+
+    // Clear pendingQuestion + resume the turn, then broadcast.
+    const session = this.sessions[entry.sessionId];
+    if (session) {
+      applyLiveSessionEvent(
+        session,
+        { id: randomUUID(), type: "question.resolved", questionId },
+        { immutable: false, errorNotice: "none" }
+      );
+      this.persistence.upsertSession(session);
+    }
+    this.broadcast({ id: randomUUID(), type: "question.resolved", questionId });
+
+    entry.resolve(answers);
+  }
+
   async dispose() {
     if (this.localSessionMonitor) {
       clearInterval(this.localSessionMonitor);
@@ -1181,6 +1242,31 @@ export class AgentRuntime {
     });
   }
 
+  private async askQuestion(
+    question: Omit<QuestionRequest, "id">,
+    sink: EventSink
+  ): Promise<QuestionAnswer[]> {
+    const id = `${question.provider}-q-${randomUUID()}`;
+    const request: QuestionRequest = { ...question, id };
+
+    this.emitToSink(sink, {
+      id: randomUUID(),
+      type: "question.requested",
+      question: request
+    });
+
+    return new Promise<QuestionAnswer[]>((resolve) => {
+      // Safety net: if no client answers before the engine's own ~60s tool
+      // timeout, fall back to the recommended/first option so the turn doesn't
+      // hang. Resolving via resolveQuestion also clears pendingQuestion.
+      const timer = setTimeout(() => {
+        this.resolveQuestion(id, defaultQuestionAnswers(request));
+      }, QUESTION_TIMEOUT_MS);
+      timer.unref?.();
+      this.questions.set(id, { sessionId: question.sessionId, resolve, timer });
+    });
+  }
+
   private emitToSink(sink: EventSink, event: LiveAgentEvent) {
     this.apply(event);
 
@@ -1230,6 +1316,18 @@ export class AgentRuntime {
           runtimeStatus: "awaiting_approval",
           updatedAt: session.updatedAt
         });
+      }
+
+      this.broadcast(event);
+      return;
+    }
+
+    if (event.type === "question.requested") {
+      const session = this.sessions[event.question.sessionId];
+
+      if (session) {
+        applyLiveSessionEvent(session, event, { immutable: false, errorNotice: "none" });
+        this.persistence.upsertSession(session);
       }
 
       this.broadcast(event);

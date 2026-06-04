@@ -385,6 +385,13 @@ export class MetaProvider implements AgentProvider {
           askApproval: async (approval) => request.askApproval(
             remapApproval(approval, request.sessionId, delegate.provider)
           ),
+          // Surface a delegate's clarifying question on the parent compose
+          // session so the user answers it in the same accordion.
+          askQuestion: async (question) => request.askQuestion({
+            ...question,
+            sessionId: request.sessionId,
+            provider: "meta"
+          }),
           emit: (event) => {
             if (event.type === "message.delta") {
               output.push(event.delta);

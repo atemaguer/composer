@@ -260,6 +260,27 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
       return { ...state, approvals, dialogs, sessions };
     }
 
+    case "question.requested": {
+      const sessions = applyEventToSession(
+        state.sessions,
+        event.question.sessionId,
+        event
+      );
+      return { ...state, sessions };
+    }
+
+    case "question.resolved": {
+      const session = Object.values(state.sessions).find(
+        (candidate) => candidate.pendingQuestion?.id === event.questionId
+      );
+      const sessions = applyEventToSession(
+        state.sessions,
+        session?.id,
+        event
+      );
+      return { ...state, sessions };
+    }
+
     case "error": {
       const sessions = applyEventToSession(
         state.sessions,

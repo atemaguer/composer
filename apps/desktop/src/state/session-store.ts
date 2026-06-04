@@ -256,13 +256,15 @@ export const useSessionStore = create<SessionStore>((set) => ({
         ? event.sessionId
         : event.type === "approval.requested"
           ? event.approval.sessionId
-          : event.type === "session.started" || event.type === "session.updated"
-            ? // These full-rebuild events identify their session via event.session
-              // (not event.sessionId) and REPLACE the stored session wholesale, so
-              // their buffered deltas must be flushed first or the deferred rAF
-              // flush would replay stale tokens onto the rebuilt session.
-              event.session.id
-            : undefined;
+          : event.type === "question.requested"
+            ? event.question.sessionId
+            : event.type === "session.started" || event.type === "session.updated"
+              ? // These full-rebuild events identify their session via event.session
+                // (not event.sessionId) and REPLACE the stored session wholesale, so
+                // their buffered deltas must be flushed first or the deferred rAF
+                // flush would replay stale tokens onto the rebuilt session.
+                event.session.id
+              : undefined;
 
     // A removed session should discard any pending buffered deltas rather than
     // flush them onto a session that is about to be deleted.
@@ -515,6 +517,36 @@ export function applyAgentEventToState(
       approvals: state.approvals.filter(
         (approval) => approval.id !== event.approvalId
       )
+    };
+  }
+
+  if (event.type === "question.requested") {
+    const session = state.sessions[event.question.sessionId];
+
+    if (!session) {
+      return {};
+    }
+
+    const updated = applyLiveSessionEvent(session, event);
+
+    return {
+      sessions: { ...state.sessions, [updated.id]: updated }
+    };
+  }
+
+  if (event.type === "question.resolved") {
+    const session = Object.values(state.sessions).find(
+      (candidate) => candidate.pendingQuestion?.id === event.questionId
+    );
+
+    if (!session) {
+      return {};
+    }
+
+    const updated = applyLiveSessionEvent(session, event);
+
+    return {
+      sessions: { ...state.sessions, [updated.id]: updated }
     };
   }
 

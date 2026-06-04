@@ -232,6 +232,21 @@ function applyLiveSessionEventImmutable(
     return next;
   }
 
+  if (event.type === "question.requested") {
+    next.runtimeStatus = "awaiting_approval";
+    next.pendingQuestion = event.question;
+    return next;
+  }
+
+  if (event.type === "question.resolved") {
+    // The engine resumes the turn once answered.
+    if (next.pendingQuestion?.id === event.questionId) {
+      next.pendingQuestion = undefined;
+      next.runtimeStatus = "running";
+    }
+    return next;
+  }
+
   if (event.type === "error") {
     next.runtimeStatus = "error";
     next.pendingItems = [];
