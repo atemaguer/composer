@@ -58,14 +58,17 @@ export const focusRing =
 export const warningFocusRing =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-[color:color-mix(in_srgb,var(--color-app-orange)_70%,transparent)]";
 
+export const disabledMuted =
+  "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-app-muted disabled:hover:border-transparent";
+
 export const iconButton =
-  `app-no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${appSoftBorder} ${appSoftSurface} text-app-muted/85 ${appInsetHighlight} transition-colors hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
+  `app-no-drag inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border ${appSoftBorder} ${appSoftSurface} text-app-muted/85 ${appInsetHighlight} transition-colors hover:bg-app-text/[0.08] hover:text-app-text ${focusRing} ${disabledMuted}`;
 
 export const subtleIconButton =
-  `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
+  `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:bg-app-text/[0.08] hover:text-app-text ${focusRing} ${disabledMuted}`;
 
 export const nestedIconButton =
-  `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:text-app-text ${focusRing}`;
+  `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-app-muted transition-colors hover:text-app-text ${focusRing} ${disabledMuted}`;
 
 export const titlebarControlRow =
   "flex min-w-0 items-center gap-1.5 py-0 pl-[var(--app-titlebar-control-left-inset)] transition-[padding-left] duration-[180ms] ease-out motion-reduce:transition-none";
@@ -74,7 +77,7 @@ export const primaryIconButton =
   `inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-app-text text-app-bg transition-colors hover:bg-app-text/95 disabled:cursor-not-allowed disabled:opacity-45 ${focusRing}`;
 
 export const pillButton =
-  `inline-flex items-center rounded-full border border-transparent bg-transparent text-app-muted transition-colors hover:border-app-line hover:bg-app-text/[0.08] hover:text-app-text ${focusRing}`;
+  `inline-flex items-center rounded-full border border-transparent bg-transparent text-app-muted transition-colors hover:border-app-line hover:bg-app-text/[0.08] hover:text-app-text ${focusRing} ${disabledMuted}`;
 
 export const cardSurface =
   `rounded-[18px] border ${appSoftBorder} bg-app-panel-2 ${appPanelShadowSoft}`;
@@ -92,4 +95,4 @@ export const primaryButton =
   `inline-flex items-center justify-center rounded-full bg-app-text text-app-bg transition-colors hover:bg-app-text/95 disabled:cursor-not-allowed disabled:opacity-45 ${focusRing}`;
 
 export const secondaryButton =
-  `inline-flex items-center justify-center rounded-full border ${appSoftBorder} bg-app-text/[0.055] text-app-muted transition-colors hover:bg-app-text/[0.1] hover:text-app-text ${focusRing}`;
+  `inline-flex items-center justify-center rounded-full border ${appSoftBorder} bg-app-text/[0.055] text-app-muted transition-colors hover:bg-app-text/[0.1] hover:text-app-text ${focusRing} disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-app-text/[0.055] disabled:hover:text-app-muted`;

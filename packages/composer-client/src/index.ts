@@ -152,6 +152,12 @@ const providerDefinitions = [
       {
         value: "claude-opus-4-8",
         label: "Claude Opus 4.8",
+        detail: "Most capable model for complex reasoning and agentic coding",
+        efforts: ["Low", "Medium", "High", "Extra High"]
+      },
+      {
+        value: "claude-opus-4-7",
+        label: "Claude Opus 4.7",
         detail: "Deep reasoning model",
         efforts: ["Low", "Medium", "High", "Extra High"]
       }

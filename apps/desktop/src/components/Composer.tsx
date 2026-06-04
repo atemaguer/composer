@@ -546,7 +546,7 @@ export function PromptComposer({
         <textarea
           ref={textareaRef}
           aria-label="Ask Composer"
-          className="thin-scrollbar mt-0.5 min-h-7 w-full resize-none rounded-md bg-transparent px-1 text-[13px] leading-6 text-app-text outline-none placeholder:text-app-dim focus-visible:outline-none focus-visible:ring-0"
+          className="thin-scrollbar mt-0.5 min-h-7 w-full resize-none rounded-md bg-transparent px-1 text-[13px] leading-6 text-app-text outline-none placeholder:text-app-dim focus-visible:outline-none focus-visible:ring-0 disabled:cursor-not-allowed disabled:opacity-45 disabled:placeholder:text-app-dim/60"
           placeholder={placeholder}
           rows={textareaRows}
           value={value}
@@ -596,7 +596,8 @@ export function PromptComposer({
                   "bg-transparent",
                   appWarningText,
                   appWarningHoverSurface,
-                  warningFocusRing
+                  warningFocusRing,
+                  "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-transparent disabled:hover:bg-transparent"
                 )}
                 disabled={disabled}
                 onClick={() => setPermissionOpen(!permissionOpen)}
@@ -1129,7 +1130,8 @@ function ProviderDropdown({
           "composer-provider-button inline-flex h-[30px] min-w-0 max-w-[132px] shrink-0 items-center gap-1.5 rounded-full border px-2.5 text-[13px] text-app-text transition-colors",
           "border-transparent hover:border-app-line",
           "bg-transparent",
-          appHoverSurface
+          appHoverSurface,
+          "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-transparent disabled:hover:bg-transparent"
         )}
         disabled={disabled}
         onClick={() => setOpen(!open)}

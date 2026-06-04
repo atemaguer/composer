@@ -165,7 +165,8 @@ export function NewSessionPage({
                 className={cn(
                   "rounded-full border border-app-line bg-transparent px-3 py-1.5 text-[12.5px] text-app-muted transition-colors hover:border-app-line hover:text-app-text",
                   appHoverSurfaceSubtle,
-                  focusRing
+                  focusRing,
+                  "disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-transparent disabled:hover:text-app-muted"
                 )}
                 disabled={composer.disabled}
                 onClick={() => startWith(starter.prompt)}
