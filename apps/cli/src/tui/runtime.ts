@@ -30,6 +30,11 @@ export type RuntimeApi = {
   interrupt: () => void;
   /** Resolve an outstanding approval over the event socket. */
   resolveApproval: (approvalId: string, decision: ApprovalDecision) => void;
+  /** Answer an open clarifying question with the selected option(s). */
+  answerQuestion: (
+    questionId: string,
+    answers: Array<{ questionId: string; selected: string[] }>
+  ) => void;
   /** Hydrate a past session (if needed) and select it. */
   loadSession: (sessionId: string) => void;
   /** Ask the server for a fresh session snapshot. */
@@ -238,6 +243,17 @@ export function useRuntime(connection: {
     [dispatch]
   );
 
+  const answerQuestion = useCallback(
+    (
+      questionId: string,
+      answers: Array<{ questionId: string; selected: string[] }>
+    ) => {
+      // The runtime broadcasts question.resolved (clearing pendingQuestion).
+      socketRef.current?.resolveQuestion(questionId, answers);
+    },
+    []
+  );
+
   const loadSession = useCallback(
     (sessionId: string) => {
       const existing = stateRef.current.sessions[sessionId];
@@ -369,6 +385,7 @@ export function useRuntime(connection: {
       cancelQueued,
       interrupt,
       resolveApproval,
+      answerQuestion,
       loadSession,
       refreshSessions,
       loadReviewDiff,
@@ -385,6 +402,7 @@ export function useRuntime(connection: {
       cancelQueued,
       interrupt,
       resolveApproval,
+      answerQuestion,
       loadSession,
       refreshSessions,
       loadReviewDiff,

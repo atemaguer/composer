@@ -18,6 +18,9 @@ import type {
   ConversationItem,
   IntelligenceMode,
   PermissionMode,
+  QuestionAnswer,
+  QuestionItem,
+  QuestionRequest,
   SessionContent,
   SessionCompactionSummary,
   ToolDetail
@@ -55,6 +58,10 @@ export class CodexProvider implements AgentProvider {
     string,
     (approval: Omit<ApprovalRequest, "id">) => Promise<ApprovalDecision>
   >();
+  private questionHandlers = new Map<
+    string,
+    (question: Omit<QuestionRequest, "id">) => Promise<QuestionAnswer[]>
+  >();
   private compactionCollectors = new Map<string, CompactionCollector>();
   private cancelledSessions = new Set<string>();
   private lineBuffer = "";
@@ -64,6 +71,7 @@ export class CodexProvider implements AgentProvider {
       await this.ensureStarted();
       this.sinks.set(request.sessionId, request.emit);
       this.approvalHandlers.set(request.sessionId, request.askApproval);
+      this.questionHandlers.set(request.sessionId, request.askQuestion);
 
       const cwd = defaultCwd(request.session);
       const threadId = await this.ensureThread(
@@ -259,6 +267,7 @@ export class CodexProvider implements AgentProvider {
     this.sinks.clear();
     this.loadedThreads.clear();
     this.approvalHandlers.clear();
+    this.questionHandlers.clear();
     for (const collector of this.compactionCollectors.values()) {
       collector.reject(new Error("Codex provider disposed"));
     }
@@ -509,6 +518,28 @@ export class CodexProvider implements AgentProvider {
 
     if (!session) {
       this.write({ id, result: { decision: "decline" } });
+      return;
+    }
+
+    // Structured clarifying question (experimental app-server method). Surface
+    // the options to the user and return their selection. The exact request /
+    // response schema is still experimental in Codex, so parse defensively and
+    // fall back to passing the question through if it can't be understood.
+    if (isCodexQuestionMethod(method)) {
+      const questions = parseCodexQuestions(params, session.id);
+      const askQuestion = this.questionHandlers.get(session.id);
+
+      if (questions.length > 0 && askQuestion) {
+        const answers = await askQuestion({
+          provider: "codex",
+          sessionId: session.id,
+          questions
+        });
+        this.write({ id, result: codexQuestionResult(questions, answers) });
+        return;
+      }
+
+      this.write({ id, result: { answers: [] } });
       return;
     }
 
@@ -862,6 +893,81 @@ function stringifyErrorRecord(record: JsonRecord) {
   }
 
   return Object.keys(record).length ? JSON.stringify(record) : undefined;
+}
+
+function isCodexQuestionMethod(method: string) {
+  return (
+    method === "tool/requestUserInput" ||
+    method.endsWith("requestUserInput") ||
+    method.endsWith("askUserQuestion")
+  );
+}
+
+// Parse a Codex request_user_input payload into Composer's QuestionItem[].
+// Field names vary across experimental builds, so accept the common aliases.
+function parseCodexQuestions(params: JsonRecord, sessionId: string): QuestionItem[] {
+  const raw = Array.isArray(params.questions)
+    ? params.questions
+    : Array.isArray(params.inputs)
+      ? params.inputs
+      : [];
+
+  return raw
+    .map((entry, index): QuestionItem | null => {
+      const record = asRecord(entry);
+      const question =
+        asString(record.question) ?? asString(record.prompt) ?? asString(record.text) ?? "";
+      if (!question) {
+        return null;
+      }
+
+      const rawOptions = Array.isArray(record.options)
+        ? record.options
+        : Array.isArray(record.choices)
+          ? record.choices
+          : [];
+      const options: QuestionItem["options"] = [];
+      for (const option of rawOptions) {
+        if (typeof option === "string") {
+          options.push({ label: option });
+          continue;
+        }
+        const optionRecord = asRecord(option);
+        const label = asString(optionRecord.label) ?? asString(optionRecord.name) ?? asString(optionRecord.value);
+        if (label) {
+          options.push({ label, description: asString(optionRecord.description) });
+        }
+      }
+
+      return {
+        id: asString(record.id) ?? `${sessionId}-codex-q${index}`,
+        question,
+        header: asString(record.header) ?? asString(record.title),
+        multiSelect: record.multiSelect === true || record.allowMultiple === true,
+        allowCustom: true,
+        options
+      };
+    })
+    .filter((item): item is QuestionItem => item !== null);
+}
+
+// Best-effort response shape — provides the selection in several common forms
+// (array + joined string, keyed by question text and id) since the exact schema
+// is experimental.
+function codexQuestionResult(questions: QuestionItem[], answers: QuestionAnswer[]) {
+  const byId = new Map(answers.map((answer) => [answer.questionId, answer.selected]));
+
+  return {
+    answers: questions.map((question) => {
+      const selected = byId.get(question.id) ?? [];
+      return {
+        id: question.id,
+        question: question.question,
+        selected,
+        answer: selected.join(", ")
+      };
+    })
+  };
 }
 
 function codexApproval(

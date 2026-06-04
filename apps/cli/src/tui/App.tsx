@@ -18,6 +18,7 @@ import { StatusBar } from "./components/StatusBar.js";
 import { DialogHost } from "./components/DialogHost.js";
 import { InlineDialog } from "./components/InlineDialog.js";
 import { AdoptPrompt } from "./components/AdoptPrompt.js";
+import { QuestionPrompt } from "./components/QuestionPrompt.js";
 import { Home } from "./routes/Home.js";
 
 const PERMISSION_CYCLE: PermissionMode[] = [
@@ -43,6 +44,8 @@ export function App({
   // When a finished Compose turn needs a thread chosen, an inline picker above
   // the input owns the keyboard (arrows/Enter) until the user adopts.
   const adoptPrompt = needsParallelAdoption(activeSession(state));
+  // An open clarifying question owns the keyboard the same way until answered.
+  const questionPrompt = Boolean(activeSession(state)?.pendingQuestion);
 
   const exit = () => {
     renderer.destroy();
@@ -139,6 +142,11 @@ export function App({
       return;
     }
 
+    // An open clarifying question's picker owns arrows/Enter until answered.
+    if (questionPrompt) {
+      return;
+    }
+
     // Slash autocomplete navigation. preventDefault stops the focused input
     // from also acting on these keys (see InternalKeyHandler ordering).
     if (state.autocomplete.open) {
@@ -229,13 +237,14 @@ export function App({
     <box style={{ width: "100%", height: "100%", flexDirection: "column" }}>
       {showHome ? <Home /> : <Conversation />}
       {adoptPrompt ? <AdoptPrompt runtime={runtime} /> : null}
+      {questionPrompt ? <QuestionPrompt runtime={runtime as RuntimeApi} /> : null}
       {/* Slash-command pickers (/model, /provider, …) render inline here, just
           above the prompt; other dialogs stay modal via DialogHost below. */}
       <InlineDialog runtime={runtime as RuntimeApi} />
       <QueuedMessages />
       <Composer
         onSubmit={submit}
-        focused={!dialogOpen && !adoptPrompt}
+        focused={!dialogOpen && !adoptPrompt && !questionPrompt}
       />
       <StatusBar />
       <DialogHost runtime={runtime as RuntimeApi} />
