@@ -80,6 +80,10 @@ export function NewSessionPage({
     composer.provider === "meta" && !seenCompareExplainer;
 
   function startWith(prompt: string) {
+    if (composer.disabled) {
+      return;
+    }
+
     setPrompt(prompt);
     // Starter prompts are designed to showcase Compose, so always run the first
     // one in parallel even if the user previously switched to a single engine.
@@ -163,6 +167,7 @@ export function NewSessionPage({
                   appHoverSurfaceSubtle,
                   focusRing
                 )}
+                disabled={composer.disabled}
                 onClick={() => startWith(starter.prompt)}
               >
                 {starter.label}

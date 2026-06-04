@@ -2165,6 +2165,7 @@ export default function App() {
       // Composer (which subscribes to the prompt). App only contributes the
       // parts that don't depend on per-keystroke prompt text.
       submitDisabled: submitMode === "send" && activeSessionNeedsParallelAdoption,
+      disabled: sessionsLoading,
       requireNonEmptyPrompt:
         submitMode === "send" && reviewCommentAttachments.length === 0,
       imageAttachments,
@@ -2216,6 +2217,7 @@ export default function App() {
       setPermission,
       setPermissionOpen,
       setComposerProvider,
+      sessionsLoading,
       submitMode
     ]
   );
