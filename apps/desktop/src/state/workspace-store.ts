@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
 import type { PromptComposerFooterOption } from "../components/Composer";
-import type { SessionContent } from "../types";
+import type { SessionContent, SessionProvider } from "../types";
 
 export type WorkspaceOption = PromptComposerFooterOption;
 
@@ -13,13 +13,22 @@ const workspacePreferencesStorageKey = "composer.workspace.preferences";
 type PersistedWorkspacePreferences = {
   workspaceOptions: WorkspaceOption[];
   selectedWorkspaceId: string;
+  defaultProviderByWorkspace: Record<string, SessionProvider>;
 };
 
 export type WorkspaceStore = {
   workspaceOptions: WorkspaceOption[];
   selectedWorkspaceId: string;
+  defaultProviderByWorkspace: Record<string, SessionProvider>;
   setWorkspaceOptions: (next: Updater<WorkspaceOption[]>) => void;
   setSelectedWorkspaceId: (next: Updater<string>) => void;
+  setWorkspaceDefaultProvider: (
+    workspaceId: string | undefined,
+    provider: SessionProvider
+  ) => void;
+  getWorkspaceDefaultProvider: (
+    workspaceId: string | undefined
+  ) => SessionProvider | undefined;
   selectWorkspace: (workspace: WorkspaceOption | string | undefined) => void;
   upsertWorkspaceOption: (workspace: WorkspaceOption | undefined) => void;
   addWorkspaceOption: (workspace: WorkspaceOption | undefined) => void;
@@ -41,6 +50,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
     (set, get) => ({
       workspaceOptions: initialPreferences.workspaceOptions,
       selectedWorkspaceId: initialPreferences.selectedWorkspaceId,
+      defaultProviderByWorkspace: initialPreferences.defaultProviderByWorkspace,
       setWorkspaceOptions: (next) =>
         set((state) => {
           const workspaceOptions = mergeWorkspaceOptions(
@@ -58,6 +68,28 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
 
           return { selectedWorkspaceId };
         }),
+      setWorkspaceDefaultProvider: (workspaceId, provider) =>
+        set((state) => {
+          const normalizedId = normalizeWorkspaceId(workspaceId);
+
+          if (!normalizedId) {
+            return {};
+          }
+
+          return {
+            defaultProviderByWorkspace: {
+              ...state.defaultProviderByWorkspace,
+              [normalizedId]: provider
+            }
+          };
+        }),
+      getWorkspaceDefaultProvider: (workspaceId) => {
+        const normalizedId = normalizeWorkspaceId(workspaceId);
+
+        return normalizedId
+          ? get().defaultProviderByWorkspace[normalizedId]
+          : undefined;
+      },
       selectWorkspace: (workspace) =>
         set((state) => {
           if (!workspace) {
@@ -96,17 +128,23 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }),
       removeWorkspaceOption: (workspaceId) =>
         set((state) => {
-          const normalizedId = normalizePathKey(workspaceId);
+          const normalizedId = normalizeWorkspaceId(workspaceId);
           const workspaceOptions = state.workspaceOptions.filter(
             (workspace) =>
-              normalizePathKey(workspace.cwd ?? workspace.id) !== normalizedId
+              normalizeWorkspaceId(workspace.cwd ?? workspace.id) !== normalizedId
           );
           const selectedWorkspaceId =
-            normalizePathKey(state.selectedWorkspaceId) === normalizedId
+            normalizeWorkspaceId(state.selectedWorkspaceId) === normalizedId
               ? workspaceOptions[0]?.id ?? ""
               : state.selectedWorkspaceId;
+          const { [normalizedId]: _removed, ...defaultProviderByWorkspace } =
+            state.defaultProviderByWorkspace;
 
-          return { workspaceOptions, selectedWorkspaceId };
+          return {
+            workspaceOptions,
+            selectedWorkspaceId,
+            defaultProviderByWorkspace
+          };
         }),
       mergeWorkspaceOptions: (workspaces) =>
         set((state) => {
@@ -143,7 +181,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         return getSelectedWorkspace(workspaceOptions, selectedWorkspaceId);
       },
       resetWorkspacePreferences: () => {
-        set({ workspaceOptions: [], selectedWorkspaceId: "" });
+        set({
+          workspaceOptions: [],
+          selectedWorkspaceId: "",
+          defaultProviderByWorkspace: {}
+        });
       }
     }),
     {
@@ -151,7 +193,8 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state): PersistedWorkspacePreferences => ({
         workspaceOptions: state.workspaceOptions,
-        selectedWorkspaceId: state.selectedWorkspaceId
+        selectedWorkspaceId: state.selectedWorkspaceId,
+        defaultProviderByWorkspace: state.defaultProviderByWorkspace
       }),
       merge: (persistedState, currentState) => {
         const persisted =
@@ -161,11 +204,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         );
         const selectedWorkspaceId =
           persisted?.selectedWorkspaceId ?? currentState.selectedWorkspaceId;
+        const defaultProviderByWorkspace = normalizeProviderMap({
+          ...currentState.defaultProviderByWorkspace,
+          ...persisted?.defaultProviderByWorkspace
+        });
 
         return {
           ...currentState,
           workspaceOptions,
-          selectedWorkspaceId
+          selectedWorkspaceId,
+          defaultProviderByWorkspace
         };
       }
     }
@@ -241,7 +289,8 @@ function normalizeWorkspaceOption(
 function loadPersistedPreferences(): PersistedWorkspacePreferences {
   const empty: PersistedWorkspacePreferences = {
     workspaceOptions: [],
-    selectedWorkspaceId: ""
+    selectedWorkspaceId: "",
+    defaultProviderByWorkspace: {}
   };
 
   try {
@@ -262,7 +311,10 @@ function loadPersistedPreferences(): PersistedWorkspacePreferences {
       selectedWorkspaceId:
         typeof state?.selectedWorkspaceId === "string"
           ? state.selectedWorkspaceId
-          : ""
+          : "",
+      defaultProviderByWorkspace: normalizeProviderMap(
+        state?.defaultProviderByWorkspace
+      )
     };
   } catch {
     return empty;
@@ -273,8 +325,32 @@ function basename(filePath: string) {
   return filePath.replace(/\/+$/, "").split("/").pop() || filePath;
 }
 
-function normalizePathKey(value: string) {
-  return value.replace(/\/+$/, "");
+function normalizeWorkspaceId(value: string | undefined) {
+  return value?.replace(/\/+$/, "") ?? "";
+}
+
+function normalizeProviderMap(
+  value: Partial<Record<string, SessionProvider>> | undefined
+): Record<string, SessionProvider> {
+  const next: Record<string, SessionProvider> = {};
+
+  if (!value) {
+    return next;
+  }
+
+  for (const [workspaceId, provider] of Object.entries(value)) {
+    const normalizedId = normalizeWorkspaceId(workspaceId);
+
+    if (normalizedId && isSessionProvider(provider)) {
+      next[normalizedId] = provider;
+    }
+  }
+
+  return next;
+}
+
+function isSessionProvider(value: unknown): value is SessionProvider {
+  return value === "codex" || value === "claude" || value === "meta";
 }
 
 function resolveNextValue<T>(next: Updater<T>, current: T) {

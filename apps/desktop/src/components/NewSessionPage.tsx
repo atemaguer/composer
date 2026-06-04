@@ -68,8 +68,6 @@ export function NewSessionPage({
   onWorkspaceCreate,
   onWorkspaceUseExistingFolder
 }: NewSessionPageProps) {
-  const provider = useComposerStore((state) => state.provider);
-  const setProvider = useComposerStore((state) => state.setProvider);
   const setPrompt = useComposerStore((state) => state.setPrompt);
   const seenCompareExplainer = useOnboardingStore(
     (state) => state.seenCompareExplainer
@@ -78,13 +76,14 @@ export function NewSessionPage({
     (state) => state.dismissCompareExplainer
   );
 
-  const showCompareExplainer = provider === "meta" && !seenCompareExplainer;
+  const showCompareExplainer =
+    composer.provider === "meta" && !seenCompareExplainer;
 
   function startWith(prompt: string) {
     setPrompt(prompt);
     // Starter prompts are designed to showcase Compose, so always run the first
     // one in parallel even if the user previously switched to a single engine.
-    setProvider("meta");
+    composer.setProvider("meta");
   }
 
   const footerItems: PromptComposerFooterItem[] = [
