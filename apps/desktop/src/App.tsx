@@ -98,6 +98,25 @@ import type {
 
 type NewSessionWorkTarget = "local" | "worktree";
 
+/**
+ * Returns the last provider used in the given workspace by finding the most
+ * recently updated top-level thread in the matching project. Threads are
+ * stored most-recent-first by upsertSessionProject, so threads[0] is the
+ * latest. Falls back to undefined when the workspace has no sessions yet.
+ */
+function getLastProviderForWorkspace(
+  workspaceId: string,
+  projects: Project[]
+): SessionProvider | undefined {
+  if (!workspaceId) return undefined;
+  const normalizedId = workspaceId.replace(/\/+$/, "");
+  const project = projects.find(
+    (p) => (p.id ?? p.cwd ?? "").replace(/\/+$/, "") === normalizedId
+  );
+  // threads[0] is the most recent; skip any that have no provider set.
+  return project?.threads.find((t) => t.provider)?.provider;
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -366,16 +385,38 @@ export default function App() {
   const activeModel = modelByProvider[activeProvider];
   const activeIntelligence = intelligenceByProvider[activeProvider];
 
-  // New sessions default to Compose (parallel). Whenever the app leaves a
-  // session for the new-session view, reset the provider to Compose — but don't
-  // fight the user if they switch it while already on the new-session page.
+  // New sessions default to the last provider used in the current workspace.
+  // Whenever the app leaves a session for the new-session view, restore that
+  // provider — but don't fight the user if they switch it while already on
+  // the new-session page. Falls back to Compose ("meta") for fresh workspaces.
   const previousSelectedThreadRef = useRef(selectedThread);
   useEffect(() => {
     if (previousSelectedThreadRef.current && !selectedThread) {
-      setProvider("meta");
+      const lastWorkspaceProvider = getLastProviderForWorkspace(
+        selectedWorkspaceId,
+        projects
+      );
+      setProvider(lastWorkspaceProvider ?? "meta");
     }
     previousSelectedThreadRef.current = selectedThread;
-  }, [selectedThread, setProvider]);
+  }, [selectedThread, setProvider, selectedWorkspaceId, projects]);
+
+  // When the user switches workspaces on the new-session page, update the
+  // provider to the last one used in the newly selected workspace.
+  const previousWorkspaceIdRef = useRef(selectedWorkspaceId);
+  useEffect(() => {
+    const previousId = previousWorkspaceIdRef.current;
+    previousWorkspaceIdRef.current = selectedWorkspaceId;
+    if (previousId !== selectedWorkspaceId && !selectedThread) {
+      const lastWorkspaceProvider = getLastProviderForWorkspace(
+        selectedWorkspaceId,
+        projects
+      );
+      if (lastWorkspaceProvider) {
+        setProvider(lastWorkspaceProvider);
+      }
+    }
+  }, [selectedWorkspaceId, selectedThread, projects, setProvider]);
   const resolvedNewSessionWorkTarget: NewSessionWorkTarget =
     workspaceGitAvailable === false ? "local" : newSessionWorkTarget;
   const activeSessionNeedsParallelAdoption =
@@ -2854,6 +2895,9 @@ function needsParallelAdoption(session: SessionContent) {
     session.provider === "meta" &&
     session.renderMode === "hybrid" &&
     isCompareAgentsModel(session.model) &&
+    // Only offer adoption once the parallel run has stopped (completed or
+    // interrupted) — not mid-stream — matching the CLI's gate.
+    session.runtimeStatus !== "running" &&
     Boolean(session.providerSessions?.codex?.sessionId) &&
     Boolean(session.providerSessions?.claude?.sessionId) &&
     !session.parallelAdoptedProvider

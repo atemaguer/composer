@@ -71,7 +71,16 @@ const PARALLEL_DELEGATES = {
 export class MetaProvider implements AgentProvider {
   private codex = new CodexProvider();
   private claude = new ClaudeProvider();
-  private activeDelegates = new Map<string, Partial<Record<DelegateProvider, string>>>();
+  // Keep the parent + delegate session objects so interrupt() can finalize
+  // providerSessions from whatever the delegates reached (their providerSessionId
+  // is set early during the run), letting the user adopt a thread after stopping.
+  private activeDelegates = new Map<
+    string,
+    { session: SessionContent; codex: SessionContent; claude: SessionContent }
+  >();
+  // Sessions the user explicitly interrupted — suppresses the delegate-failure
+  // error so a stop reads as "choose a thread", not a failure.
+  private interrupted = new Set<string>();
   private persistence: Pick<RuntimePersistence, "upsertProviderSessions">;
 
   constructor(options: MetaProviderOptions = {}) {
@@ -110,8 +119,9 @@ export class MetaProvider implements AgentProvider {
     };
 
     this.activeDelegates.set(request.sessionId, {
-      codex: delegateSessions.codex.id,
-      claude: delegateSessions.claude.id
+      session: request.session,
+      codex: delegateSessions.codex,
+      claude: delegateSessions.claude
     });
 
     request.emit({
@@ -184,7 +194,9 @@ export class MetaProvider implements AgentProvider {
             ? result.reason.message
             : String(result.reason));
 
-        if (failures.length > 0) {
+        // A user-initiated stop settles the delegates as failures; don't surface
+        // that as an error — the session is now ready for thread adoption.
+        if (failures.length > 0 && !this.interrupted.has(request.sessionId)) {
           throw new Error(failures.join("\n"));
         }
 
@@ -270,16 +282,35 @@ export class MetaProvider implements AgentProvider {
       });
     } finally {
       this.activeDelegates.delete(request.sessionId);
+      this.interrupted.delete(request.sessionId);
     }
   }
 
   async interrupt(sessionId: string) {
     const active = this.activeDelegates.get(sessionId);
 
+    if (!active) {
+      return;
+    }
+
+    this.interrupted.add(sessionId);
+
     await Promise.all([
-      active?.codex ? this.codex.interrupt(active.codex) : undefined,
-      active?.claude ? this.claude.interrupt(active.claude) : undefined
+      this.codex.interrupt(active.codex.id),
+      this.claude.interrupt(active.claude.id)
     ]);
+
+    // Finalize providerSessions from whatever the delegates reached so the user
+    // can adopt a thread immediately — even if a delegate abruptly stopped and
+    // the parallel run never settles on its own. The delegate providerSessionIds
+    // are populated early during each run (codex thread / claude session id).
+    const state = readMetaState(active.session.providerSessionId);
+    state.codex = active.codex.providerSessionId ?? state.codex;
+    state.claude = active.claude.providerSessionId ?? state.claude;
+    state.codexCwd = active.codex.cwd ?? state.codexCwd;
+    state.claudeCwd = active.claude.cwd ?? state.claudeCwd;
+    writeMetaState(active.session, state);
+    writeParallelProviderSessions(active.session, state);
   }
 
   async dispose() {

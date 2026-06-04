@@ -800,6 +800,18 @@ export class AgentRuntime {
       await this.providers[provider].interrupt(sessionId);
     }
 
+    // Interrupting a compose (parallel) run finalizes providerSessions on the
+    // session (the meta provider just wrote them). Broadcast the session so
+    // clients can offer the adopt picker right away — this is the path that
+    // works even when a delegate abruptly stopped and the run never settled.
+    if (session.provider === "meta") {
+      this.apply({
+        id: randomUUID(),
+        type: "session.updated",
+        session
+      });
+    }
+
     this.apply({
       id: randomUUID(),
       type: "turn.completed",
