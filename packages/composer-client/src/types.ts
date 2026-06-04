@@ -94,6 +94,17 @@ export type AgentImageAttachment = {
   path?: string;
 };
 
+// A user message typed while a run is active, parked in the session's FIFO
+// queue until the current turn completes (or is steered). Provider is captured
+// at enqueue time so a queued message runs on the engine it was sent with.
+export type QueuedUserMessage = {
+  id: string;
+  body: string;
+  provider: SessionProvider;
+  imageAttachments?: AgentImageAttachment[];
+  createdAt: string;
+};
+
 export type DiffRowData = [line: string, tone: string, code: string];
 
 export type ReviewDiffLine = {
@@ -321,6 +332,9 @@ export type SessionContent = {
   parallelAdoptedProvider?: DelegateSessionProvider;
   handoffSummaries?: SessionHandoffSummary[];
   compactionSummaries?: SessionCompactionSummary[];
+  // User messages queued while a run is active, in FIFO order. Drained one per
+  // turn completion. Empty/absent when nothing is queued.
+  queuedMessages?: QueuedUserMessage[];
   runtimeStatus?: AgentSessionRuntimeStatus;
   contentLoaded?: boolean;
   title: string;
@@ -463,6 +477,9 @@ export type LiveAgentEvent =
       // Items to append to the session timeline (e.g. a just-sent user message).
       // Items whose id already exists are replaced in place, not duplicated.
       appendedItems?: ConversationItem[];
+      // Full current FIFO of queued user messages (replaces, not merges). An
+      // empty array clears the queue. Absent means "unchanged".
+      queuedMessages?: QueuedUserMessage[];
     }
   | { id: string; type: "session.removed"; sessionId: string }
   | {

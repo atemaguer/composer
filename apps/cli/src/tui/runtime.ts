@@ -20,8 +20,12 @@ import { activeSession, type TuiState } from "./types.js";
  * and manages its own async work; results flow back through reducer dispatches.
  */
 export type RuntimeApi = {
-  /** Send a prompt to the runtime; ignored when blank or already busy. */
+  /** Send a prompt to the runtime; when a turn is running it queues behind it. */
   sendPrompt: (prompt: string) => void;
+  /** "Send now" a queued message (front by default): Codex injects, Claude interrupts. */
+  steerQueue: (queuedId?: string) => void;
+  /** Remove a not-yet-run queued message. */
+  cancelQueued: (queuedId: string) => void;
   /** Abort the in-flight request (both locally and on the server). */
   interrupt: () => void;
   /** Resolve an outstanding approval over the event socket. */
@@ -113,7 +117,7 @@ export function useRuntime(connection: {
       const trimmed = prompt.trim();
       const current = stateRef.current;
 
-      if (!trimmed || current.busy) {
+      if (!trimmed) {
         return;
       }
 
@@ -124,20 +128,31 @@ export function useRuntime(connection: {
       const cwd = current.cwd;
       const sessionId = current.selectedThread ?? undefined;
       const requestId = crypto.randomUUID();
-      lastRequestIdRef.current = requestId;
 
-      // Optimistically render the user's message. A brand-new conversation is
-      // keyed by requestId until `session.started` migrates it to the real id.
-      dispatch({
-        type: "userMessage",
-        sessionId: sessionId ?? requestId,
-        body: trimmed,
-        isNew: !sessionId
-      });
+      // While a turn is running, a send queues behind it (the runtime parks it
+      // until the turn completes). A queued message must NOT render an optimistic
+      // transcript bubble (it lives in the queue accordion until drained) and
+      // must NOT disturb the active turn's abort/busy bookkeeping. It surfaces
+      // via the queued session.patch over the socket.
+      const queueing = current.busy && Boolean(sessionId);
+
+      if (!queueing) {
+        lastRequestIdRef.current = requestId;
+        // Optimistically render the user's message. A brand-new conversation is
+        // keyed by requestId until `session.started` migrates it to the real id.
+        dispatch({
+          type: "userMessage",
+          sessionId: sessionId ?? requestId,
+          body: trimmed,
+          isNew: !sessionId
+        });
+      }
       dispatch({ type: "setInput", value: "" });
 
       const controller = new AbortController();
-      abortRef.current = controller;
+      if (!queueing) {
+        abortRef.current = controller;
+      }
 
       void (async () => {
         try {
@@ -157,16 +172,47 @@ export function useRuntime(connection: {
         } catch (err) {
           if (err instanceof Error && err.name === "AbortError") {
             // Interruption is expected; the reducer handles UI state.
-          } else {
+          } else if (!queueing) {
             dispatch({ type: "setError", error: String(err) });
           }
         } finally {
-          dispatch({ type: "setBusy", busy: false });
+          if (!queueing) {
+            dispatch({ type: "setBusy", busy: false });
+          }
           if (abortRef.current === controller) {
             abortRef.current = null;
           }
         }
       })();
+    },
+    [client, dispatch]
+  );
+
+  // "Send now": steer a queued message into the active run (front of the queue
+  // by default). Codex injects it; Claude interrupts and runs it next.
+  const steerQueue = useCallback(
+    (queuedId?: string) => {
+      const sessionId = stateRef.current.selectedThread;
+      if (!sessionId) {
+        return;
+      }
+      void client
+        .steer(sessionId, queuedId)
+        .catch((err) => dispatch({ type: "setError", error: String(err) }));
+    },
+    [client, dispatch]
+  );
+
+  // Remove a not-yet-run queued message.
+  const cancelQueued = useCallback(
+    (queuedId: string) => {
+      const sessionId = stateRef.current.selectedThread;
+      if (!sessionId) {
+        return;
+      }
+      void client
+        .cancelQueuedMessage(sessionId, queuedId)
+        .catch((err) => dispatch({ type: "setError", error: String(err) }));
     },
     [client, dispatch]
   );
@@ -319,6 +365,8 @@ export function useRuntime(connection: {
   return useMemo(
     () => ({
       sendPrompt,
+      steerQueue,
+      cancelQueued,
       interrupt,
       resolveApproval,
       loadSession,
@@ -333,6 +381,8 @@ export function useRuntime(connection: {
     }),
     [
       sendPrompt,
+      steerQueue,
+      cancelQueued,
       interrupt,
       resolveApproval,
       loadSession,

@@ -145,6 +145,31 @@ export class CodexProvider implements AgentProvider {
     }
   }
 
+  // Native steer: inject the message into the in-flight turn (no new turn).
+  // Returns false when there's no active turn or the app-server rejects it, so
+  // the runtime can fall back to interrupt-and-run.
+  async steer(
+    sessionId: string,
+    input: Parameters<NonNullable<AgentProvider["steer"]>>[1]
+  ): Promise<boolean> {
+    const active = this.activeTurns.get(sessionId);
+
+    if (!active?.turnId) {
+      return false;
+    }
+
+    try {
+      await this.request("turn/steer", {
+        threadId: active.threadId,
+        turnId: active.turnId,
+        input: codexInput(input.prompt, input.imageAttachments)
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async compact(request: Parameters<NonNullable<AgentProvider["compact"]>>[0]) {
     await this.ensureStarted();
 

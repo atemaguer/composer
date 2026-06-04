@@ -82,6 +82,7 @@ import type {
   ProviderFilter,
   Project,
   ProjectThread,
+  QueuedUserMessage,
   ReviewDiff,
   ReviewBranchList,
   ReviewDiffFile,
@@ -340,6 +341,8 @@ export default function App() {
   const filePreviewRequestIdRef = useRef(0);
 
   const activeSessionItems = activeSession?.items ?? emptyConversationItems;
+  const activeSessionQueuedMessages =
+    activeSession?.queuedMessages ?? emptyQueuedMessages;
   // Re-key the backward scan on the items array reference: every mutating branch
   // of applyLiveSessionEvent (incl. tool.completed) assigns a NEW items array
   // while no-op branches reuse it, and the no-session case falls back to the
@@ -1004,7 +1007,11 @@ export default function App() {
       reviewCommentAttachments
     );
 
-    if (!promptWithComments || submitMode === "stop") {
+    // A non-empty submit while a run is active (submitMode === "stop") is a
+    // queued follow-up: the runtime parks it behind the active turn. Only an
+    // empty prompt is rejected. (The textarea gates Enter so this is reached
+    // only with real text; the footer button still maps to Stop while running.)
+    if (!promptWithComments) {
       return;
     }
 
@@ -1878,6 +1885,40 @@ export default function App() {
   // behavior is identical to calling the function declaration directly.
   const onSubmitStable = useStableCallback(() => void submitPrompt());
   const onStopStable = useStableCallback(() => void stopActiveRun());
+  const onSteerQueuedStable = useStableCallback((queuedId: string) => {
+    if (activeSession && agentClient) {
+      void agentClient
+        .steer(activeSession.id, queuedId)
+        .catch((error) => console.warn("Could not steer queued message", error));
+    }
+  });
+  const onCancelQueuedStable = useStableCallback((queuedId: string) => {
+    if (activeSession && agentClient) {
+      void agentClient
+        .cancelQueuedMessage(activeSession.id, queuedId)
+        .catch((error) => console.warn("Could not cancel queued message", error));
+    }
+  });
+  const onReorderQueuedStable = useStableCallback((orderedIds: string[]) => {
+    if (activeSession && agentClient) {
+      void agentClient
+        .reorderQueue(activeSession.id, orderedIds)
+        .catch((error) => console.warn("Could not reorder queue", error));
+    }
+  });
+  // Unqueue a message back into the composer for editing: pop it from the queue
+  // and load its text into the draft (appending if a draft is already in flight).
+  const onEditQueuedStable = useStableCallback((queuedId: string, body: string) => {
+    if (!activeSession || !agentClient) {
+      return;
+    }
+    setPrompt((current) =>
+      current.trim().length > 0 ? `${current}\n\n${body}` : body
+    );
+    void agentClient
+      .cancelQueuedMessage(activeSession.id, queuedId)
+      .catch((error) => console.warn("Could not unqueue message", error));
+  });
   const onAddImageAttachmentsStable = useStableCallback((files: File[]) =>
     addImageAttachments(files)
   );
@@ -2077,6 +2118,11 @@ export default function App() {
       onRemoveReviewCommentAttachment: onRemoveReviewCommentAttachmentStable,
       approvals: composerApprovals,
       onResolveApproval: onResolveApprovalStable,
+      queuedMessages: activeSessionQueuedMessages,
+      onSteerQueued: onSteerQueuedStable,
+      onCancelQueued: onCancelQueuedStable,
+      onReorderQueued: onReorderQueuedStable,
+      onEditQueued: onEditQueuedStable,
       branchFooterItem: sessionBranchFooterItem
     }),
     [
@@ -2084,7 +2130,12 @@ export default function App() {
       activeModel,
       activeProvider,
       activeSessionNeedsParallelAdoption,
+      activeSessionQueuedMessages,
       composerApprovals,
+      onCancelQueuedStable,
+      onEditQueuedStable,
+      onReorderQueuedStable,
+      onSteerQueuedStable,
       imageAttachments,
       intelligenceByProvider.claude,
       intelligenceByProvider.codex,
@@ -2834,6 +2885,7 @@ function displayWorkspaceCwd(cwd?: string) {
 }
 
 const emptyConversationItems: ConversationItem[] = [];
+const emptyQueuedMessages: QueuedUserMessage[] = [];
 
 // Distinct, order-preserving list of session cwds. Used (shallow-compared) to
 // derive workspace options without depending on the whole sessions map.

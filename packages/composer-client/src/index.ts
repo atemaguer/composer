@@ -33,6 +33,7 @@ export type {
   Project,
   ProjectThread,
   ProviderSessionState,
+  QueuedUserMessage,
   ReviewBranchComparison,
   ReviewBranchList,
   ReviewBranchRef,
@@ -452,6 +453,45 @@ export class ComposerClient<
 
   async interrupt(request: ComposerInterruptRequest) {
     await this.postJson("/api/interrupt", request, "Agent interrupt failed");
+  }
+
+  // "Send now": act on a queued message immediately (Codex injects it into the
+  // running turn; Claude interrupts so the queue drains). Targets the front of
+  // the queue by default, or a specific queued message by id.
+  async steer(sessionId: string, queuedId?: string) {
+    await this.postJson(
+      "/api/sessions/steer",
+      { sessionId, queuedId },
+      "Steer failed"
+    );
+  }
+
+  // Remove a not-yet-run queued message.
+  async cancelQueuedMessage(
+    sessionId: string,
+    queuedId: string
+  ): Promise<SessionSnapshot | undefined> {
+    const body = await this.postJson<{ snapshot?: SessionSnapshot }>(
+      "/api/sessions/queue/cancel",
+      { sessionId, queuedId },
+      "Cancel queued message failed"
+    );
+
+    return body.snapshot;
+  }
+
+  // Reorder the queue to the given id order (drag-to-prioritize).
+  async reorderQueue(
+    sessionId: string,
+    orderedIds: string[]
+  ): Promise<SessionSnapshot | undefined> {
+    const body = await this.postJson<{ snapshot?: SessionSnapshot }>(
+      "/api/sessions/queue/reorder",
+      { sessionId, orderedIds },
+      "Reorder queue failed"
+    );
+
+    return body.snapshot;
   }
 
   async compactSession(

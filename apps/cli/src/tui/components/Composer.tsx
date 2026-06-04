@@ -30,11 +30,9 @@ const COMPOSER_KEYBINDINGS = [
  */
 export function Composer({
   onSubmit,
-  disabled,
   focused
 }: {
   onSubmit: (text: string) => void;
-  disabled: boolean;
   focused: boolean;
 }) {
   const { state, dispatch } = useTui();
@@ -72,11 +70,11 @@ export function Composer({
           ref={(node: TextareaRenderable | null) => {
             inputRef.current = node;
           }}
-          focused={focused && !disabled}
+          focused={focused}
           keyBindings={COMPOSER_KEYBINDINGS}
           placeholder={
-            disabled
-              ? "Working… (esc to interrupt)"
+            state.busy
+              ? "Working… enter to queue a follow-up · esc to interrupt"
               : "Message Composer…  (/ for commands · ctrl+J newline)"
           }
           style={{ minHeight: 1, maxHeight: 8 }}

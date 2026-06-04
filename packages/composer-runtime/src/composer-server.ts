@@ -221,6 +221,21 @@ export function createComposerServer({
       method: "POST",
       pattern: exact("/api/sessions/compact"),
       handler: (request, response) => handleSessionCompactRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/sessions/steer"),
+      handler: (request, response) => handleSteerRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/sessions/queue/cancel"),
+      handler: (request, response) => handleQueueCancelRequest(request, response)
+    },
+    {
+      method: "POST",
+      pattern: exact("/api/sessions/queue/reorder"),
+      handler: (request, response) => handleQueueReorderRequest(request, response)
     }
   ];
 
@@ -437,6 +452,59 @@ export function createComposerServer({
     }
 
     const snapshot: SessionSnapshot = runtime.renameSession(sessionId, title);
+    writeJson(response, 200, { ok: true, snapshot });
+  }
+
+  async function handleSteerRequest(
+    request: IncomingMessage,
+    response: ServerResponse
+  ) {
+    const body = await readJson(request);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+    const queuedId = typeof body.queuedId === "string" ? body.queuedId : undefined;
+
+    if (!sessionId) {
+      writeJson(response, 400, { error: "Expected sessionId" });
+      return;
+    }
+
+    await runtime.steer(sessionId, queuedId);
+    writeJson(response, 200, { ok: true });
+  }
+
+  async function handleQueueCancelRequest(
+    request: IncomingMessage,
+    response: ServerResponse
+  ) {
+    const body = await readJson(request);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+    const queuedId = typeof body.queuedId === "string" ? body.queuedId : undefined;
+
+    if (!sessionId || !queuedId) {
+      writeJson(response, 400, { error: "Expected sessionId and queuedId" });
+      return;
+    }
+
+    const snapshot: SessionSnapshot = runtime.cancelQueuedMessage(sessionId, queuedId);
+    writeJson(response, 200, { ok: true, snapshot });
+  }
+
+  async function handleQueueReorderRequest(
+    request: IncomingMessage,
+    response: ServerResponse
+  ) {
+    const body = await readJson(request);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId : undefined;
+    const orderedIds = Array.isArray(body.orderedIds)
+      ? body.orderedIds.filter((id): id is string => typeof id === "string")
+      : undefined;
+
+    if (!sessionId || !orderedIds) {
+      writeJson(response, 400, { error: "Expected sessionId and orderedIds" });
+      return;
+    }
+
+    const snapshot: SessionSnapshot = runtime.reorderQueue(sessionId, orderedIds);
     writeJson(response, 200, { ok: true, snapshot });
   }
 

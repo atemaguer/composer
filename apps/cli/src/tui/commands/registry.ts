@@ -2,6 +2,7 @@ import type { Dispatch } from "react";
 import type { SessionProvider } from "@composer/client";
 import type { RuntimeApi } from "../runtime.js";
 import type { TuiAction, TuiState } from "../types.js";
+import { activeSession } from "../types.js";
 
 /**
  * Everything a slash command needs to act. Commands are fire-and-forget — they
@@ -132,6 +133,41 @@ const COMMANDS: SlashCommand[] = [
     description: "Interrupt the running turn",
     category: "Session",
     run: (ctx) => ctx.runtime.interrupt()
+  },
+  {
+    name: "steer",
+    title: "Steer",
+    description: "Send the next queued message into the running turn now",
+    category: "Session",
+    run: (ctx) => {
+      const next = (activeSession(ctx.state)?.queuedMessages ?? [])[0];
+      if (!next) {
+        ctx.dispatch({ type: "setNotice", notice: "Nothing queued to steer" });
+        return;
+      }
+      ctx.runtime.steerQueue(next.id);
+    }
+  },
+  {
+    name: "unqueue",
+    aliases: ["dequeue"],
+    title: "Unqueue",
+    description: "Pop the next queued message back into the composer to edit",
+    category: "Session",
+    run: (ctx) => {
+      const next = (activeSession(ctx.state)?.queuedMessages ?? [])[0];
+      if (!next) {
+        ctx.dispatch({ type: "setNotice", notice: "Nothing queued to edit" });
+        return;
+      }
+      ctx.runtime.cancelQueued(next.id);
+      // runCommand clears the draft right after this returns; restore the body
+      // on the next tick so it lands in the composer for editing.
+      setTimeout(
+        () => ctx.dispatch({ type: "setInput", value: next.body }),
+        0
+      );
+    }
   },
   {
     name: "compact",

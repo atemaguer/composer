@@ -30,6 +30,7 @@ import type {
   LiveAgentEvent,
   Project,
   ProjectThread,
+  QueuedUserMessage,
   SessionContent,
   SessionCompactionSummary,
   SessionProvider,
@@ -37,6 +38,10 @@ import type {
 } from "@composer/client";
 
 export type EventSink = (event: LiveAgentEvent) => void;
+
+// Sink for queue-drained runs: their events flow over the WebSocket broadcast
+// (emitToSink always calls apply()), so the per-request HTTP sink is a noop.
+const noopSink: EventSink = () => {};
 
 type RunRequest = {
   sessionId: string;
@@ -81,8 +86,23 @@ export interface AgentProvider {
   run(request: ProviderRunRequest): Promise<void>;
   compact?(request: ProviderCompactRequest): Promise<SessionCompactionSummary | undefined>;
   interrupt(sessionId: string): Promise<void>;
+  // Optional native "steer": inject input into the in-flight turn without
+  // starting a new one (Codex `turn/steer`). Providers without a steer
+  // primitive (Claude) omit this; the runtime falls back to interrupt-and-run.
+  steer?(
+    sessionId: string,
+    input: { prompt: string; imageAttachments?: AgentImageAttachment[] }
+  ): Promise<boolean>;
   dispose(): Promise<void> | void;
 }
+
+// A user message parked while a run is active. Captures everything needed to
+// dispatch it as its own run when the queue drains.
+type QueuedMessage = {
+  id: string;
+  provider: RuntimeSessionProvider;
+  request: RunRequest;
+};
 
 type ApprovalResolver = (decision: ApprovalDecision) => void;
 type RuntimeSessionProvider = SessionProvider;
@@ -167,6 +187,15 @@ export class AgentRuntime {
   private providers: Record<RuntimeSessionProvider, AgentProvider>;
   private activeRuns = new Map<string, Promise<void>>();
   private activeRunProviders = new Map<string, RuntimeSessionProvider>();
+  // FIFO of user messages queued per session while a run is active.
+  private messageQueue = new Map<string, QueuedMessage[]>();
+  // The turnId of the in-flight turn per session, tracked from turn.started.
+  // Used to recognize the authoritative turn.completed and ignore the stale
+  // duplicate completions that interrupt produces, so the queue drains once.
+  private activeTurnId = new Map<string, string>();
+  // Recently-settled turnIds per session (bounded). A turn.completed whose
+  // turnId is already here is a stale duplicate and is dropped.
+  private settledTurnIds = new Map<string, Set<string>>();
   private requestSessions = new Map<string, string>();
   private interruptedRequestIds = new Set<string>();
   private interruptedSessions = new Set<string>();
@@ -419,6 +448,37 @@ export class AgentRuntime {
     if (request.requestId) {
       this.requestSessions.set(request.requestId, request.sessionId);
     }
+
+    // A run is already in flight — park this message in the session's FIFO and
+    // drain it when the current turn completes (or is steered).
+    if (this.isSessionBusy(request.sessionId)) {
+      this.enqueueMessage(session, provider, request, sink);
+      return;
+    }
+
+    this.dispatchUserMessageRun(session, provider, request, sink);
+    this.applyPendingRequestInterrupt(request.requestId, request.sessionId);
+  }
+
+  private isSessionBusy(sessionId: string): boolean {
+    if (this.activeRunProviders.has(sessionId)) {
+      return true;
+    }
+
+    const status = this.sessions[sessionId]?.runtimeStatus;
+    return status === "running" || status === "awaiting_approval";
+  }
+
+  // Append the user message to the timeline, flip the session to running, and
+  // start the provider run. Shared by the immediate path (sendMessage) and the
+  // queue-drain path (drainQueue, which passes a noop sink so events flow over
+  // the broadcast rather than the long-since-returned HTTP request).
+  private dispatchUserMessageRun(
+    session: SessionContent,
+    provider: RuntimeSessionProvider,
+    request: RunRequest,
+    sink: EventSink
+  ) {
     session.runtimeStatus = "running";
     session.updatedAt = new Date().toISOString();
     if (!isAbsoluteCwd(session.cwd) && isAbsoluteCwd(request.cwd)) {
@@ -447,6 +507,8 @@ export class AgentRuntime {
     // Only the just-sent user message (plus attachments) and the running-status
     // metadata changed; the running pending item is derived by consumers from
     // runtimeStatus, so a patch with appendedItems faithfully captures this.
+    // queuedMessages reflects the post-drain queue (a drained message was
+    // removed before dispatch).
     this.emitToSink(sink, {
       id: randomUUID(),
       type: "session.patch",
@@ -455,7 +517,8 @@ export class AgentRuntime {
       updatedAt: session.updatedAt,
       cwd: session.cwd,
       model: session.model,
-      appendedItems
+      appendedItems,
+      queuedMessages: session.queuedMessages ?? []
     });
 
     this.startProviderRun(provider, {
@@ -464,7 +527,250 @@ export class AgentRuntime {
       askApproval: (approval) => this.askApproval(approval, sink),
       emit: (event) => this.emitToSink(sink, event)
     });
-    this.applyPendingRequestInterrupt(request.requestId, request.sessionId);
+  }
+
+  private enqueueMessage(
+    session: SessionContent,
+    provider: RuntimeSessionProvider,
+    request: RunRequest,
+    sink: EventSink
+  ) {
+    const queuedId = `${session.id}-queued-${randomUUID()}`;
+    const list = this.messageQueue.get(session.id) ?? [];
+    list.push({ id: queuedId, provider, request });
+    this.messageQueue.set(session.id, list);
+
+    const queued: QueuedUserMessage = {
+      id: queuedId,
+      body: request.prompt,
+      provider,
+      imageAttachments: request.imageAttachments,
+      createdAt: new Date().toISOString()
+    };
+    session.queuedMessages = [...(session.queuedMessages ?? []), queued];
+    session.updatedAt = new Date().toISOString();
+    this.persistence.upsertSession(session);
+    this.emitToSink(sink, {
+      id: randomUUID(),
+      type: "session.patch",
+      sessionId: session.id,
+      updatedAt: session.updatedAt,
+      queuedMessages: session.queuedMessages
+    });
+  }
+
+  // Dispatch the next queued message as its own run. Called when a turn
+  // completes (natural completion or steer-by-interrupt). Guards against
+  // double-dispatch if a run is somehow still active.
+  private drainQueue(sessionId: string) {
+    if (this.activeRunProviders.has(sessionId)) {
+      return;
+    }
+
+    const list = this.messageQueue.get(sessionId);
+    if (!list || list.length === 0) {
+      return;
+    }
+
+    const next = list.shift() as QueuedMessage;
+    if (list.length === 0) {
+      this.messageQueue.delete(sessionId);
+    } else {
+      this.messageQueue.set(sessionId, list);
+    }
+
+    const session = this.sessions[sessionId];
+    if (!session) {
+      return;
+    }
+
+    session.queuedMessages = (session.queuedMessages ?? []).filter(
+      (message) => message.id !== next.id
+    );
+
+    this.dispatchUserMessageRun(session, next.provider, next.request, noopSink);
+  }
+
+  private recordSettledTurn(sessionId: string, turnId: string) {
+    const set = this.settledTurnIds.get(sessionId) ?? new Set<string>();
+    set.add(turnId);
+    // Only recent turns matter for dedup; keep the set bounded.
+    if (set.size > 32) {
+      const oldest = set.values().next().value;
+      if (oldest !== undefined) {
+        set.delete(oldest);
+      }
+    }
+    this.settledTurnIds.set(sessionId, set);
+  }
+
+  private forgetSessionQueueState(sessionId: string) {
+    this.messageQueue.delete(sessionId);
+    this.activeTurnId.delete(sessionId);
+    this.settledTurnIds.delete(sessionId);
+  }
+
+  // Remove a not-yet-run queued message. No-op if it already drained.
+  cancelQueuedMessage(sessionId: string, queuedId: string): SessionSnapshot {
+    const list = this.messageQueue.get(sessionId);
+    if (list) {
+      const filtered = list.filter((message) => message.id !== queuedId);
+      if (filtered.length === 0) {
+        this.messageQueue.delete(sessionId);
+      } else {
+        this.messageQueue.set(sessionId, filtered);
+      }
+    }
+
+    const session = this.sessions[sessionId];
+    if (session) {
+      session.queuedMessages = (session.queuedMessages ?? []).filter(
+        (message) => message.id !== queuedId
+      );
+      session.updatedAt = new Date().toISOString();
+      this.persistence.upsertSession(session);
+      this.broadcast({
+        id: randomUUID(),
+        type: "session.patch",
+        sessionId,
+        updatedAt: session.updatedAt,
+        queuedMessages: session.queuedMessages
+      });
+    }
+
+    return this.snapshot();
+  }
+
+  // Reorder the queue to match the given id order (drag-to-prioritize). Ids not
+  // present are ignored; queued messages omitted from the list keep their
+  // relative order at the end (defensive against a stale client view).
+  reorderQueue(sessionId: string, orderedIds: string[]): SessionSnapshot {
+    const reorder = <T extends { id: string }>(items: T[]): T[] => {
+      const byId = new Map(items.map((item) => [item.id, item]));
+      const ordered: T[] = [];
+      for (const id of orderedIds) {
+        const item = byId.get(id);
+        if (item) {
+          ordered.push(item);
+          byId.delete(id);
+        }
+      }
+      for (const item of items) {
+        if (byId.has(item.id)) {
+          ordered.push(item);
+        }
+      }
+      return ordered;
+    };
+
+    const list = this.messageQueue.get(sessionId);
+    if (list) {
+      this.messageQueue.set(sessionId, reorder(list));
+    }
+
+    const session = this.sessions[sessionId];
+    if (session?.queuedMessages?.length) {
+      session.queuedMessages = reorder(session.queuedMessages);
+      session.updatedAt = new Date().toISOString();
+      this.persistence.upsertSession(session);
+      this.broadcast({
+        id: randomUUID(),
+        type: "session.patch",
+        sessionId,
+        updatedAt: session.updatedAt,
+        queuedMessages: session.queuedMessages
+      });
+    }
+
+    return this.snapshot();
+  }
+
+  // "Send now": act on a queued message immediately instead of waiting for the
+  // turn to finish. Codex injects it into the running turn (turn/steer); Claude
+  // (no steer primitive) interrupts the run so the queue drains into a fresh
+  // turn. Targets the front of the queue by default, or a specific queued
+  // message by id. No-op when nothing is queued / the id is unknown.
+  async steer(sessionId: string, queuedId?: string): Promise<void> {
+    const list = this.messageQueue.get(sessionId);
+    if (!list || list.length === 0) {
+      return;
+    }
+
+    const index = queuedId ? list.findIndex((message) => message.id === queuedId) : 0;
+    if (index < 0) {
+      return;
+    }
+
+    const target = list[index];
+    const provider = this.activeRunProviders.get(sessionId);
+    const providerImpl = provider ? this.providers[provider] : undefined;
+
+    if (provider && providerImpl?.steer) {
+      const steered = await providerImpl
+        .steer(sessionId, {
+          prompt: target.request.prompt,
+          imageAttachments: target.request.imageAttachments
+        })
+        .catch(() => false);
+
+      if (steered) {
+        this.consumeSteeredMessage(sessionId, target);
+        return;
+      }
+    }
+
+    // No native steer (Claude) or the injection was rejected: move the target to
+    // the front so the post-interrupt drain dispatches it, then interrupt the
+    // current run.
+    if (index > 0) {
+      list.splice(index, 1);
+      list.unshift(target);
+      this.messageQueue.set(sessionId, list);
+    }
+    await this.interrupt(sessionId);
+  }
+
+  // A queued message was injected into the running turn via turn/steer: remove
+  // it from the queue and surface it in the transcript as part of the turn.
+  private consumeSteeredMessage(sessionId: string, queued: QueuedMessage) {
+    const list = this.messageQueue.get(sessionId);
+    if (list) {
+      const filtered = list.filter((message) => message.id !== queued.id);
+      if (filtered.length === 0) {
+        this.messageQueue.delete(sessionId);
+      } else {
+        this.messageQueue.set(sessionId, filtered);
+      }
+    }
+
+    const session = this.sessions[sessionId];
+    if (!session) {
+      return;
+    }
+
+    session.queuedMessages = (session.queuedMessages ?? []).filter(
+      (message) => message.id !== queued.id
+    );
+    const appendedItems: ConversationItem[] = [
+      {
+        id: `${session.id}-user-${session.items.length}`,
+        type: "user_message",
+        body: queued.request.prompt,
+        timestamp: formatTime(new Date())
+      },
+      ...attachmentItems(session.id, queued.request.imageAttachments)
+    ];
+    session.items.push(...appendedItems);
+    session.updatedAt = new Date().toISOString();
+    this.persistence.upsertSession(session);
+    this.broadcast({
+      id: randomUUID(),
+      type: "session.patch",
+      sessionId,
+      updatedAt: session.updatedAt,
+      appendedItems,
+      queuedMessages: session.queuedMessages
+    });
   }
 
   async interrupt(sessionId: string) {
@@ -509,6 +815,7 @@ export class AgentRuntime {
 
     void this.persistence.updateSessionVisibility(session, action);
     delete this.sessions[sessionId];
+    this.forgetSessionQueueState(sessionId);
 
     this.broadcast({
       id: randomUUID(),
@@ -911,6 +1218,19 @@ export class AgentRuntime {
         return;
       }
 
+      // Drop a stale/duplicate turn.completed: the turn already settled (e.g.
+      // interrupt finalized it via a synthetic completion, then the provider's
+      // real completion for that same turnId arrives after a queued message has
+      // already started). Dropping it preserves the new run's running state and
+      // prevents a second drain.
+      if (
+        event.type === "turn.completed" &&
+        event.turnId !== undefined &&
+        this.settledTurnIds.get(event.sessionId)?.has(event.turnId)
+      ) {
+        return;
+      }
+
       applyLiveSessionEvent(session, event, { immutable: false, errorNotice: "none" });
 
       // Execution errors are transient failures, not transcript content. The
@@ -925,14 +1245,29 @@ export class AgentRuntime {
           message: `${providerLabel(session.lastProvider ?? session.provider)} failed: ${formatErrorMessage(event.message)}`
         };
       }
+      if (event.type === "turn.started") {
+        this.activeTurnId.set(event.sessionId, event.turnId);
+      }
+      let shouldDrain = false;
       if (event.type === "turn.completed") {
+        const settledTurn = event.turnId ?? this.activeTurnId.get(event.sessionId);
+        if (settledTurn) {
+          this.recordSettledTurn(event.sessionId, settledTurn);
+        }
+        this.activeTurnId.delete(event.sessionId);
         completeProviderTurn(session, this.activeRunProviders.get(event.sessionId));
         this.activeRunProviders.delete(event.sessionId);
+        shouldDrain = true;
       }
       if (shouldPersistRuntimeEvent(event)) {
         this.persistence.upsertSession(session);
       }
       this.broadcast(outgoing);
+      // Drain after broadcasting the completion so clients see the turn end
+      // before the next queued message's events arrive.
+      if (shouldDrain) {
+        this.drainQueue(event.sessionId);
+      }
       return;
     }
 

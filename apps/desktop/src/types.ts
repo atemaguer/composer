@@ -31,6 +31,7 @@ export type {
   Project,
   ProjectThread,
   ProviderSessionState,
+  QueuedUserMessage,
   ReviewBranchComparison,
   ReviewBranchList,
   ReviewBranchRef,

@@ -288,6 +288,19 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
       };
     }
 
+    case "turn.started": {
+      // Drive busy from real turn boundaries (not just local sends) so a queued
+      // message that drains into a new turn — which the TUI never initiated via
+      // sendPrompt — still shows as busy and stays interruptible.
+      const sessions = applyEventToSession(
+        state.sessions,
+        event.sessionId ?? state.selectedThread,
+        event
+      );
+
+      return { ...state, sessions, busy: true };
+    }
+
     case "turn.completed": {
       const sessions = applyEventToSession(
         state.sessions,
@@ -358,6 +371,10 @@ function reduceEvent(state: TuiState, event: LiveAgentEvent): TuiState {
         }
 
         patched.items = items;
+      }
+
+      if (event.queuedMessages !== undefined) {
+        patched.queuedMessages = event.queuedMessages;
       }
 
       return { ...state, sessions: putSession(state.sessions, patched) };

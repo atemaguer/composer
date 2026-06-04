@@ -20,14 +20,18 @@ import {
   ChevronRight,
   CircleGauge,
   CloudOff,
+  CornerDownRight,
   ExternalLink,
   Folder,
   Gauge,
   GitBranch,
   GitCompareArrows,
   GitPullRequestCreateArrow,
+  GripVertical,
   Laptop,
+  ListTree,
   MessageSquare,
+  Pencil,
   Plus,
   Search,
   Shield,
@@ -35,6 +39,7 @@ import {
   ShieldCheck,
   Square,
   TerminalSquare,
+  Trash2,
   X
 } from "lucide-react";
 
@@ -48,6 +53,7 @@ import type {
   IntelligenceMode,
   PendingConversationItem,
   PermissionMode,
+  QueuedUserMessage,
   SessionProvider
 } from "../types";
 import {
@@ -138,6 +144,14 @@ export type ComposerProps = {
   pendingItems?: PendingConversationItem[];
   approvals?: ApprovalRequest[];
   onResolveApproval?: (approvalId: string, decision: ApprovalDecision) => void;
+  // User messages queued behind the active run. Rendered as a collapsible
+  // accordion above the input; each can be steered (run now), edited (unqueued
+  // back into the draft), removed, or dragged to reprioritize.
+  queuedMessages?: QueuedUserMessage[];
+  onSteerQueued?: (queuedId: string) => void;
+  onCancelQueued?: (queuedId: string) => void;
+  onReorderQueued?: (orderedIds: string[]) => void;
+  onEditQueued?: (queuedId: string, body: string) => void;
 };
 
 export type PromptComposerControls = Omit<ComposerProps, "pendingItems">;
@@ -395,7 +409,17 @@ export function PromptComposer({
 
     event.preventDefault();
 
-    if (submitMode === "send" && !effectiveSubmitDisabled) {
+    if (submitMode === "send") {
+      if (!effectiveSubmitDisabled) {
+        onSubmit();
+      }
+      return;
+    }
+
+    // While a run is active (submitMode === "stop"), Enter on a non-empty draft
+    // queues the message instead of interrupting — the agent picks it up when
+    // the current turn finishes. The Stop button stays available to interrupt.
+    if (!submitDisabled && value.trim().length > 0) {
       onSubmit();
     }
   }
@@ -734,6 +758,11 @@ export function Composer({
   // provider is fixed. New-session uses <PromptComposer> directly (allowCompose
   // defaults to true there).
   allowCompose = false,
+  queuedMessages = [],
+  onSteerQueued,
+  onCancelQueued,
+  onReorderQueued,
+  onEditQueued,
   ...controls
 }: ComposerProps) {
   const showPendingTerminalStack = false;
@@ -766,13 +795,161 @@ export function Composer({
             onStop={controls.onStop}
           />
         )}
-        <PromptComposer
-          {...controls}
-          allowCompose={allowCompose}
-          footerItems={resolvedFooterItems}
-          placeholder="Ask Composer to build, debug, or review"
+        <QueuedMessagesAccordion
+          queuedMessages={queuedMessages}
+          onSteer={onSteerQueued}
+          onCancel={onCancelQueued}
+          onReorder={onReorderQueued}
+          onEdit={onEditQueued}
         />
+        {/* z-10 so the composer card sits on top of the queue accordion, which
+            tucks under it (the accordion uses a negative bottom margin). */}
+        <div className="relative z-10">
+          <PromptComposer
+            {...controls}
+            allowCompose={allowCompose}
+            footerItems={resolvedFooterItems}
+            placeholder="Ask Composer to build, debug, or review"
+          />
+        </div>
       </div>
+    </div>
+  );
+}
+
+// Collapsible stack of queued user messages shown above the composer input
+// (Codex-style). Appears only when something is queued. Each row can be steered
+// (interrupt + run now), edited (unqueued back into the draft), removed, or
+// dragged to reprioritize. The queue auto-drains as turns complete.
+function QueuedMessagesAccordion({
+  queuedMessages,
+  onSteer,
+  onCancel,
+  onReorder,
+  onEdit
+}: {
+  queuedMessages: QueuedUserMessage[];
+  onSteer?: (queuedId: string) => void;
+  onCancel?: (queuedId: string) => void;
+  onReorder?: (orderedIds: string[]) => void;
+  onEdit?: (queuedId: string, body: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const count = queuedMessages.length;
+
+  if (count === 0) {
+    return null;
+  }
+
+  const handleDrop = (targetId: string) => {
+    if (!onReorder || !dragId || dragId === targetId) {
+      setDragId(null);
+      return;
+    }
+
+    const ids = queuedMessages.map((message) => message.id);
+    const next = ids.filter((id) => id !== dragId);
+    const targetIndex = next.indexOf(targetId);
+    next.splice(targetIndex < 0 ? next.length : targetIndex, 0, dragId);
+    setDragId(null);
+
+    if (ids.some((id, index) => id !== next[index])) {
+      onReorder(next);
+    }
+  };
+
+  return (
+    // Tucks under the composer like a stacked disk: rounded top, flat bottom,
+    // no bottom border, and a negative bottom margin so the composer card (z-10)
+    // overlaps and hides its lower edge. Extra bottom padding keeps the last row
+    // clear of the overlapped zone.
+    <div className="relative z-0 -mb-4 overflow-hidden rounded-t-2xl border border-b-0 border-app-line bg-app-panel pb-4 shadow-sm">
+      <button
+        type="button"
+        onClick={() => setCollapsed((value) => !value)}
+        className="flex w-full items-center gap-2 px-3 py-2 text-[12px] font-medium text-app-muted transition-colors hover:text-app-text"
+      >
+        <ListTree size={13} className="shrink-0" />
+        <span className="flex-1 text-left">
+          {count} queued {count === 1 ? "message" : "messages"}
+        </span>
+        <ChevronDown
+          size={14}
+          className={cn(
+            "shrink-0 transition-transform",
+            collapsed ? "-rotate-90" : "rotate-0"
+          )}
+        />
+      </button>
+      {!collapsed && (
+        <ul className="flex flex-col gap-px border-t border-app-line/70 px-1.5 pb-1.5 pt-1.5">
+          {queuedMessages.map((message) => (
+            <li
+              key={message.id}
+              draggable={Boolean(onReorder)}
+              onDragStart={() => setDragId(message.id)}
+              onDragEnd={() => setDragId(null)}
+              onDragOver={(event) => {
+                if (onReorder && dragId) {
+                  event.preventDefault();
+                }
+              }}
+              onDrop={() => handleDrop(message.id)}
+              className={cn(
+                "group flex items-center gap-2 rounded-lg px-1.5 py-1.5 transition-colors hover:bg-app-hover",
+                dragId === message.id && "opacity-50"
+              )}
+            >
+              <GripVertical
+                size={14}
+                className={cn(
+                  "shrink-0 text-app-muted/50",
+                  onReorder ? "cursor-grab active:cursor-grabbing" : ""
+                )}
+                aria-hidden="true"
+              />
+              <ProviderLogo provider={message.provider} className="size-3.5 shrink-0" />
+              <span className="min-w-0 flex-1 truncate text-[13px] text-app-text">
+                {message.body}
+              </span>
+              {onSteer && (
+                <button
+                  type="button"
+                  onClick={() => onSteer(message.id)}
+                  title="Interrupt the current run and send this now"
+                  className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[12px] text-app-muted opacity-0 transition-colors hover:bg-app-hover hover:text-app-text group-hover:opacity-100"
+                >
+                  <CornerDownRight size={13} />
+                  Steer
+                </button>
+              )}
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={() => onEdit(message.id, message.body)}
+                  title="Unqueue to edit"
+                  aria-label="Unqueue to edit"
+                  className="flex shrink-0 items-center rounded-md p-1 text-app-muted opacity-0 transition-colors hover:bg-app-hover hover:text-app-text group-hover:opacity-100"
+                >
+                  <Pencil size={13} />
+                </button>
+              )}
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={() => onCancel(message.id)}
+                  title="Remove from queue"
+                  aria-label="Remove from queue"
+                  className="flex shrink-0 items-center rounded-md p-1 text-app-muted opacity-0 transition-colors hover:bg-app-danger/15 hover:text-app-danger group-hover:opacity-100"
+                >
+                  <Trash2 size={14} />
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

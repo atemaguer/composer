@@ -13,6 +13,7 @@ import {
 } from "./commands/registry.js";
 import { Conversation } from "./components/Conversation.js";
 import { Composer } from "./components/Composer.js";
+import { QueuedMessages } from "./components/QueuedMessages.js";
 import { StatusBar } from "./components/StatusBar.js";
 import { DialogHost } from "./components/DialogHost.js";
 import { InlineDialog } from "./components/InlineDialog.js";
@@ -231,9 +232,9 @@ export function App({
       {/* Slash-command pickers (/model, /provider, …) render inline here, just
           above the prompt; other dialogs stay modal via DialogHost below. */}
       <InlineDialog runtime={runtime as RuntimeApi} />
+      <QueuedMessages />
       <Composer
         onSubmit={submit}
-        disabled={state.busy}
         focused={!dialogOpen && !adoptPrompt}
       />
       <StatusBar />

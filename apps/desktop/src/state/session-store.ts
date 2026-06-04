@@ -667,6 +667,13 @@ function applySessionPatch(
     changed = true;
   }
 
+  // Queue patches carry the full current FIFO (including an empty array to
+  // clear it), so replace rather than merge.
+  if (event.queuedMessages !== undefined) {
+    next.queuedMessages = event.queuedMessages;
+    changed = true;
+  }
+
   return changed ? next : session;
 }
 
