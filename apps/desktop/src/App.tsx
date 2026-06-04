@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useInsertionEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -47,7 +48,10 @@ import {
   resolveCurrentBranchRef,
   resolveSelectedBranchRef
 } from "./state/branch-refs-cache";
-import { useComposerStore } from "./state/composer-store";
+import {
+  newComposerPromptScope,
+  useComposerStore
+} from "./state/composer-store";
 import {
   pushActionError,
   pushAppError,
@@ -213,6 +217,7 @@ export default function App() {
   // Composer, not this 2800-line root. App reads the latest value lazily at
   // submit time via useComposerStore.getState().prompt.
   const setPrompt = useComposerStore((state) => state.setPrompt);
+  const setPromptScope = useComposerStore((state) => state.setPromptScope);
   const permission = useComposerStore((state) => state.permission);
   const setPermission = useComposerStore((state) => state.setPermission);
   const provider = useComposerStore((state) => state.provider);
@@ -377,6 +382,9 @@ export default function App() {
   const activeProvider = provider;
   const activeModel = modelByProvider[activeProvider];
   const activeIntelligence = intelligenceByProvider[activeProvider];
+  const composerPromptScope = selectedThread
+    ? sessionComposerPromptScope(selectedThread)
+    : newComposerPromptScope;
 
   const resolvedNewSessionWorkTarget: NewSessionWorkTarget =
     workspaceGitAvailable === false ? "local" : newSessionWorkTarget;
@@ -386,6 +394,10 @@ export default function App() {
   useEffect(() => {
     setLastTurnReviewFilesOverride(null);
   }, [selectedThread]);
+
+  useLayoutEffect(() => {
+    setPromptScope(composerPromptScope);
+  }, [composerPromptScope, setPromptScope]);
 
   const sessionWorkspaceOptions = useMemo(
     () => workspaceOptionsFromCwds(sessionWorkspaceCwds),
@@ -2988,6 +3000,10 @@ function workspaceOptionsFromCwds(cwds: string[]) {
     cwd,
     detail: cwd
   }));
+}
+
+function sessionComposerPromptScope(sessionId: string) {
+  return `session:${sessionId}`;
 }
 
 function collectRunningSessionIds(
