@@ -378,7 +378,7 @@ export function normalizeSession(session: SessionContent): SessionContent {
 }
 
 // Identity-relevant fields whose change should produce a new session object.
-// Arrays/records (items, pendingItems, providerSessions) are compared by
+// Arrays/records (items, pendingItems, queuedMessages, providerSessions) are compared by
 // reference since normalizeSession reuses the incoming references when it can.
 function sessionsEquivalent(a: SessionContent, b: SessionContent): boolean {
   return (
@@ -402,6 +402,7 @@ function sessionsEquivalent(a: SessionContent, b: SessionContent): boolean {
     a.contentLoaded === b.contentLoaded &&
     a.items === b.items &&
     a.pendingItems === b.pendingItems &&
+    a.queuedMessages === b.queuedMessages &&
     a.providerSessions === b.providerSessions &&
     a.handoffSummaries === b.handoffSummaries &&
     a.compactionSummaries === b.compactionSummaries

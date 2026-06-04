@@ -1952,6 +1952,11 @@ export default function App() {
     if (activeSession && agentClient) {
       void agentClient
         .cancelQueuedMessage(activeSession.id, queuedId)
+        .then((snapshot) => {
+          if (snapshot) {
+            setSessionSnapshot(snapshot);
+          }
+        })
         .catch((error) => console.warn("Could not cancel queued message", error));
     }
   });
@@ -1959,6 +1964,11 @@ export default function App() {
     if (activeSession && agentClient) {
       void agentClient
         .reorderQueue(activeSession.id, orderedIds)
+        .then((snapshot) => {
+          if (snapshot) {
+            setSessionSnapshot(snapshot);
+          }
+        })
         .catch((error) => console.warn("Could not reorder queue", error));
     }
   });
@@ -1973,6 +1983,11 @@ export default function App() {
     );
     void agentClient
       .cancelQueuedMessage(activeSession.id, queuedId)
+      .then((snapshot) => {
+        if (snapshot) {
+          setSessionSnapshot(snapshot);
+        }
+      })
       .catch((error) => console.warn("Could not unqueue message", error));
   });
   const onAddImageAttachmentsStable = useStableCallback((files: File[]) =>
@@ -2165,6 +2180,7 @@ export default function App() {
       // Composer (which subscribes to the prompt). App only contributes the
       // parts that don't depend on per-keystroke prompt text.
       submitDisabled: submitMode === "send" && activeSessionNeedsParallelAdoption,
+      disabled: sessionsLoading,
       requireNonEmptyPrompt:
         submitMode === "send" && reviewCommentAttachments.length === 0,
       imageAttachments,
@@ -2216,6 +2232,7 @@ export default function App() {
       setPermission,
       setPermissionOpen,
       setComposerProvider,
+      sessionsLoading,
       submitMode
     ]
   );

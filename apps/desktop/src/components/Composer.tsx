@@ -126,6 +126,7 @@ export type ComposerProps = {
   onStop?: () => void;
   submitMode?: "send" | "stop";
   submitDisabled?: boolean;
+  disabled?: boolean;
   // When true and the (store-owned) prompt is empty, the send action is
   // disabled. Lets the parent express "non-empty prompt required" without
   // subscribing to every keystroke itself.
@@ -205,6 +206,8 @@ const localWorkMenuBaseItems: PromptComposerFooterMenuItem[] = [
   }
 ];
 
+const MAX_PROMPT_TEXTAREA_HEIGHT = 160;
+
 export const startInFooterMenuItems: PromptComposerFooterMenuItem[] = [
   ...localWorkMenuBaseItems.slice(0, 1),
   {
@@ -277,6 +280,7 @@ export function PromptComposer({
   onSubmit,
   onStop,
   submitDisabled = false,
+  disabled = false,
   requireNonEmptyPrompt = false,
   imageAttachments = [],
   reviewCommentAttachments = [],
@@ -299,6 +303,8 @@ export function PromptComposer({
   const intelligenceMenuRef = useRef<HTMLDivElement>(null);
   const intelligenceButtonRef = useRef<HTMLButtonElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const textareaWidthRef = useRef<number | null>(null);
   // Subscribe to the store-owned draft text here so typing re-renders this
   // component only. An explicit `value`/`setValue` prop (if provided) still
   // wins for backwards compatibility.
@@ -307,10 +313,55 @@ export function PromptComposer({
   const value = valueProp ?? storePrompt;
   const setValue = setValueProp ?? storeSetPrompt;
   const effectiveSubmitDisabled =
-    submitDisabled || (requireNonEmptyPrompt && value.trim().length === 0);
+    disabled ||
+    submitDisabled ||
+    (requireNonEmptyPrompt && value.trim().length === 0);
   const activeProvider = composerProvider(provider);
   const selectedModel = modelOption(activeProvider, model);
   const compactModelLabel = compactModelOptionLabel(selectedModel);
+
+  function resizePromptTextarea() {
+    const textarea = textareaRef.current;
+
+    if (!textarea) {
+      return;
+    }
+
+    textareaWidthRef.current = textarea.clientWidth;
+    textarea.style.height = "auto";
+    const nextHeight = Math.min(textarea.scrollHeight, MAX_PROMPT_TEXTAREA_HEIGHT);
+    textarea.style.height = `${nextHeight}px`;
+    textarea.style.overflowY =
+      textarea.scrollHeight > MAX_PROMPT_TEXTAREA_HEIGHT ? "auto" : "hidden";
+  }
+
+  useLayoutEffect(() => {
+    resizePromptTextarea();
+  }, [textareaRows, value]);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+
+    if (typeof ResizeObserver === "function" && textarea) {
+      const observer = new ResizeObserver(() => {
+        if (textareaWidthRef.current !== textarea.clientWidth) {
+          resizePromptTextarea();
+        }
+      });
+      observer.observe(textarea);
+      return () => observer.disconnect();
+    }
+
+    window.addEventListener("resize", resizePromptTextarea);
+    return () => window.removeEventListener("resize", resizePromptTextarea);
+  }, []);
+
+  useEffect(() => {
+    if (disabled) {
+      setPermissionOpen(false);
+      setIntelligenceOpen(false);
+    }
+  }, [disabled, setIntelligenceOpen, setPermissionOpen]);
 
   useEffect(() => {
     if (!selectedModel.efforts.includes(intelligence)) {
@@ -361,6 +412,10 @@ export function PromptComposer({
   }, [intelligenceOpen, permissionOpen, setIntelligenceOpen, setPermissionOpen]);
 
   function addImageFiles(files: Iterable<File>) {
+    if (disabled) {
+      return;
+    }
+
     const images = Array.from(files).filter((file) =>
       file.type.startsWith("image/")
     );
@@ -380,12 +435,20 @@ export function PromptComposer({
   }
 
   function handleDragOver(event: DragEvent<HTMLDivElement>) {
+    if (disabled) {
+      return;
+    }
+
     if (Array.from(event.dataTransfer.items).some((item) => item.type.startsWith("image/"))) {
       event.preventDefault();
     }
   }
 
   function handleDrop(event: DragEvent<HTMLDivElement>) {
+    if (disabled) {
+      return;
+    }
+
     const images = Array.from(event.dataTransfer.files).filter((file) =>
       file.type.startsWith("image/")
     );
@@ -428,6 +491,7 @@ export function PromptComposer({
     <div
       data-composer-content
       className={`pointer-events-auto relative mx-auto w-full max-w-[820px] ${className}`}
+      aria-disabled={disabled}
     >
       {intelligenceOpen && (
         <ModelSettingsMenu
@@ -480,11 +544,13 @@ export function PromptComposer({
           </div>
         )}
         <textarea
+          ref={textareaRef}
           aria-label="Ask Composer"
-          className="mt-0.5 min-h-7 w-full resize-none rounded-md bg-transparent px-1 text-[13px] leading-6 text-app-text outline-none placeholder:text-app-dim focus-visible:outline-none focus-visible:ring-0"
+          className="thin-scrollbar mt-0.5 min-h-7 w-full resize-none rounded-md bg-transparent px-1 text-[13px] leading-6 text-app-text outline-none placeholder:text-app-dim focus-visible:outline-none focus-visible:ring-0"
           placeholder={placeholder}
           rows={textareaRows}
           value={value}
+          disabled={disabled}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={handleTextareaKeyDown}
           onPaste={handlePaste}
@@ -497,11 +563,13 @@ export function PromptComposer({
               type="file"
               accept="image/*"
               multiple
+              disabled={disabled}
               onChange={handleFileInputChange}
             />
             <TooltipButton
               className={subtleIconButton}
               aria-label="Attach"
+              disabled={disabled}
               onClick={() => fileInputRef.current?.click()}
               tooltip="Attach image"
               type="button"
@@ -530,6 +598,7 @@ export function PromptComposer({
                   appWarningHoverSurface,
                   warningFocusRing
                 )}
+                disabled={disabled}
                 onClick={() => setPermissionOpen(!permissionOpen)}
                 aria-label={`Permission: ${permission}`}
                 aria-controls={permissionMenuId}
@@ -549,6 +618,7 @@ export function PromptComposer({
               provider={provider}
               setProvider={setProvider}
               allowCompose={allowCompose}
+              disabled={disabled}
             />
           </div>
 
@@ -559,6 +629,7 @@ export function PromptComposer({
                 "composer-model-button h-[30px] min-w-0 max-w-[164px] gap-1.5 px-2.5 text-[13px]",
                 pillButton
               )}
+              disabled={disabled}
               onClick={() => setIntelligenceOpen(!intelligenceOpen)}
               aria-label={`Model: ${selectedModel.label}, ${
                 activeProvider === "meta" ? "Auto" : intelligence
@@ -624,6 +695,7 @@ export function PromptComposer({
               onCreate={item.onCreate}
               onUseExistingFolder={item.onUseExistingFolder}
               onOpen={item.onOpen}
+              disabled={disabled}
             />
           ))}
         </div>
@@ -994,11 +1066,13 @@ function ComposerMenuDivider() {
 function ProviderDropdown({
   provider,
   setProvider,
-  allowCompose = true
+  allowCompose = true,
+  disabled = false
 }: {
   provider: SessionProvider;
   setProvider: (value: SessionProvider) => void;
   allowCompose?: boolean;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const visibleProvider: ComposerProvider = provider;
@@ -1011,6 +1085,12 @@ function ProviderDropdown({
     providerOptions.find((option) => option.value === visibleProvider) ??
     providerOptions[0];
   const menuId = "composer-provider-menu";
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+    }
+  }, [disabled]);
 
   return (
     <div className="relative min-w-0 shrink-0">
@@ -1051,6 +1131,7 @@ function ProviderDropdown({
           "bg-transparent",
           appHoverSurface
         )}
+        disabled={disabled}
         onClick={() => setOpen(!open)}
         aria-label={`Provider: ${selectedProvider.label}`}
         aria-controls={menuId}
@@ -1304,7 +1385,8 @@ function ComposerFooterButton({
   onSelect,
   onCreate,
   onUseExistingFolder,
-  onOpen
+  onOpen,
+  disabled = false
 }: {
   icon: ElementType;
   label: string;
@@ -1324,6 +1406,7 @@ function ComposerFooterButton({
   onCreate?: (query: string) => void | Promise<void>;
   onUseExistingFolder?: () => void | Promise<void>;
   onOpen?: () => void;
+  disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -1382,6 +1465,12 @@ function ComposerFooterButton({
     creating ? "Creating project..." : "Start from scratch",
     usingExistingFolder ? "Opening folder..." : "Use an existing folder"
   ]);
+
+  useEffect(() => {
+    if (disabled) {
+      setOpen(false);
+    }
+  }, [disabled]);
 
   function setCreateMenuPositionFromRect(rect: DOMRect) {
     const viewport = window.visualViewport;
@@ -1560,6 +1649,10 @@ function ComposerFooterButton({
   }, [createMenuOpen, open]);
 
   function toggleOpen() {
+    if (disabled) {
+      return;
+    }
+
     const nextOpen = !open;
 
     setOpen(nextOpen);
@@ -1578,6 +1671,7 @@ function ComposerFooterButton({
           "border-transparent bg-transparent text-app-dim shadow-none hover:bg-app-text/[0.06] hover:text-app-muted"
         )}
         aria-label={label}
+        disabled={disabled}
         tooltip={label}
         type="button"
       >
@@ -1604,6 +1698,7 @@ function ComposerFooterButton({
         aria-expanded={open}
         aria-haspopup="menu"
         onClick={toggleOpen}
+        disabled={disabled}
         tooltip={label}
         type="button"
       >
