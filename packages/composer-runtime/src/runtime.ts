@@ -1760,7 +1760,13 @@ function requiresParallelAdoption(session: SessionContent) {
 }
 
 function isCompareAgentsModel(model?: string) {
-  return model === "Compare agents" || model === "Codex + Claude parallel";
+  // "Compose agents" is the live brand label; "Compare agents" / "Codex +
+  // Claude parallel" are what reconstructed sessions persist.
+  return (
+    model === "Compose agents" ||
+    model === "Compare agents" ||
+    model === "Codex + Claude parallel"
+  );
 }
 
 function adoptWorktreeForProviderRun(
