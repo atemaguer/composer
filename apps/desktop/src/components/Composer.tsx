@@ -17,6 +17,7 @@ import {
   Bot,
   Check,
   ChevronDown,
+  ChevronLeft,
   ChevronRight,
   CircleGauge,
   CircleHelp,
@@ -56,7 +57,6 @@ import type {
   PermissionMode,
   QueuedUserMessage,
   QuestionAnswer,
-  QuestionItem,
   QuestionRequest,
   SessionProvider
 } from "../types";
@@ -92,6 +92,7 @@ import {
 } from "./style-tokens";
 import { GlassPanel } from "./liquid-glass/GlassPanel";
 import { TooltipButton } from "./ui/tooltip-button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 type ComposerProvider = SessionProvider;
 
@@ -1041,9 +1042,10 @@ function QueuedMessagesAccordion({
 }
 
 // The engine's clarifying question (AskUserQuestion / request_user_input),
-// rendered as a card that tucks under the composer like the queue accordion.
-// Single-select single-question answers on click; otherwise the user makes
-// their selections and presses Send.
+// rendered as a compact carousel that tucks under the composer — one question
+// at a time so the card never stretches. Options show only their label; the
+// description appears as a hover tooltip. Single-select advances automatically
+// on pick; multi-select uses the Next button.
 function QuestionPrompt({
   question,
   onAnswer
@@ -1051,43 +1053,66 @@ function QuestionPrompt({
   question: QuestionRequest;
   onAnswer?: (questionId: string, answers: QuestionAnswer[]) => void;
 }) {
+  const [index, setIndex] = useState(0);
   const [selections, setSelections] = useState<Record<string, string[]>>({});
   const [submitted, setSubmitted] = useState(false);
 
-  const quickSingle =
-    question.questions.length === 1 && !question.questions[0]?.multiSelect;
+  const items = question.questions;
+  const item = items[Math.min(index, items.length - 1)];
+  const isLast = index >= items.length - 1;
 
-  const submit = (answers: QuestionAnswer[]) => {
+  const answeredAll = (state: Record<string, string[]>) =>
+    items.every((entry) => (state[entry.id]?.length ?? 0) > 0);
+
+  const send = (state: Record<string, string[]>) => {
     if (!onAnswer || submitted) {
       return;
     }
     setSubmitted(true);
-    onAnswer(question.id, answers);
+    onAnswer(
+      question.id,
+      items.map((entry) => ({
+        questionId: entry.id,
+        selected: state[entry.id] ?? []
+      }))
+    );
   };
 
-  const toggle = (item: QuestionItem, label: string) => {
-    if (quickSingle) {
-      submit([{ questionId: item.id, selected: [label] }]);
+  const pick = (label: string) => {
+    if (!item || submitted) {
       return;
     }
-    setSelections((prev) => {
-      const current = prev[item.id] ?? [];
-      if (item.multiSelect) {
-        const next = current.includes(label)
-          ? current.filter((value) => value !== label)
-          : [...current, label];
-        return { ...prev, [item.id]: next };
+
+    if (item.multiSelect) {
+      const current = selections[item.id] ?? [];
+      const next = current.includes(label)
+        ? current.filter((value) => value !== label)
+        : [...current, label];
+      setSelections((prev) => ({ ...prev, [item.id]: next }));
+      return;
+    }
+
+    // Single-select: record + advance (or send if this was the last question).
+    const next = { ...selections, [item.id]: [label] };
+    setSelections(next);
+    if (isLast) {
+      if (answeredAll(next)) {
+        send(next);
       }
-      return { ...prev, [item.id]: [label] };
-    });
+    } else {
+      setIndex(index + 1);
+    }
   };
 
-  const answeredAll = question.questions.every(
-    (item) => (selections[item.id]?.length ?? 0) > 0
-  );
+  const currentSelected = item ? selections[item.id] ?? [] : [];
+  const canAdvance = currentSelected.length > 0;
+
+  if (!item) {
+    return null;
+  }
 
   return (
-    <div className="relative z-0 mx-auto -mb-4 w-[96%] overflow-hidden rounded-t-2xl border border-b-0 border-app-line bg-app-panel pb-4 shadow-sm">
+    <div className="relative z-0 mx-auto -mb-4 w-[96%] overflow-hidden rounded-t-2xl border border-b-0 border-app-line bg-app-panel pb-3 shadow-sm">
       <div className="flex items-center gap-2 px-3 py-2 text-[12px] font-medium text-app-muted">
         <CircleHelp size={13} className="shrink-0" />
         <span className="flex-1">
@@ -1097,86 +1122,132 @@ function QuestionPrompt({
               ? "Codex has a question"
               : "A question"}
         </span>
+        {items.length > 1 ? (
+          <span className="flex items-center gap-1">
+            {items.map((entry, dotIndex) => (
+              <span
+                key={entry.id}
+                className={cn(
+                  "size-1.5 rounded-full transition-colors",
+                  dotIndex === index
+                    ? "bg-app-text"
+                    : (selections[entry.id]?.length ?? 0) > 0
+                      ? "bg-app-muted"
+                      : "bg-app-line"
+                )}
+              />
+            ))}
+          </span>
+        ) : null}
       </div>
-      <div className="flex flex-col gap-3 border-t border-app-line/70 px-3 pb-1.5 pt-2.5">
-        {question.questions.map((item) => (
-          <div key={item.id} className="flex flex-col gap-1.5">
-            {item.header ? (
-              <span className="w-fit rounded-md bg-app-line px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-app-muted">
-                {item.header}
-              </span>
-            ) : null}
-            <p className="text-[13px] text-app-text">{item.question}</p>
-            <div className="flex flex-col gap-1">
-              {item.options.map((option) => {
-                const selected = (selections[item.id] ?? []).includes(option.label);
-                return (
-                  <button
-                    key={option.label}
-                    type="button"
-                    disabled={submitted}
-                    onClick={() => toggle(item, option.label)}
-                    className={cn(
-                      "flex items-start gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
-                      selected
-                        ? "border-app-accent/60 bg-app-accent/10"
-                        : "border-app-line hover:bg-app-hover",
-                      submitted ? "opacity-60" : ""
-                    )}
-                  >
-                    <span
-                      className={cn(
-                        "mt-0.5 flex size-3.5 shrink-0 items-center justify-center rounded-[4px] border",
-                        selected
-                          ? "border-app-accent bg-app-accent text-app-bg"
-                          : "border-app-line"
-                      )}
-                    >
-                      {selected ? <Check size={10} /> : null}
+
+      <div className="flex flex-col gap-2 border-t border-app-line/70 px-3 pb-1 pt-2.5">
+        {item.header ? (
+          <span className="w-fit rounded-md bg-app-line px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-app-muted">
+            {item.header}
+          </span>
+        ) : null}
+        <p className="text-[13px] text-app-text">{item.question}</p>
+
+        <div className="flex flex-col gap-1">
+          {item.options.map((option) => {
+            const selected = currentSelected.includes(option.label);
+            const optionButton = (
+              <button
+                key={option.label}
+                type="button"
+                disabled={submitted}
+                onClick={() => pick(option.label)}
+                className={cn(
+                  "flex w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-left transition-colors",
+                  selected
+                    ? "border-app-accent/60 bg-app-accent/10"
+                    : "border-app-line hover:bg-app-hover",
+                  submitted ? "opacity-60" : ""
+                )}
+              >
+                <span
+                  className={cn(
+                    "flex size-3.5 shrink-0 items-center justify-center border",
+                    item.multiSelect ? "rounded-[4px]" : "rounded-full",
+                    selected
+                      ? "border-app-accent bg-app-accent text-app-bg"
+                      : "border-app-line"
+                  )}
+                >
+                  {selected ? <Check size={10} /> : null}
+                </span>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-app-text">
+                  {option.label}
+                  {option.recommended ? (
+                    <span className="ml-1 text-[11px] text-app-muted">
+                      (Recommended)
                     </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="text-[13px] text-app-text">
-                        {option.label}
-                        {option.recommended ? (
-                          <span className="ml-1 text-[11px] text-app-muted">
-                            (Recommended)
-                          </span>
-                        ) : null}
-                      </span>
-                      {option.description ? (
-                        <span className="mt-0.5 block text-[12px] text-app-muted">
-                          {option.description}
-                        </span>
-                      ) : null}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        ))}
-        {quickSingle ? null : (
+                  ) : null}
+                </span>
+              </button>
+            );
+
+            return option.description ? (
+              <Tooltip key={option.label}>
+                <TooltipTrigger render={optionButton} />
+                <TooltipContent side="left" className="max-w-sm whitespace-pre-wrap">
+                  {option.description}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              optionButton
+            );
+          })}
+        </div>
+
+        <div className="mt-1 flex items-center justify-between">
           <button
             type="button"
-            disabled={!answeredAll || submitted}
-            onClick={() =>
-              submit(
-                question.questions.map((item) => ({
-                  questionId: item.id,
-                  selected: selections[item.id] ?? []
-                }))
-              )
-            }
+            disabled={index === 0 || submitted}
+            onClick={() => setIndex(Math.max(0, index - 1))}
             className={cn(
-              "mt-0.5 w-fit self-end rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors",
-              answeredAll && !submitted
-                ? "bg-app-accent text-app-bg hover:opacity-90"
-                : "cursor-not-allowed bg-app-line text-app-muted"
+              "flex items-center gap-1 rounded-md px-1.5 py-1 text-[12px] transition-colors",
+              index === 0
+                ? "cursor-not-allowed text-app-line"
+                : "text-app-muted hover:bg-app-hover hover:text-app-text"
             )}
           >
-            {submitted ? "Sent" : "Send answer"}
+            <ChevronLeft size={14} />
+            Back
           </button>
-        )}
+
+          {isLast ? (
+            <button
+              type="button"
+              disabled={!answeredAll(selections) || submitted}
+              onClick={() => send(selections)}
+              className={cn(
+                "rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors",
+                answeredAll(selections) && !submitted
+                  ? "bg-app-accent text-app-bg hover:opacity-90"
+                  : "cursor-not-allowed bg-app-line text-app-muted"
+              )}
+            >
+              {submitted ? "Sent" : "Send answer"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={!canAdvance || submitted}
+              onClick={() => setIndex(index + 1)}
+              className={cn(
+                "flex items-center gap-1 rounded-lg px-3 py-1.5 text-[12px] font-medium transition-colors",
+                canAdvance && !submitted
+                  ? "bg-app-accent text-app-bg hover:opacity-90"
+                  : "cursor-not-allowed bg-app-line text-app-muted"
+              )}
+            >
+              Next
+              <ChevronRight size={14} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
