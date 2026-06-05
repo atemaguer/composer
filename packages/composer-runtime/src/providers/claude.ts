@@ -228,10 +228,13 @@ export class ClaudeProvider implements AgentProvider {
         };
       }
 
-      // Full access auto-allows every tool without prompting — but we keep
-      // canUseTool active (rather than bypassPermissions) so AskUserQuestion is
+      // Full access / Auto-review auto-allow every tool without prompting — but
+      // we keep canUseTool active (never bypassPermissions) so AskUserQuestion is
       // still routed through the branch above instead of hanging headlessly.
-      if (request.settings.permissionMode === "Full access") {
+      if (
+        request.settings.permissionMode === "Full access" ||
+        request.settings.permissionMode === "Auto-review"
+      ) {
         return { behavior: "allow", updatedInput: input };
       }
 
@@ -716,17 +719,11 @@ function toolKind(toolName: string): ApprovalRequest["kind"] {
 }
 
 function mapPermissionMode(mode: PermissionMode) {
-  if (mode === "Full access") {
-    // acceptEdits (not bypassPermissions) so canUseTool is still invoked — Full
-    // access is granted there. bypassPermissions would skip canUseTool and break
-    // AskUserQuestion interception.
-    return "acceptEdits" as const;
-  }
-
-  if (mode === "Auto-review") {
-    return "auto" as const;
-  }
-
+  // Always use a permission mode that INVOKES canUseTool (never
+  // bypassPermissions / acceptEdits), so AskUserQuestion is intercepted in every
+  // mode. The actual allow/deny policy is enforced inside canUseTool: Full
+  // access and Auto-review auto-allow; Default permissions prompts. "plan" is
+  // handled by the caller (request.phase).
   return "default" as const;
 }
 
