@@ -111,15 +111,77 @@ docs/        Mintlify docs (served at /docs)
 packaging/   CLI release/distribution flow
 ```
 
-## How it works
+## Architecture
+
+Composer is a **thin, multi-surface client over a single local runtime**. The runtime is the brain; the desktop app and the CLI/TUI are interchangeable views of it. Everything runs on your machine and reuses the auth you already have for Codex and Claude.
 
 ```
- Desktop app ─┐                          ┌─ spawns ─> codex app-server (JSON-RPC over stdio)
-              ├─ HTTP + WebSocket ─> AgentRuntime ─┤
- CLI / TUI ───┘   (@composer/runtime server)      └─ spawns ─> claude (Claude Agent SDK)
+  ┌──────────────┐     ┌──────────────┐
+  │ Desktop app  │     │  CLI / TUI   │        surfaces (apps/)
+  │ Electron+Vite│     │   opentui    │        thin clients over @composer/client
+  └──────┬───────┘     └──────┬───────┘
+         │  HTTP (chat stream, REST) + WebSocket (live events)
+         └───────────┬────────┘
+                     ▼
+        ┌────────────────────────────┐
+        │       AgentRuntime         │        @composer/runtime
+        │  sessions · turns · queue  │        local server, binds 127.0.0.1
+        │  handoff/compaction · adopt│
+        └───┬──────────┬──────────┬──┘
+            │          │          │
+            ▼          ▼          ▼
+        ┌───────┐  ┌───────┐  ┌─────────┐      providers
+        │ Codex │  │Claude │  │ Compose │      (one per engine + a meta one)
+        └───┬───┘  └───┬───┘  └────┬────┘
+            │          │           │ runs both in parallel
+   spawns   ▼          ▼           ▼
+   `codex app-server`  `claude`  (Codex + Claude)
+   JSON-RPC/stdio      Agent SDK  → adopt one thread
 ```
 
-Both surfaces connect to a **local, loopback-only runtime server** (`@composer/runtime`). The runtime owns session state and orchestration; each provider drives the real engine — Codex via its `app-server` JSON-RPC protocol, Claude via the Agent SDK's `query()`. Live agent events stream back over the WebSocket; clients reduce them into a session timeline with the shared reducer. Handoffs use context compaction; Compose mode runs both providers in parallel and lets you adopt one. The server binds `127.0.0.1` and reuses your existing provider auth — nothing leaves your machine.
+### The runtime (`@composer/runtime`)
+
+`AgentRuntime` owns all session state and orchestration. It exposes a small local HTTP + WebSocket server (`composer-server.ts`) bound to `127.0.0.1`:
+
+- **HTTP** — `/api/chat` (start/continue a turn, streamed), plus REST endpoints for sessions, steer, queue, adopt-parallel, compact, interrupt, review diffs, and the capability catalog.
+- **WebSocket** — broadcasts the live `LiveAgentEvent` stream to every connected client and accepts commands (approvals, question answers, interrupts).
+
+The server is **discovered, not configured**: it's spawned as a child process that prints `COMPOSER_AGENT_SERVER_READY <port>` on stdout; clients attach to that loopback port. The desktop app spawns it from Electron; the CLI spawns a sidecar (or `composer serve` runs it headless).
+
+### Providers
+
+Each provider drives the *real* engine — Composer never reimplements them:
+
+- **Codex** — spawns `codex app-server` and speaks newline-delimited **JSON-RPC over stdio** (`thread/start`, `turn/start`, `turn/steer`, `turn/interrupt`, approval + `request_user_input` server-requests).
+- **Claude** — uses the **Claude Agent SDK** `query()` (streaming messages, `canUseTool` for permissions + `AskUserQuestion`, a PostCompact hook for summaries).
+- **Compose (meta)** — not a real engine; it runs Codex and Claude **in parallel** on the same prompt, remaps their events into a hybrid two-column timeline, and lets you **adopt** one thread to continue. The same provider also backs plan→execute handoffs.
+
+The engines run with your existing auth and the workspace cwd/branch; Composer injects env so a Composer-spawned engine knows it's managed.
+
+### Event model & reducer
+
+A turn streams a sequence of `LiveAgentEvent`s — `turn.started`, `message.delta`, `tool.started/delta/completed`, `approval.requested`, `question.requested`, `turn.completed`, etc. A **single shared reducer** in `@composer/client` (`applyLiveSessionEvent`) folds those events into a `SessionContent` timeline. Both surfaces use the exact same reducer, so the desktop and CLI render identical session state from the same stream. Runtime-side state (status, queue, pending question) is derived the same way.
+
+### Sessions & persistence
+
+Sessions are reconstructed from the engines' **own on-disk transcripts** (`~/.codex`, `~/.claude`) plus a small Composer session registry that records cross-engine metadata (handoff/parallel lineage, adopted provider, worktrees). The `session-loader` parses each engine's transcript format into the shared `ConversationItem` model, so a session started in the native CLI can be loaded — and adopted — by Composer. (The live message queue and a few in-flight bits are in-memory only.)
+
+### Surfaces (`apps/`)
+
+- **Desktop** — Electron shell + a Vite/React renderer. State lives in Zustand stores; the conversation is virtualized (react-virtuoso) with memoized, structurally-shared rows so only the streaming tail re-renders. Routing is hash-based (TanStack Router).
+- **CLI / TUI** — a slash-command-first terminal UI built on `@opentui/react` (run via Bun), plus non-interactive subcommands. It connects to the runtime exactly like the desktop app via `ComposerClient`.
+
+### Key flows
+
+- **Turn** — client `POST /api/chat` → runtime starts a provider run → events stream over WS → reducer builds the timeline → `turn.completed`.
+- **Handoff** — the runtime compacts the current provider's context into a readable summary, then seeds the target provider's first turn with it.
+- **Compose → adopt** — the meta provider runs both engines; stopping (or completion) surfaces an adopt picker; adopting collapses the session to that engine's thread and continues.
+- **Queue** — messages sent mid-turn are parked in a per-session FIFO and drained one per `turn.completed`; "steer" interrupts to run the next now.
+- **Clarifying question** — a provider's question pauses the turn (`question.requested`); the user's selection is sent back over WS and injected as the tool's answer.
+
+### Local & private
+
+The runtime binds loopback only, there's no remote surface, and the engines run as you with your existing credentials — nothing leaves your machine.
 
 ## License
 
