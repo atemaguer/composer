@@ -228,6 +228,13 @@ export class ClaudeProvider implements AgentProvider {
         };
       }
 
+      // Full access auto-allows every tool without prompting — but we keep
+      // canUseTool active (rather than bypassPermissions) so AskUserQuestion is
+      // still routed through the branch above instead of hanging headlessly.
+      if (request.settings.permissionMode === "Full access") {
+        return { behavior: "allow", updatedInput: input };
+      }
+
       const approval = claudeApproval({
         toolName,
         input,
@@ -286,7 +293,9 @@ export class ClaudeProvider implements AgentProvider {
         request.phase === "plan"
           ? "plan"
           : mapPermissionMode(request.settings.permissionMode),
-      allowDangerouslySkipPermissions: request.settings.permissionMode === "Full access",
+      // NOTE: do NOT set allowDangerouslySkipPermissions / bypassPermissions —
+      // those skip canUseTool entirely, so AskUserQuestion can't be intercepted.
+      // Full access is enforced inside canUseTool (auto-allow) instead.
       effort: mapEffort(request.settings.intelligence),
       model: claudeModel(request.settings.model),
       abortController,
@@ -708,7 +717,10 @@ function toolKind(toolName: string): ApprovalRequest["kind"] {
 
 function mapPermissionMode(mode: PermissionMode) {
   if (mode === "Full access") {
-    return "bypassPermissions" as const;
+    // acceptEdits (not bypassPermissions) so canUseTool is still invoked — Full
+    // access is granted there. bypassPermissions would skip canUseTool and break
+    // AskUserQuestion interception.
+    return "acceptEdits" as const;
   }
 
   if (mode === "Auto-review") {

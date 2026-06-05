@@ -345,10 +345,20 @@ export class CodexProvider implements AgentProvider {
         return;
       }
 
-      const child = spawn(codexCommand, ["app-server"], {
-        env,
-        stdio: ["pipe", "pipe", "pipe"]
-      });
+      // Enable Codex's clarifying-question tool (request_user_input) outside
+      // Plan mode. It's gated to Plan mode by default ("request_user_input is
+      // unavailable in Default mode"); the `default_mode_request_user_input`
+      // feature flag (under-development, off by default) lifts that so Codex
+      // sends the tool/requestUserInput server request we broker. Unknown to
+      // older builds, which ignore the override (a harmless stderr notice).
+      const child = spawn(
+        codexCommand,
+        ["-c", "features.default_mode_request_user_input=true", "app-server"],
+        {
+          env,
+          stdio: ["pipe", "pipe", "pipe"]
+        }
+      );
 
       this.process = child;
       child.stdout.on("data", (chunk) => this.onStdout(chunk));
