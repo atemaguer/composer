@@ -1285,6 +1285,14 @@ export default function App() {
       return;
     }
 
+    // Switch the composer to the chosen provider immediately — before the adopt
+    // round-trip (which reloads the session and lags behind the thread-collapse
+    // broadcast). The composer reads activeProvider = the store value, so this
+    // updates the picker the instant the user picks, matching the UI transition.
+    const previousProvider = useComposerStore.getState().provider;
+    setProvider(provider);
+    setWorkspaceDefaultProvider(activeSession.cwd ?? currentCwd, provider);
+
     try {
       const snapshot = await agentClient.adoptParallelThread(activeSession.id, provider);
 
@@ -1293,10 +1301,11 @@ export default function App() {
       }
 
       setSelectedThread(activeSession.id);
-      setProvider(provider);
-      setWorkspaceDefaultProvider(activeSession.cwd ?? currentCwd, provider);
       navigateAppRoute(sessionRoute(activeSession.id), { replace: true });
     } catch (error) {
+      // Adoption failed — the session stays in compose mode, so undo the
+      // optimistic provider switch.
+      setProvider(previousProvider);
       const message = error instanceof Error ? error.message : String(error);
       console.error("Could not adopt parallel thread", error);
       setSessions((current) =>
